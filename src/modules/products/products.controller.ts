@@ -1,0 +1,192 @@
+import { Controller, Get, Post, Put, Patch, Delete, Param, Query, Body, UseInterceptors, UploadedFile, UploadedFiles, Res, HttpStatus, BadRequestException } from '@nestjs/common';
+import { FileInterceptor, FileFieldsInterceptor } from '@nestjs/platform-express';
+import { ApiTags, ApiOperation, ApiQuery, ApiConsumes } from '@nestjs/swagger';
+import { Response } from 'express';
+import { ProductsService } from './products.service';
+import { ProductsExcelService } from './products-excel.service';
+import { Product } from './product.entity';
+
+@ApiTags('products')
+@Controller('products')
+export class ProductsController {
+  constructor(
+    private productsService: ProductsService,
+    private productsExcelService: ProductsExcelService,
+  ) {}
+
+  @Get()
+  @ApiOperation({ summary: 'Get all products' })
+  @ApiQuery({ name: 'categoryId', required: false })
+  @ApiQuery({ name: 'filters', required: false, description: 'JSON string of filters' })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  @ApiQuery({ name: 'status', required: false })
+  @ApiQuery({ name: 'search', required: false })
+  @ApiQuery({ name: 'vendorId', required: false })
+  @ApiQuery({ name: 'uncategorized', required: false })
+  @ApiQuery({ name: 'cityId', required: false })
+  @ApiQuery({ name: 'subLocationId', required: false })
+  @ApiQuery({ name: 'productType', required: false })
+  async findAll(
+    @Query('categoryId') categoryId?: string,
+    @Query('filters') filters?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('status') status?: string,
+    @Query('search') search?: string,
+    @Query('vendorId') vendorId?: string,
+    @Query('uncategorized') uncategorized?: string,
+    @Query('cityId') cityId?: string,
+    @Query('subLocationId') subLocationId?: string,
+    @Query('productType') productType?: string,
+  ) {
+    if (categoryId) {
+      const parsedFilters = filters ? JSON.parse(filters) : {};
+      // Add location filters to the filters object
+      if (cityId) parsedFilters.cityId = cityId;
+      if (subLocationId) parsedFilters.subLocationId = subLocationId;
+      // Add productType filter to the filters object
+      if (productType) parsedFilters.productType = productType;
+      // Add vendorId filter to the filters object
+      if (vendorId) parsedFilters.vendorId = vendorId;
+      return this.productsService.findByCategory(categoryId, parsedFilters);
+    }
+    
+    const pageNum = page ? parseInt(page, 10) : 1;
+    const limitNum = limit ? parseInt(limit, 10) : 20;
+    const isUncategorized = uncategorized === 'true';
+    
+    return this.productsService.findAll(pageNum, limitNum, status, search, vendorId, isUncategorized, cityId, subLocationId, productType);
+  }
+
+  @Get('slug/:slug')
+  @ApiOperation({ summary: 'Get product by slug' })
+  async findBySlug(@Param('slug') slug: string) {
+    return this.productsService.findBySlug(slug);
+  }
+
+  @Get(':id')
+  @ApiOperation({ summary: 'Get product by ID' })
+  async findOne(@Param('id') id: string) {
+    return this.productsService.findOne(id);
+  }
+
+  @Post()
+  @ApiOperation({ summary: 'Create a new product' })
+  async create(@Body() productData: Partial<Product>) {
+    return this.productsService.create(productData);
+  }
+
+  @Patch(':id')
+  @ApiOperation({ summary: 'Update a product' })
+  async update(@Param('id') id: string, @Body() productData: Partial<Product>) {
+    return this.productsService.update(id, productData);
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Delete a product' })
+  async remove(@Param('id') id: string) {
+    await this.productsService.remove(id);
+    return { message: 'Product deleted successfully' };
+  }
+
+  @Get('export/:vendorId')
+  @ApiOperation({ summary: 'Export vendor products to Excel' })
+  async exportProducts(
+    @Param('vendorId') vendorId: string,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.productsExcelService.exportToExcel(vendorId);
+    
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename=products-${vendorId}-${Date.now()}.xlsx`,
+    );
+    
+    res.send(buffer);
+  }
+
+  @Get('export-zip/:vendorId')
+  @ApiOperation({ summary: 'Export vendor products to ZIP (Excel + Images)' })
+  async exportProductsZip(
+    @Param('vendorId') vendorId: string,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.productsExcelService.exportToZip(vendorId);
+    
+    res.setHeader(
+      'Content-Type',
+      'application/zip',
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename=products-${vendorId}-${Date.now()}.zip`,
+    );
+    
+    res.send(buffer);
+  }
+
+  @Post('import/:vendorId')
+  @ApiOperation({ summary: 'Import vendor products from Excel with images' })
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FileFieldsInterceptor([
+    { name: 'file', maxCount: 1 },
+    { name: 'images', maxCount: 50 }
+  ]))
+  async importProducts(
+    @Param('vendorId') vendorId: string,
+    @UploadedFiles() files: { file?: Express.Multer.File[], images?: Express.Multer.File[] },
+  ) {
+    if (!files.file || files.file.length === 0) {
+      throw new BadRequestException('No Excel file uploaded');
+    }
+
+    try {
+      const result = await this.productsExcelService.importFromExcelWithImages(
+        vendorId,
+        files.file[0].buffer,
+        files.images || [],
+      );
+      
+      return {
+        success: true,
+        message: `Import completed: ${result.created} created, ${result.updated} updated`,
+        ...result,
+      };
+    } catch (error) {
+      throw new BadRequestException(error.message);
+    }
+  }
+
+  @Post('import-zip/:vendorId')
+  @ApiOperation({ summary: 'Import vendor products from ZIP (Excel + Images)' })
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FileInterceptor('file'))
+  async importProductsZip(
+    @Param('vendorId') vendorId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) {
+      throw new BadRequestException('No ZIP file uploaded');
+    }
+
+    try {
+      const result = await this.productsExcelService.importFromZip(
+        vendorId,
+        file.buffer,
+      );
+      
+      return {
+        success: true,
+        message: `Import completed: ${result.created} created, ${result.updated} updated`,
+        ...result,
+      };
+    } catch (error) {
+      throw new BadRequestException(error.message);
+    }
+  }
+}

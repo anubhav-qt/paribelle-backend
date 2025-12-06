@@ -1,0 +1,94 @@
+import { Module } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { GraphQLModule } from '@nestjs/graphql';
+import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
+import { join } from 'path';
+
+// Modules
+import { AuthModule } from './modules/auth/auth.module';
+import { UsersModule } from './modules/users/users.module';
+import { VendorsModule } from './modules/vendors/vendors.module';
+import { ProductsModule } from './modules/products/products.module';
+import { OrdersModule } from './modules/orders/orders.module';
+import { PaymentsModule } from './modules/payments/payments.module';
+import { AdminModule } from './modules/admin/admin.module';
+import { CategoriesModule } from './modules/categories/categories.module';
+import { ReviewsModule } from './modules/reviews/reviews.module';
+import { PromotionsModule } from './modules/promotions/promotions.module';
+import { AnalyticsModule } from './modules/analytics/analytics.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
+import { UploadModule } from './modules/upload/upload.module';
+import { BookingsModule } from './modules/bookings/bookings.module';
+import { LocationsModule } from './modules/locations/locations.module';
+import { HomepageModule } from './modules/homepage/homepage.module';
+import { MonitoringModule } from './modules/monitoring/monitoring.module';
+import { SimpleEmailModule } from './modules/simple-email/simple-email.module';
+import { AppResolver } from './app.resolver';
+
+@Module({
+  imports: [
+    // Configuration
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: '.env',
+    }),
+
+    // Database
+    TypeOrmModule.forRootAsync({
+      imports: [ConfigModule],
+      useFactory: (configService: ConfigService) => ({
+        type: 'postgres',
+        host: configService.get('DB_HOST') || 'localhost',
+        port: parseInt(configService.get('DB_PORT') || '5432'),
+        username: configService.get('DB_USERNAME') || 'admin',
+        password: configService.get('DB_PASSWORD') || 'admin',
+        database: configService.get('DB_DATABASE') || 'marketplace',
+        entities: [__dirname + '/**/*.entity{.ts,.js}'],
+        synchronize: true, // Auto-create/update tables in development
+        logging: true, // Show SQL queries in console
+        dropSchema: false, // Don't drop schema on app start
+        
+        // Connection pooling for better performance
+        extra: {
+          max: 20, // Maximum number of connections in the pool
+          min: 5,  // Minimum number of connections in the pool
+          idleTimeoutMillis: 30000, // Close idle connections after 30 seconds
+          connectionTimeoutMillis: 2000, // Timeout when connecting
+        },
+      }),
+      inject: [ConfigService],
+    }),
+
+    // GraphQL
+    GraphQLModule.forRoot<ApolloDriverConfig>({
+      driver: ApolloDriver,
+      autoSchemaFile: join(process.cwd(), 'src/schema.gql'),
+      sortSchema: true,
+      playground: true,
+      context: ({ req }) => ({ req }),
+    }),
+
+    // Feature modules
+    SimpleEmailModule,
+    AuthModule,
+    UsersModule,
+    VendorsModule,
+    ProductsModule,
+    OrdersModule,
+    PaymentsModule,
+    AdminModule,
+    CategoriesModule,
+    ReviewsModule,
+    PromotionsModule,
+    AnalyticsModule,
+    NotificationsModule,
+    UploadModule,
+    BookingsModule,
+    LocationsModule,
+    HomepageModule,
+    MonitoringModule,
+  ],
+  providers: [AppResolver],
+})
+export class AppModule {}

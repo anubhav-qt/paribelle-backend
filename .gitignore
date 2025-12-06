@@ -1,0 +1,79 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Environment Variables & Secrets (CRITICAL - DO NOT COMMIT)
+.env
+.env.local
+.env.*.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
+
+# Build Outputs
+dist/
+build/
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+logs/
+
+# Testing & Coverage
+coverage/
+.nyc_output/
+*.lcov
+.jest-cache/
+
+# IDE & Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-workspace
+*.sublime-project
+
+# Temporary Files
+*.tmp
+*.temp
+.cache/
+.temp/
+tmp/
+
+# Database
+*.sqlite
+*.sqlite3
+*.db
+
+# Uploads & Media (user-generated files - use cloud storage in production)
+public/uploads/*
+!public/uploads/.gitkeep
+uploads/*
+!uploads/.gitkeep
+
+# PM2
+.pm2/
+*.pid
+ecosystem.config.js.backup
+
+# OS Files
+Thumbs.db
+desktop.ini
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# TypeScript cache
+*.tsbuildinfo
