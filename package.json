@@ -33,7 +33,7 @@
     "@nestjs/jwt": "^10.2.0",
     "@nestjs/passport": "^10.0.3",
     "@nestjs/platform-express": "^10.3.0",
-    "@nestjs/swagger": "^11.2.3",
+    "@nestjs/swagger": "^7.4.2",
     "@nestjs/typeorm": "^10.0.1",
     "@types/adm-zip": "^0.5.7",
     "@types/archiver": "^7.0.0",
