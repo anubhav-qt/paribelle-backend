@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Multi-vendor marketplace backend API",
   "scripts": {
-    "build": "npx nest build",
+    "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "dev": "nest start --watch",
@@ -25,6 +25,7 @@
     "@apollo/server": "^4.9.5",
     "@aws-sdk/client-s3": "^3.490.0",
     "@nestjs/apollo": "^12.0.11",
+    "@nestjs/cli": "^10.2.1",
     "@nestjs/common": "^10.3.0",
     "@nestjs/config": "^3.1.1",
     "@nestjs/core": "^10.3.0",
@@ -60,10 +61,10 @@
     "razorpay": "^2.9.2",
     "reflect-metadata": "^0.2.1",
     "rxjs": "^7.8.1",
-    "typeorm": "^0.3.19"
+    "typeorm": "^0.3.19",
+    "typescript": "^5.3.3"
   },
   "devDependencies": {
-    "@nestjs/cli": "^10.2.1",
     "@nestjs/schematics": "^10.0.3",
     "@nestjs/testing": "^10.3.0",
     "@types/bcrypt": "^5.0.2",
@@ -86,8 +87,7 @@
     "ts-jest": "^29.1.1",
     "ts-loader": "^9.5.1",
     "ts-node": "^10.9.2",
-    "tsconfig-paths": "^4.2.0",
-    "typescript": "^5.3.3"
+    "tsconfig-paths": "^4.2.0"
   },
   "jest": {
     "moduleFileExtensions": [
