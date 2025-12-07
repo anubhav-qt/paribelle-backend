@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Multi-vendor marketplace backend API",
   "scripts": {
-    "build": "nest build",
+    "build": "npx nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "dev": "nest start --watch",
