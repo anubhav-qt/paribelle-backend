@@ -1,0 +1,29 @@
+services:
+  # Backend API
+  - type: web
+    name: marketplace-backend
+    env: node
+    region: frankfurt
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm run start:prod
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3001
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRATION
+        value: 7d
+      - key: DATABASE_URL
+        fromDatabase:
+          name: marketplace-db
+          property: connectionString
+
+databases:
+  # PostgreSQL Database
+  - name: marketplace-db
+    databaseName: marketplace
+    user: marketplace_user
+    plan: free
