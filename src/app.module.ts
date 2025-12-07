@@ -1,9 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule, TypeOrmModuleOptions } from '@nestjs/typeorm';
-import { GraphQLModule } from '@nestjs/graphql';
-import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
-import { join } from 'path';
 
 // Modules
 import { AuthModule } from './modules/auth/auth.module';
@@ -24,7 +21,6 @@ import { LocationsModule } from './modules/locations/locations.module';
 import { HomepageModule } from './modules/homepage/homepage.module';
 import { MonitoringModule } from './modules/monitoring/monitoring.module';
 import { SimpleEmailModule } from './modules/simple-email/simple-email.module';
-import { AppResolver } from './app.resolver';
 
 @Module({
   imports: [
@@ -46,8 +42,8 @@ import { AppResolver } from './app.resolver';
             type: 'postgres' as const,
             url: databaseUrl,
             entities: [__dirname + '/**/*.entity{.ts,.js}'],
-            synchronize: true,
-            logging: true,
+            synchronize: configService.get('NODE_ENV') !== 'production',
+            logging: configService.get('NODE_ENV') !== 'production',
             dropSchema: false,
             extra: {
               ssl: {
@@ -70,8 +66,8 @@ import { AppResolver } from './app.resolver';
           password: configService.get<string>('DB_PASSWORD') || 'admin',
           database: configService.get<string>('DB_DATABASE') || 'marketplace',
           entities: [__dirname + '/**/*.entity{.ts,.js}'],
-          synchronize: true,
-          logging: true,
+          synchronize: configService.get('NODE_ENV') !== 'production',
+          logging: configService.get('NODE_ENV') !== 'production',
           dropSchema: false,
           extra: {
             ssl: {
@@ -85,15 +81,6 @@ import { AppResolver } from './app.resolver';
         };
       },
       inject: [ConfigService],
-    }),
-
-    // GraphQL
-    GraphQLModule.forRoot<ApolloDriverConfig>({
-      driver: ApolloDriver,
-      autoSchemaFile: join(process.cwd(), 'src/schema.gql'),
-      sortSchema: true,
-      playground: true,
-      context: ({ req }) => ({ req }),
     }),
 
     // Feature modules
@@ -116,6 +103,5 @@ import { AppResolver } from './app.resolver';
     HomepageModule,
     MonitoringModule,
   ],
-  providers: [AppResolver],
 })
 export class AppModule {}
