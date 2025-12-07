@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { TypeOrmModule } from '@nestjs/typeorm';
+import { TypeOrmModule, TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
 import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
 import { join } from 'path';
@@ -37,8 +37,8 @@ import { AppResolver } from './app.resolver';
     // Database
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
-      useFactory: (configService: ConfigService) => {
-        const databaseUrl = configService.get('DATABASE_URL');
+      useFactory: (configService: ConfigService): TypeOrmModuleOptions => {
+        const databaseUrl = configService.get<string>('DATABASE_URL');
         
         // If DATABASE_URL exists (Render), use it
         if (databaseUrl) {
@@ -64,11 +64,11 @@ import { AppResolver } from './app.resolver';
         // Fallback to individual variables for local development
         return {
           type: 'postgres' as const,
-          host: configService.get('DB_HOST') || 'localhost',
-          port: parseInt(configService.get('DB_PORT') || '5432'),
-          username: configService.get('DB_USERNAME') || 'admin',
-          password: configService.get('DB_PASSWORD') || 'admin',
-          database: configService.get('DB_DATABASE') || 'marketplace',
+          host: configService.get<string>('DB_HOST') || 'localhost',
+          port: parseInt(configService.get<string>('DB_PORT') || '5432'),
+          username: configService.get<string>('DB_USERNAME') || 'admin',
+          password: configService.get<string>('DB_PASSWORD') || 'admin',
+          database: configService.get<string>('DB_DATABASE') || 'marketplace',
           entities: [__dirname + '/**/*.entity{.ts,.js}'],
           synchronize: true,
           logging: true,
