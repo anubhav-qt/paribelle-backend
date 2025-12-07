@@ -43,16 +43,16 @@ import { AppResolver } from './app.resolver';
         // If DATABASE_URL exists (Render), use it
         if (databaseUrl) {
           return {
-            type: 'postgres',
+            type: 'postgres' as const,
             url: databaseUrl,
             entities: [__dirname + '/**/*.entity{.ts,.js}'],
             synchronize: true,
             logging: true,
             dropSchema: false,
-            ssl: {
-              rejectUnauthorized: false,
-            },
             extra: {
+              ssl: {
+                rejectUnauthorized: false,
+              },
               max: 20,
               min: 5,
               idleTimeoutMillis: 30000,
@@ -63,7 +63,7 @@ import { AppResolver } from './app.resolver';
         
         // Fallback to individual variables for local development
         return {
-          type: 'postgres',
+          type: 'postgres' as const,
           host: configService.get('DB_HOST') || 'localhost',
           port: parseInt(configService.get('DB_PORT') || '5432'),
           username: configService.get('DB_USERNAME') || 'admin',
