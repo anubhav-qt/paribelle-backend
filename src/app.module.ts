@@ -37,29 +37,53 @@ import { AppResolver } from './app.resolver';
     // Database
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
-      useFactory: (configService: ConfigService) => ({
-        type: 'postgres',
-        host: configService.get('DB_HOST') || 'localhost',
-        port: parseInt(configService.get('DB_PORT') || '5432'),
-        username: configService.get('DB_USERNAME') || 'admin',
-        password: configService.get('DB_PASSWORD') || 'admin',
-        database: configService.get('DB_DATABASE') || 'marketplace',
-        entities: [__dirname + '/**/*.entity{.ts,.js}'],
-        synchronize: true, // Auto-create/update tables in development
-        logging: true, // Show SQL queries in console
-        dropSchema: false, // Don't drop schema on app start
+      useFactory: (configService: ConfigService) => {
+        const databaseUrl = configService.get('DATABASE_URL');
         
-        // Connection pooling for better performance
-        extra: {
-          ssl: {
-            rejectUnauthorized: false, // Required for Render PostgreSQL
+        // If DATABASE_URL exists (Render), use it
+        if (databaseUrl) {
+          return {
+            type: 'postgres',
+            url: databaseUrl,
+            entities: [__dirname + '/**/*.entity{.ts,.js}'],
+            synchronize: true,
+            logging: true,
+            dropSchema: false,
+            ssl: {
+              rejectUnauthorized: false,
+            },
+            extra: {
+              max: 20,
+              min: 5,
+              idleTimeoutMillis: 30000,
+              connectionTimeoutMillis: 10000,
+            },
+          };
+        }
+        
+        // Fallback to individual variables for local development
+        return {
+          type: 'postgres',
+          host: configService.get('DB_HOST') || 'localhost',
+          port: parseInt(configService.get('DB_PORT') || '5432'),
+          username: configService.get('DB_USERNAME') || 'admin',
+          password: configService.get('DB_PASSWORD') || 'admin',
+          database: configService.get('DB_DATABASE') || 'marketplace',
+          entities: [__dirname + '/**/*.entity{.ts,.js}'],
+          synchronize: true,
+          logging: true,
+          dropSchema: false,
+          extra: {
+            ssl: {
+              rejectUnauthorized: false,
+            },
+            max: 20,
+            min: 5,
+            idleTimeoutMillis: 30000,
+            connectionTimeoutMillis: 10000,
           },
-          max: 20, // Maximum number of connections in the pool
-          min: 5,  // Minimum number of connections in the pool
-          idleTimeoutMillis: 30000, // Close idle connections after 30 seconds
-          connectionTimeoutMillis: 10000, // Timeout when connecting (10 seconds for Render)
-        },
-      }),
+        };
+      },
       inject: [ConfigService],
     }),
 
