@@ -106,4 +106,71 @@ export class VendorsController {
     }
     return { heroBanners: vendor.heroBanners || [] };
   }
+
+  @Put(':id/theme')
+  @ApiOperation({ summary: 'Update vendor theme configuration' })
+  async updateTheme(
+    @Param('id') id: string,
+    @Body() body: { themeConfig: any }
+  ) {
+    try {
+      await this.vendorsService.update(id, { themeConfig: body.themeConfig });
+      const updated = await this.vendorsService.findOne(id);
+      return updated;
+    } catch (error) {
+      return {
+        statusCode: 500,
+        message: error.message || 'Failed to update theme',
+        error: error.toString()
+      };
+    }
+  }
+
+  @Get(':id/theme')
+  @ApiOperation({ summary: 'Get vendor theme configuration' })
+  async getTheme(@Param('id') id: string) {
+    const vendor = await this.vendorsService.findOne(id);
+    if (!vendor) {
+      return { statusCode: 404, message: 'Vendor not found' };
+    }
+    return { themeConfig: vendor.themeConfig || {} };
+  }
+
+  @Patch(':id/about')
+  @ApiOperation({ summary: 'Update vendor about section' })
+  async updateAbout(
+    @Param('id') id: string,
+    @Body() body: { aboutContent?: string; aboutImages?: string[] }
+  ) {
+    try {
+      await this.vendorsService.update(id, body);
+      const updated = await this.vendorsService.findOne(id);
+      return updated;
+    } catch (error) {
+      return {
+        statusCode: 500,
+        message: error.message || 'Failed to update about section',
+        error: error.toString()
+      };
+    }
+  }
+
+  @Patch(':id/seo')
+  @ApiOperation({ summary: 'Update vendor SEO settings' })
+  async updateSeo(
+    @Param('id') id: string,
+    @Body() body: { metaTitle?: string; metaDescription?: string; metaKeywords?: string }
+  ) {
+    try {
+      await this.vendorsService.update(id, body);
+      const updated = await this.vendorsService.findOne(id);
+      return updated;
+    } catch (error) {
+      return {
+        statusCode: 500,
+        message: error.message || 'Failed to update SEO settings',
+        error: error.toString()
+      };
+    }
+  }
 }

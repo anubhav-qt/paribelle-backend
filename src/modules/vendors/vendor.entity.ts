@@ -174,6 +174,71 @@ export class Vendor {
     order: number;
   }>;
 
+  // Theme & Branding Configuration
+  @Column({ type: 'jsonb', nullable: true })
+  themeConfig: {
+    // Colors
+    primaryColor?: string;
+    secondaryColor?: string;
+    accentColor?: string;
+    backgroundColor?: string;
+    textColor?: string;
+    
+    // Typography
+    fontFamily?: string;
+    headingFont?: string;
+    
+    // Layout
+    layout?: 'modern' | 'classic' | 'minimal' | 'bold';
+    
+    // Custom CSS
+    customCss?: string;
+    
+    // Header/Footer
+    showLogo?: boolean;
+    showSearchBar?: boolean;
+    footerText?: string;
+    
+    // Social Links
+    socialLinks?: {
+      facebook?: string;
+      instagram?: string;
+      twitter?: string;
+      youtube?: string;
+      linkedin?: string;
+    };
+  };
+
+  // About & Content
+  @Column({ type: 'text', nullable: true })
+  aboutContent: string;
+
+  @Column({ type: 'jsonb', nullable: true })
+  aboutImages: string[];
+
+  // SEO Configuration
+  @Column({ nullable: true })
+  metaTitle: string;
+
+  @Column({ type: 'text', nullable: true })
+  metaDescription: string;
+
+  @Column({ type: 'text', nullable: true })
+  metaKeywords: string;
+
+  // Store Features
+  @Column({ default: true })
+  showReviews: boolean;
+
+  @Column({ default: true })
+  showRelatedProducts: boolean;
+
+  @Column({ default: false })
+  enableBlog: boolean;
+
+  @Column({ default: false })
+  enableCustomPages: boolean;
+
   // Metrics
   @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
   totalSales: number;

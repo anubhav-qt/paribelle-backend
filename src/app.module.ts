@@ -70,9 +70,6 @@ import { SimpleEmailModule } from './modules/simple-email/simple-email.module';
           logging: configService.get('NODE_ENV') !== 'production',
           dropSchema: false,
           extra: {
-            ssl: {
-              rejectUnauthorized: false,
-            },
             max: 20,
             min: 5,
             idleTimeoutMillis: 30000,
