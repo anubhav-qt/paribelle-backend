@@ -14,6 +14,9 @@ import { Product } from '../products/product.entity';
 import { Order } from '../orders/order.entity';
 import { City } from '../locations/entities/city.entity';
 import { SubLocation } from '../locations/entities/sub-location.entity';
+import { VendorPage } from './entities/vendor-page.entity';
+import { VendorBlogPost } from './entities/vendor-blog-post.entity';
+import { VendorNavigation } from './entities/vendor-navigation.entity';
 
 export enum VendorStatus {
   PENDING = 'pending',
@@ -262,6 +265,15 @@ export class Vendor {
 
   @OneToMany(() => Order, (order) => order.vendor)
   orders: Order[];
+
+  @OneToMany(() => VendorPage, (page) => page.vendor)
+  customPages: VendorPage[];
+
+  @OneToMany(() => VendorBlogPost, (post) => post.vendor)
+  blogPosts: VendorBlogPost[];
+
+  @OneToMany(() => VendorNavigation, (nav) => nav.vendor)
+  navigationItems: VendorNavigation[];
 
   @CreateDateColumn()
   createdAt: Date;
