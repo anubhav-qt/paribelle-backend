@@ -10,6 +10,7 @@ import {
 import { Product } from '../products/product.entity';
 import { User } from '../users/user.entity';
 import { Vendor } from '../vendors/vendor.entity';
+import { Payment } from '../payments/payment.entity';
 
 export enum BookingStatus {
   PENDING = 'pending',
@@ -47,6 +48,14 @@ export class Booking {
     default: BookingStatus.PENDING,
   })
   status: BookingStatus;
+
+  // Payment reference
+  @Column({ nullable: true })
+  paymentId: string;
+
+  @ManyToOne(() => Payment, { nullable: true })
+  @JoinColumn()
+  payment: Payment;
 
   // Relations
   @ManyToOne(() => Product)

@@ -26,9 +26,13 @@ export class BookingsService {
   ) {}
 
   async create(createBookingDto: any): Promise<Booking> {
+    console.log('Creating booking with data:', createBookingDto);
     const booking = this.bookingRepository.create(createBookingDto);
     const savedBooking = await this.bookingRepository.save(booking);
-    return Array.isArray(savedBooking) ? savedBooking[0] : savedBooking;
+    const result = Array.isArray(savedBooking) ? savedBooking[0] : savedBooking;
+    console.log('Saved booking:', result);
+    console.log('Booking ID:', result?.id);
+    return result;
   }
 
   async findAll(): Promise<Booking[]> {
@@ -55,7 +59,28 @@ export class BookingsService {
 
   async updateStatus(id: string, status: BookingStatus): Promise<Booking | null> {
     await this.bookingRepository.update(id, { status });
-    return this.bookingRepository.findOne({ where: { id } });
+    return this.bookingRepository.findOne({ 
+      where: { id },
+      relations: ['product', 'user', 'vendor', 'payment'],
+    });
+  }
+
+  async updatePayment(id: string, paymentId: string): Promise<Booking | null> {
+    await this.bookingRepository.update(id, { paymentId });
+    return this.bookingRepository.findOne({ 
+      where: { id },
+      relations: ['product', 'user', 'vendor', 'payment'],
+    });
+  }
+
+  async findOne(id: string): Promise<Booking | null> {
+    console.log('Finding booking with ID:', id);
+    const booking = await this.bookingRepository.findOne({
+      where: { id },
+      relations: ['product', 'user', 'vendor', 'payment'],
+    });
+    console.log('Found booking:', booking);
+    return booking;
   }
 
   async getAvailability(
