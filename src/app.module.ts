@@ -21,6 +21,7 @@ import { LocationsModule } from './modules/locations/locations.module';
 import { HomepageModule } from './modules/homepage/homepage.module';
 import { MonitoringModule } from './modules/monitoring/monitoring.module';
 import { SimpleEmailModule } from './modules/simple-email/simple-email.module';
+import { AddressesModule } from './modules/addresses/addresses.module';
 
 @Module({
   imports: [
@@ -99,6 +100,7 @@ import { SimpleEmailModule } from './modules/simple-email/simple-email.module';
     LocationsModule,
     HomepageModule,
     MonitoringModule,
+    AddressesModule,
   ],
 })
 export class AppModule {}
