@@ -52,7 +52,7 @@ export class HomepageService {
           currency: currency || 'INR',
           categoryDisplayMode: categoryDisplayMode === 'top' ? 'top' : 'sidebar',
           marketplaceLogo: marketplaceLogo || '',
-          marketplaceName: marketplaceName || 'Marketplace',
+          marketplaceName: marketplaceName || 'GaliCart',
         },
         categories,
         productsByCategory,

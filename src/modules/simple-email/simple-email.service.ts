@@ -20,7 +20,7 @@ export class SimpleEmailService {
   }
 
   async sendVerificationEmail(email: string, token: string) {
-    const appName = this.configService.get('APP_NAME') || 'Marketplace';
+    const appName = this.configService.get('APP_NAME') || 'GaliCart';
     const appUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
     const verificationLink = `${appUrl}/verify-email?token=${token}`;
 
@@ -174,7 +174,7 @@ If you didn't create an account with ${appName}, you can safely ignore this emai
   }
 
   async sendPasswordResetEmail(email: string, token: string) {
-    const appName = this.configService.get('APP_NAME') || 'Marketplace';
+    const appName = this.configService.get('APP_NAME') || 'GaliCart';
     const appUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
     const resetLink = `${appUrl}/reset-password?token=${token}`;
 

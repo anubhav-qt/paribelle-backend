@@ -97,7 +97,7 @@ async function bootstrap() {
 
   // Swagger documentation
   const config = new DocumentBuilder()
-    .setTitle('Multi-Vendor Marketplace API')
+    .setTitle('GaliCart API')
     .setDescription('API documentation for the marketplace platform')
     .setVersion('1.0')
     .addBearerAuth()
