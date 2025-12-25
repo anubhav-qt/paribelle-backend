@@ -8,11 +8,11 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { User } from '../users/user.entity';
-import { Product } from '../products/product.entity';
-import { OrderItem } from '../orders/order-item.entity';
+import { Vendor } from '../vendors/vendor.entity';
+import { Order } from '../orders/order.entity';
 
-@Entity('reviews')
-export class Review {
+@Entity('vendor_reviews')
+export class VendorReview {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
@@ -28,8 +28,15 @@ export class Review {
   @Column({ default: true })
   isApproved: boolean;
 
-  @Column('simple-array', { nullable: true })
-  images: string[];
+  // Specific ratings
+  @Column({ type: 'int', nullable: true })
+  productQualityRating: number;
+
+  @Column({ type: 'int', nullable: true })
+  shippingSpeedRating: number;
+
+  @Column({ type: 'int', nullable: true })
+  customerServiceRating: number;
 
   // Vendor response
   @Column({ type: 'text', nullable: true })
@@ -39,26 +46,26 @@ export class Review {
   vendorResponseDate: Date;
 
   // Relations
-  @ManyToOne(() => User, (user) => user.reviews)
+  @ManyToOne(() => User, (user) => user.vendorReviews)
   @JoinColumn()
   user: User;
 
   @Column()
   userId: string;
 
-  @ManyToOne(() => Product, (product) => product.reviews)
+  @ManyToOne(() => Vendor, (vendor) => vendor.reviews)
   @JoinColumn()
-  product: Product;
+  vendor: Vendor;
 
   @Column()
-  productId: string;
+  vendorId: string;
 
-  @ManyToOne(() => OrderItem, { nullable: true })
+  @ManyToOne(() => Order, { nullable: true })
   @JoinColumn()
-  orderItem: OrderItem;
+  order: Order;
 
   @Column({ nullable: true })
-  orderItemId: string;
+  orderId: string;
 
   @CreateDateColumn()
   createdAt: Date;

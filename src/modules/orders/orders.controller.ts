@@ -2,11 +2,15 @@ import { Controller, Get, Post, Body, Param, Patch, UseGuards, Request, Query } 
 import { OrdersService } from './orders.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { OrderStatus } from './order.entity';
+import { ReviewsService } from '../reviews/reviews.service';
 
 @Controller('orders')
 @UseGuards(JwtAuthGuard)
 export class OrdersController {
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor(
+    private readonly ordersService: OrdersService,
+    private readonly reviewsService: ReviewsService,
+  ) {}
 
   @Post()
   create(@Request() req, @Body() createOrderDto: any) {
@@ -50,5 +54,18 @@ export class OrdersController {
   @Patch(':id/status')
   updateStatus(@Param('id') id: string, @Body() body: { status: OrderStatus }) {
     return this.ordersService.updateStatus(id, body.status);
+  }
+
+  @Get(':id/review')
+  async getOrderReviews(@Param('id') id: string, @Request() req) {
+    const [items, vendorReview] = await Promise.all([
+      this.reviewsService.getOrderItemsWithReviews(id, req.user.id),
+      this.reviewsService.getOrderVendorReview(id, req.user.id),
+    ]);
+
+    return {
+      items,
+      vendorReview,
+    };
   }
 }

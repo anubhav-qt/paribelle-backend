@@ -10,6 +10,7 @@ import {
 import { Vendor } from '../vendors/vendor.entity';
 import { Order } from '../orders/order.entity';
 import { Review } from '../reviews/review.entity';
+import { VendorReview } from '../reviews/vendor-review.entity';
 
 export enum UserRole {
   SUPER_ADMIN = 'super_admin',
@@ -86,6 +87,9 @@ export class User {
 
   @OneToMany(() => Review, (review) => review.user)
   reviews: Review[];
+
+  @OneToMany(() => VendorReview, (review) => review.user)
+  vendorReviews: VendorReview[];
 
   @CreateDateColumn()
   createdAt: Date;

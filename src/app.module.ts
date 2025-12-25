@@ -23,6 +23,7 @@ import { MonitoringModule } from './modules/monitoring/monitoring.module';
 import { SimpleEmailModule } from './modules/simple-email/simple-email.module';
 import { AddressesModule } from './modules/addresses/addresses.module';
 import { SearchModule } from './modules/search/search.module';
+import { CacheModule } from './modules/cache/cache.module';
 
 @Module({
   imports: [
@@ -83,6 +84,7 @@ import { SearchModule } from './modules/search/search.module';
     }),
 
     // Feature modules
+    CacheModule, // Cache module first for global availability
     SimpleEmailModule,
     AuthModule,
     UsersModule,
