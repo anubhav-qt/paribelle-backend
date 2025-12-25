@@ -22,6 +22,7 @@ import { HomepageModule } from './modules/homepage/homepage.module';
 import { MonitoringModule } from './modules/monitoring/monitoring.module';
 import { SimpleEmailModule } from './modules/simple-email/simple-email.module';
 import { AddressesModule } from './modules/addresses/addresses.module';
+import { SearchModule } from './modules/search/search.module';
 
 @Module({
   imports: [
@@ -101,6 +102,7 @@ import { AddressesModule } from './modules/addresses/addresses.module';
     HomepageModule,
     MonitoringModule,
     AddressesModule,
+    SearchModule,
   ],
 })
 export class AppModule {}
