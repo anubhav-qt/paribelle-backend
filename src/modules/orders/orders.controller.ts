@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Patch, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Patch, UseGuards, Request, Query } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { OrderStatus } from './order.entity';
@@ -14,7 +14,10 @@ export class OrdersController {
   }
 
   @Get()
-  findAll(@Request() req) {
+  findAll(@Request() req, @Query('vendorId') vendorId?: string) {
+    if (vendorId) {
+      return this.ordersService.findByVendorId(vendorId);
+    }
     return this.ordersService.findAll(req.user.id);
   }
 
@@ -30,8 +33,18 @@ export class OrdersController {
   }
 
   @Patch(':id/cancel')
-  cancel(@Param('id') id: string, @Request() req) {
-    return this.ordersService.cancel(id, req.user.id);
+  cancel(@Param('id') id: string, @Request() req, @Body() body: { reason?: string }) {
+    return this.ordersService.cancel(id, req.user.id, body.reason);
+  }
+
+  @Post(':id/refund')
+  requestRefund(@Param('id') id: string, @Request() req, @Body() body: { reason: string }) {
+    return this.ordersService.requestRefund(id, req.user.id, body.reason);
+  }
+
+  @Post(':id/return')
+  requestReturn(@Param('id') id: string, @Request() req, @Body() body: { reason: string; itemIds?: string[] }) {
+    return this.ordersService.requestReturn(id, req.user.id, body.reason, body.itemIds);
   }
 
   @Patch(':id/status')

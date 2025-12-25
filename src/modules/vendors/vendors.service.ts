@@ -39,6 +39,26 @@ export class VendorsService {
     });
   }
 
+  async getVendorProducts(slug: string): Promise<any> {
+    const vendor = await this.vendorsRepository.findOne({ 
+      where: { slug },
+      relations: ['products'],
+    });
+
+    if (!vendor) {
+      return { products: [], vendor: null };
+    }
+
+    return {
+      vendor: {
+        id: vendor.id,
+        storeName: vendor.storeName,
+        slug: vendor.slug,
+      },
+      products: vendor.products || [],
+    };
+  }
+
   async create(vendorData: Partial<Vendor> & { adminEmail?: string; adminPassword?: string }): Promise<Vendor> {
     const { adminEmail, adminPassword, ...vendorInfo } = vendorData;
     

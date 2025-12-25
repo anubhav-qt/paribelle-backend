@@ -164,6 +164,31 @@ export class OrdersService {
     return orders.map(order => this.transformOrder(order));
   }
 
+  async findByVendorId(vendorId: string) {
+    // Find all order items where the product belongs to this vendor
+    const orderItems = await this.orderItemRepository
+      .createQueryBuilder('orderItem')
+      .leftJoinAndSelect('orderItem.order', 'order')
+      .leftJoinAndSelect('order.items', 'items')
+      .leftJoinAndSelect('order.user', 'user')
+      .leftJoinAndSelect('orderItem.product', 'product')
+      .leftJoinAndSelect('product.vendor', 'vendor')
+      .where('product.vendorId = :vendorId', { vendorId })
+      .orderBy('orderItem.createdAt', 'DESC')
+      .getMany();
+
+    // Extract unique orders
+    const ordersMap = new Map();
+    for (const item of orderItems) {
+      if (item.order && !ordersMap.has(item.order.id)) {
+        ordersMap.set(item.order.id, item.order);
+      }
+    }
+
+    const orders = Array.from(ordersMap.values());
+    return orders.map(order => this.transformOrder(order));
+  }
+
   async findAllForAdmin() {
     const orders = await this.orderRepository.find({
       relations: ['items', 'items.product', 'vendor', 'user'],
@@ -224,7 +249,7 @@ export class OrdersService {
     return this.orderRepository.save(order);
   }
 
-  async cancel(id: string, userId: string) {
+  async cancel(id: string, userId: string, reason?: string) {
     const order = await this.orderRepository.findOne({
       where: { id, userId },
     });
@@ -239,6 +264,71 @@ export class OrdersService {
 
     order.status = OrderStatus.CANCELLED;
     order.cancelledAt = new Date();
+    if (reason) {
+      order.customerNotes = (order.customerNotes || '') + `\nCancellation reason: ${reason}`;
+    }
+
+    // If order was paid, mark for refund
+    if (order.paymentStatus === PaymentStatus.PAID) {
+      order.paymentStatus = PaymentStatus.REFUNDED;
+    }
+
+    return this.orderRepository.save(order);
+  }
+
+  async requestRefund(id: string, userId: string, reason: string) {
+    const order = await this.orderRepository.findOne({
+      where: { id, userId },
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    if (order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.DELIVERED) {
+      throw new BadRequestException('Refund can only be requested for cancelled or delivered orders');
+    }
+
+    if (order.paymentStatus !== PaymentStatus.PAID) {
+      throw new BadRequestException('Only paid orders can be refunded');
+    }
+
+    order.paymentStatus = PaymentStatus.REFUNDED;
+    order.adminNotes = (order.adminNotes || '') + `\nRefund requested: ${reason} at ${new Date().toISOString()}`;
+
+    return this.orderRepository.save(order);
+  }
+
+  async requestReturn(id: string, userId: string, reason: string, itemIds?: string[]) {
+    const order = await this.orderRepository.findOne({
+      where: { id, userId },
+      relations: ['items'],
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    if (order.status !== OrderStatus.DELIVERED) {
+      throw new BadRequestException('Only delivered orders can be returned');
+    }
+
+    // Check if return window is still open (e.g., 7 days)
+    const deliveredDate = order.deliveredAt;
+    if (deliveredDate) {
+      const daysSinceDelivery = Math.floor((Date.now() - deliveredDate.getTime()) / (1000 * 60 * 60 * 24));
+      if (daysSinceDelivery > 7) {
+        throw new BadRequestException('Return window has expired (7 days from delivery)');
+      }
+    }
+
+    const itemList = itemIds && itemIds.length > 0 
+      ? `Items: ${itemIds.join(', ')}` 
+      : 'All items';
+    
+    order.customerNotes = (order.customerNotes || '') + 
+      `\nReturn requested: ${reason}\n${itemList}\nRequested at: ${new Date().toISOString()}`;
+    order.status = OrderStatus.PENDING; // Mark as pending for review
 
     return this.orderRepository.save(order);
   }

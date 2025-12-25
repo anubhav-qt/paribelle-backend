@@ -14,16 +14,38 @@ export class VendorsController {
     return this.vendorsService.findAll();
   }
 
-  @Get('slug/:slug')
-  @ApiOperation({ summary: 'Get vendor by slug' })
-  async findBySlug(@Param('slug') slug: string) {
-    return this.vendorsService.findBySlug(slug);
+  @Get('by-slug/:slug/products')
+  @ApiOperation({ summary: 'Get products for vendor by slug' })
+  async getVendorProductsBySlug(@Param('slug') slug: string) {
+    return this.vendorsService.getVendorProducts(slug);
+  }
+
+  @Get(':id/products')
+  @ApiOperation({ summary: 'Get products for vendor by ID' })
+  async getVendorProducts(@Param('id') id: string) {
+    // Prevent matching when id is "products" or other reserved words
+    if (id === 'products' || id === 'by-slug') {
+      return { statusCode: 404, message: 'Invalid vendor identifier' };
+    }
+    return this.vendorsService.getVendorProducts(id);
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Get vendor by ID' })
+  @ApiOperation({ summary: 'Get vendor by ID or slug' })
   async findOne(@Param('id') id: string) {
-    const vendor = await this.vendorsService.findOne(id);
+    let vendor: Vendor | null = null;
+    
+    // Check if it's a UUID format first, to avoid PostgreSQL errors
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+    
+    if (isUUID) {
+      // Try finding by UUID
+      vendor = await this.vendorsService.findOne(id);
+    } else {
+      // Not a UUID, try finding by slug
+      vendor = await this.vendorsService.findBySlug(id);
+    }
+    
     if (!vendor) {
       return { statusCode: 404, message: 'Vendor not found' };
     }
@@ -169,6 +191,31 @@ export class VendorsController {
       return {
         statusCode: 500,
         message: error.message || 'Failed to update SEO settings',
+        error: error.toString()
+      };
+    }
+  }
+
+  @Patch(':id/policies')
+  @ApiOperation({ summary: 'Update vendor return and cancellation policies' })
+  async updatePolicies(
+    @Param('id') id: string,
+    @Body() body: {
+      returnPolicy?: { enabled: boolean; days?: number; text: string };
+      cancellationPolicy?: { enabled: boolean; text: string };
+    }
+  ) {
+    try {
+      await this.vendorsService.update(id, {
+        returnPolicy: body.returnPolicy,
+        cancellationPolicy: body.cancellationPolicy,
+      });
+      const updated = await this.vendorsService.findOne(id);
+      return updated;
+    } catch (error) {
+      return {
+        statusCode: 500,
+        message: error.message || 'Failed to update policies',
         error: error.toString()
       };
     }

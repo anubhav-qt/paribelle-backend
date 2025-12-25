@@ -252,6 +252,20 @@ export class Vendor {
   @Column({ type: 'decimal', precision: 3, scale: 2, default: 0 })
   rating: number;
 
+  // Return & Cancellation Policies (vendor-specific, falls back to marketplace defaults)
+  @Column({ type: 'jsonb', nullable: true })
+  returnPolicy: {
+    enabled: boolean;
+    days?: number;
+    text: string;
+  } | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  cancellationPolicy: {
+    enabled: boolean;
+    text: string;
+  } | null;
+
   // Relations
   @OneToOne(() => User, (user) => user.vendor)
   @JoinColumn()
