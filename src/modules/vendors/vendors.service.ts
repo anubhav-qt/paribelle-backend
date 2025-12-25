@@ -97,7 +97,31 @@ export class VendorsService {
       throw new Error('Vendor not found');
     }
     
-    await this.vendorsRepository.update(id, vendorData);
+    console.log('VendorsService.update - Updating vendor:', id, 'with data:', vendorData);
+    
+    // Clean up numeric fields - convert empty strings to null
+    const cleanedData = { ...vendorData };
+    const numericFields = ['shippingCost', 'freeShippingThreshold', 'commissionRate'];
+    
+    for (const field of numericFields) {
+      if (cleanedData[field] === '' || cleanedData[field] === null || cleanedData[field] === undefined) {
+        delete cleanedData[field];
+      } else if (typeof cleanedData[field] === 'string') {
+        // Convert string to number
+        const num = parseFloat(cleanedData[field] as string);
+        if (isNaN(num)) {
+          delete cleanedData[field];
+        } else {
+          cleanedData[field] = num;
+        }
+      }
+    }
+    
+    console.log('VendorsService.update - Cleaned data:', cleanedData);
+    
+    const result = await this.vendorsRepository.update(id, cleanedData);
+    console.log('VendorsService.update - Update result:', result);
+    
     return this.findOne(id);
   }
 

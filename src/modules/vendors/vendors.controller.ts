@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Param, Body, Patch } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Param, Body, Patch, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { VendorsService } from './vendors.service';
 import { Vendor } from './vendor.entity';
@@ -59,11 +59,21 @@ export class VendorsController {
   }
 
   @Patch(':id')
+  @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Update a vendor' })
   async update(@Param('id') id: string, @Body() vendorData: Partial<Vendor>) {
     try {
+      console.log('Updating vendor:', id, 'with data:', vendorData);
+      
+      // Check if vendor exists first
+      const existingVendor = await this.vendorsService.findOne(id);
+      if (!existingVendor) {
+        return { statusCode: 404, message: 'Vendor not found' };
+      }
+
       // Handle location update separately if location data is provided
       if (vendorData.cityId || vendorData.subLocationId || (vendorData as any).pincode) {
+        console.log('Updating vendor location...');
         await this.vendorsService.updateVendorLocation(id, {
           cityId: vendorData.cityId,
           subLocationId: vendorData.subLocationId,
@@ -72,19 +82,35 @@ export class VendorsController {
         });
         // Remove location fields from vendorData before regular update
         const { cityId, subLocationId, address, ...otherData } = vendorData;
+        delete (otherData as any).pincode;
+        
         if (Object.keys(otherData).length > 0) {
-          await this.vendorsService.update(id, otherData);
+          console.log('Updating vendor other data:', otherData);
+          const result = await this.vendorsService.update(id, otherData);
+          console.log('Update result:', result);
         }
       } else {
-        await this.vendorsService.update(id, vendorData);
+        // No location data, just update vendor fields
+        console.log('Updating vendor data without location...');
+        const result = await this.vendorsService.update(id, vendorData);
+        console.log('Update result:', result);
       }
       
+      // Fetch and return the updated vendor
       const updated = await this.vendorsService.findOne(id);
+      console.log('Vendor updated successfully, returning:', updated ? 'vendor object' : 'null');
+      
       if (!updated) {
-        return { statusCode: 404, message: 'Vendor not found' };
+        return { statusCode: 500, message: 'Failed to retrieve updated vendor' };
       }
-      return updated;
+      
+      return {
+        statusCode: 200,
+        message: 'Vendor updated successfully',
+        data: updated,
+      };
     } catch (error) {
+      console.error('Error updating vendor:', error);
       return { 
         statusCode: 500, 
         message: error.message || 'Failed to update vendor',

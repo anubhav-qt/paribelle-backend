@@ -73,6 +73,9 @@ async function bootstrap() {
             callback(new Error('Not allowed by CORS'));
         },
         credentials: true,
+        methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+        allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+        exposedHeaders: ['Content-Length', 'Content-Type'],
     });
 
     // Compression middleware uses the gzip or brotli algorithms to compress the HTTP responses sent from your server. This helps reduce the size of the responses (e.g., HTML, CSS, JavaScript files), which speeds up the transfer and loading time for clients.

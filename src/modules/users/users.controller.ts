@@ -15,6 +15,26 @@ export class UsersController {
     return this.usersService.findAll();
   }
 
+  @Get('profile')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get current user profile' })
+  async getProfile(@Request() req): Promise<User> {
+    // The JWT strategy returns the full user object
+    if (!req.user || !req.user.id) {
+      throw new NotFoundException('User not authenticated');
+    }
+    
+    const userId = req.user.id;
+    const user = await this.usersService.findOne(userId);
+    
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    
+    return user;
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get user by ID' })
   async findOne(@Param('id') id: string): Promise<User> {
@@ -30,7 +50,11 @@ export class UsersController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Update current user profile' })
   async updateProfile(@Request() req, @Body() userData: Partial<User>): Promise<User> {
-    const userId = req.user.userId;
+    if (!req.user || !req.user.id) {
+      throw new NotFoundException('User not authenticated');
+    }
+    
+    const userId = req.user.id;
     
     // Don't allow updating certain fields through profile endpoint
     const allowedFields = ['firstName', 'lastName', 'phone'];
