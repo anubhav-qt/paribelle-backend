@@ -21,8 +21,7 @@ export class OrdersService {
 
     console.log('Create order DTO received:', {
       subtotal, shippingCost, tax, totalAmount,
-      subtotalType: typeof subtotal,
-      totalAmountType: typeof totalAmount,
+      itemsCount: items.length,
     });
 
     // Convert to numbers and ensure proper decimal precision
@@ -31,128 +30,147 @@ export class OrdersService {
     const numTax = Number(tax) || 0;
     const numTotalAmount = Number(totalAmount) || 0;
 
-    console.log('Converted values:', {
-      numSubtotal, numShippingCost, numTax, numTotalAmount,
-    });
-
-    // Generate order number
-    const orderNumber = this.generateOrderNumber();
-
-    // Get first product's vendor (assuming single vendor per order for now)
-    const firstProduct = await this.productRepository.findOne({
-      where: { id: items[0].productId },
+    // Load all products with vendor information
+    const productIds = items.map((item: any) => item.productId);
+    const products = await this.productRepository.find({
+      where: productIds.map(id => ({ id })),
       relations: ['vendor'],
     });
 
-    if (!firstProduct) {
-      throw new NotFoundException('Product not found');
+    if (products.length !== items.length) {
+      throw new NotFoundException('One or more products not found');
     }
 
-    // Calculate commission (10% default)
-    const commissionRate = 10;
-    const commissionAmount = Number(((numTotalAmount * commissionRate) / 100).toFixed(2));
-    const vendorPayout = Number((numTotalAmount - commissionAmount).toFixed(2));
-
-    console.log('Commission calculations:', {
-      commissionRate,
-      commissionAmount,
-      vendorPayout,
-    });
-
-    // Create order
-    const order = this.orderRepository.create({
-      orderNumber,
-      userId,
-      vendorId: firstProduct.vendorId,
-      subtotal: numSubtotal,
-      tax: numTax,
-      shippingCost: numShippingCost,
-      total: numTotalAmount,
-      commissionRate,
-      commissionAmount,
-      vendorPayout,
-      status: OrderStatus.PENDING,
-      paymentStatus: paymentMethod === 'cod' ? PaymentStatus.PENDING : PaymentStatus.PENDING,
-      shippingName: shippingAddress.fullName,
-      shippingEmail: '', // TODO: Get from user
-      shippingPhone: shippingAddress.phone,
-      shippingAddress: `${shippingAddress.addressLine1}${shippingAddress.addressLine2 ? ', ' + shippingAddress.addressLine2 : ''}`,
-      shippingCity: shippingAddress.city,
-      shippingState: shippingAddress.state,
-      shippingCountry: shippingAddress.country,
-      shippingPostalCode: shippingAddress.postalCode,
-    });
-
-    console.log('Order object before save:', {
-      total: order.total,
-      subtotal: order.subtotal,
-      tax: order.tax,
-      shippingCost: order.shippingCost,
-    });
-
-    const savedOrder = await this.orderRepository.save(order);
-
-    console.log('Saved order:', {
-      id: savedOrder.id,
-      total: savedOrder.total,
-      subtotal: savedOrder.subtotal,
-    });
-
-    // Create order items
-    const orderItems: OrderItem[] = [];
+    // Group items by vendorId
+    const itemsByVendor = new Map<string, any[]>();
+    
     for (const item of items) {
-      const product = await this.productRepository.findOne({
-        where: { id: item.productId },
-      });
-
-      if (!product) {
-        throw new NotFoundException(`Product ${item.productId} not found`);
+      const product = products.find(p => p.id === item.productId);
+      if (!product || !product.vendorId) {
+        throw new NotFoundException(`Product ${item.productId} not found or has no vendor`);
       }
 
-      const orderItem = this.orderItemRepository.create({
-        orderId: savedOrder.id,
-        productId: product.id,
-        quantity: item.quantity,
-        price: Number(item.price) || 0,
-        subtotal: Number((Number(item.price) || 0) * item.quantity),
-        total: Number((Number(item.price) || 0) * item.quantity),
-        productName: product.name,
-        productSku: product.sku || '',
-        productImage: product.featuredImage,
-      });
+      if (!itemsByVendor.has(product.vendorId)) {
+        itemsByVendor.set(product.vendorId, []);
+      }
 
-      console.log('Order item created:', {
-        productName: orderItem.productName,
-        price: orderItem.price,
-        quantity: orderItem.quantity,
-        total: orderItem.total,
+      itemsByVendor.get(product.vendorId)!.push({
+        ...item,
+        product,
       });
-
-      orderItems.push(orderItem);
     }
 
-    await this.orderItemRepository.save(orderItems);
+    console.log(`Creating orders for ${itemsByVendor.size} vendor(s)`);
 
-    // Return order with items
-    return this.orderRepository.findOne({
-      where: { id: savedOrder.id },
+    // Create separate orders for each vendor
+    const createdOrders: Order[] = [];
+
+    for (const [vendorId, vendorItems] of itemsByVendor.entries()) {
+      // Calculate vendor-specific totals
+      const vendorSubtotal = vendorItems.reduce((sum, item) => {
+        return sum + (Number(item.price) || 0) * item.quantity;
+      }, 0);
+
+      // Proportionally distribute shipping and tax based on subtotal
+      const proportionOfTotal = numSubtotal > 0 ? vendorSubtotal / numSubtotal : 1 / itemsByVendor.size;
+      const vendorShippingCost = Number((numShippingCost * proportionOfTotal).toFixed(2));
+      const vendorTax = Number((numTax * proportionOfTotal).toFixed(2));
+      const vendorTotal = Number((vendorSubtotal + vendorShippingCost + vendorTax).toFixed(2));
+
+      // Calculate commission (10% default)
+      const commissionRate = 10;
+      const commissionAmount = Number(((vendorTotal * commissionRate) / 100).toFixed(2));
+      const vendorPayout = Number((vendorTotal - commissionAmount).toFixed(2));
+
+      // Generate order number
+      const orderNumber = this.generateOrderNumber();
+
+      console.log(`Creating order for vendor ${vendorId}:`, {
+        orderNumber,
+        vendorSubtotal,
+        vendorShippingCost,
+        vendorTax,
+        vendorTotal,
+        itemsCount: vendorItems.length,
+      });
+
+      // Create order
+      const order = this.orderRepository.create({
+        orderNumber,
+        userId,
+        vendorId,
+        subtotal: vendorSubtotal,
+        tax: vendorTax,
+        shippingCost: vendorShippingCost,
+        total: vendorTotal,
+        commissionRate,
+        commissionAmount,
+        vendorPayout,
+        status: OrderStatus.PENDING,
+        paymentStatus: paymentMethod === 'cod' ? PaymentStatus.PENDING : PaymentStatus.PENDING,
+        shippingName: shippingAddress.fullName,
+        shippingEmail: '', // TODO: Get from user
+        shippingPhone: shippingAddress.phone,
+        shippingAddress: `${shippingAddress.addressLine1}${shippingAddress.addressLine2 ? ', ' + shippingAddress.addressLine2 : ''}`,
+        shippingCity: shippingAddress.city,
+        shippingState: shippingAddress.state,
+        shippingCountry: shippingAddress.country,
+        shippingPostalCode: shippingAddress.postalCode,
+      });
+
+      const savedOrder = await this.orderRepository.save(order);
+
+      // Create order items for this vendor
+      const orderItems: OrderItem[] = [];
+      for (const item of vendorItems) {
+        const orderItem = this.orderItemRepository.create({
+          orderId: savedOrder.id,
+          productId: item.product.id,
+          quantity: item.quantity,
+          price: Number(item.price) || 0,
+          subtotal: Number((Number(item.price) || 0) * item.quantity),
+          total: Number((Number(item.price) || 0) * item.quantity),
+          productName: item.product.name,
+          productSku: item.product.sku || '',
+          productImage: item.product.featuredImage,
+        });
+
+        orderItems.push(orderItem);
+      }
+
+      await this.orderItemRepository.save(orderItems);
+      createdOrders.push(savedOrder);
+    }
+
+    console.log(`Created ${createdOrders.length} order(s)`);
+
+    // Return all orders with items
+    const ordersWithDetails = await this.orderRepository.find({
+      where: createdOrders.map(order => ({ id: order.id })),
       relations: ['items', 'items.product', 'vendor', 'user'],
     });
+
+    return ordersWithDetails;
   }
 
   async findAll(userId: string) {
-    return this.orderRepository.find({
+    const orders = await this.orderRepository.find({
       where: { userId },
       relations: ['items', 'items.product', 'items.product.vendor', 'vendor'],
       order: { createdAt: 'DESC' },
     });
+
+    // Transform orders to include shippingAddress as object
+    return orders.map(order => this.transformOrder(order));
   }
 
   async findAllForAdmin() {
-    return this.orderRepository.find({
+    const orders = await this.orderRepository.find({
       relations: ['items', 'items.product', 'vendor', 'user'],
       order: { createdAt: 'DESC' },
     });
+
+    return orders.map(order => this.transformOrder(order));
   }
 
   async findOne(id: string, userId: string) {
@@ -165,7 +183,23 @@ export class OrdersService {
       throw new NotFoundException('Order not found');
     }
 
-    return order;
+    return this.transformOrder(order);
+  }
+
+  private transformOrder(order: Order) {
+    return {
+      ...order,
+      shippingAddress: {
+        fullName: order.shippingName,
+        phone: order.shippingPhone,
+        addressLine1: order.shippingAddress,
+        city: order.shippingCity,
+        state: order.shippingState,
+        postalCode: order.shippingPostalCode,
+        country: order.shippingCountry,
+      },
+      paymentMethod: order.paymentStatus === 'pending' ? 'cod' : 'razorpay',
+    };
   }
 
   async updateStatus(id: string, status: OrderStatus) {

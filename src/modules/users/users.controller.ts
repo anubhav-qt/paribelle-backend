@@ -1,5 +1,6 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Delete, Body, Param, UseGuards, NotFoundException, Request } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { UsersService } from './users.service';
 import { User } from './user.entity';
 
@@ -20,6 +21,40 @@ export class UsersController {
     const user = await this.usersService.findOne(id);
     if (!user) {
       throw new NotFoundException(`User with ID ${id} not found`);
+    }
+    return user;
+  }
+
+  @Patch('profile')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update current user profile' })
+  async updateProfile(@Request() req, @Body() userData: Partial<User>): Promise<User> {
+    const userId = req.user.userId;
+    
+    // Don't allow updating certain fields through profile endpoint
+    const allowedFields = ['firstName', 'lastName', 'phone'];
+    const filteredData: any = {};
+    
+    for (const field of allowedFields) {
+      if (userData[field] !== undefined) {
+        filteredData[field] = userData[field];
+      }
+    }
+    
+    // Check if there's any data to update
+    if (Object.keys(filteredData).length === 0) {
+      // No fields to update, just return current user
+      const user = await this.usersService.findOne(userId);
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+      return user;
+    }
+    
+    const user = await this.usersService.update(userId, filteredData);
+    if (!user) {
+      throw new NotFoundException('User not found');
     }
     return user;
   }
