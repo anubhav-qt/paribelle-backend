@@ -1,4 +1,4 @@
-import { Controller, Get, Put, Delete, Param, Body } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Param, Body } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { SettingsService } from './settings.service';
 
@@ -29,6 +29,14 @@ export class SettingsController {
   @ApiOperation({ summary: 'Get setting by key' })
   async getSetting(@Param('key') key: string) {
     return { key, value: await this.settingsService.getSetting(key) };
+  }
+
+  @Post()
+  @ApiOperation({ summary: 'Create or update setting' })
+  async createOrUpdateSetting(
+    @Body() body: { key: string; value: any; description?: string; type?: string }
+  ) {
+    return this.settingsService.updateSetting(body.key, body.value, body.description);
   }
 
   @Put(':key')
