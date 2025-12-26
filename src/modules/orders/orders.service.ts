@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { Order, OrderStatus, PaymentStatus } from './order.entity';
 import { OrderItem } from './order-item.entity';
 import { Product } from '../products/product.entity';
+import { SimpleEmailService } from '../simple-email/simple-email.service';
 
 @Injectable()
 export class OrdersService {
@@ -14,6 +15,7 @@ export class OrdersService {
     private orderItemRepository: Repository<OrderItem>,
     @InjectRepository(Product)
     private productRepository: Repository<Product>,
+    private simpleEmailService: SimpleEmailService,
   ) {}
 
   async create(userId: string, createOrderDto: any) {
@@ -228,7 +230,10 @@ export class OrdersService {
   }
 
   async updateStatus(id: string, status: OrderStatus) {
-    const order = await this.orderRepository.findOne({ where: { id } });
+    const order = await this.orderRepository.findOne({ 
+      where: { id },
+      relations: ['user'],
+    });
 
     if (!order) {
       throw new NotFoundException('Order not found');
@@ -242,6 +247,21 @@ export class OrdersService {
       order.shippedAt = new Date();
     } else if (status === OrderStatus.DELIVERED) {
       order.deliveredAt = new Date();
+      
+      // Send review request email to buyer
+      if (order.user && order.user.email) {
+        try {
+          await this.simpleEmailService.sendOrderDeliveredEmail(
+            order.user.email,
+            order.orderNumber,
+            order.id,
+            order.shippingName || order.user.name || 'Customer',
+          );
+        } catch (error) {
+          // Log error but don't fail the status update
+          console.error('Failed to send order delivered email:', error);
+        }
+      }
     } else if (status === OrderStatus.CANCELLED) {
       order.cancelledAt = new Date();
     }

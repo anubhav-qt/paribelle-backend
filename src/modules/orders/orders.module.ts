@@ -6,11 +6,13 @@ import { OrdersService } from './orders.service';
 import { OrdersController } from './orders.controller';
 import { Product } from '../products/product.entity';
 import { ReviewsModule } from '../reviews/reviews.module';
+import { SimpleEmailModule } from '../simple-email/simple-email.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Order, OrderItem, Product]),
     ReviewsModule,
+    SimpleEmailModule,
   ],
   controllers: [OrdersController],
   providers: [OrdersService],
