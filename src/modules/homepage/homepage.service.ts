@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { CategoriesService } from '../categories/categories.service';
 import { ProductsService } from '../products/products.service';
 import { SettingsService } from '../admin/settings.service';
+import { Vendor } from '../vendors/vendor.entity';
 
 @Injectable()
 export class HomepageService {
@@ -9,11 +12,21 @@ export class HomepageService {
     private categoriesService: CategoriesService,
     private productsService: ProductsService,
     private settingsService: SettingsService,
+    @InjectRepository(Vendor)
+    private vendorRepository: Repository<Vendor>,
   ) {}
 
-  async getHomepageData(cityId?: string, subLocationId?: string) {
+  async getHomepageData(cityId?: string, subLocationId?: string, vendorSlug?: string) {
     try {
-      console.log('[HomepageService] Fetching homepage data...');
+      console.log('[HomepageService] Fetching homepage data...', { cityId, subLocationId, vendorSlug });
+      
+      // If vendorSlug is provided, get the vendor ID first
+      let vendorId: string | undefined;
+      if (vendorSlug) {
+        const vendor = await this.getVendorBySlug(vendorSlug);
+        vendorId = vendor?.id;
+        console.log('[HomepageService] Vendor found:', vendorId);
+      }
       
       // Fetch all data in parallel
       const [
@@ -32,8 +45,8 @@ export class HomepageService {
         this.settingsService.getSetting('marketplace_logo'),
         this.settingsService.getSetting('marketplace_name'),
         this.categoriesService.findAllRootCategories(),
-        this.getUncategorizedProducts(cityId, subLocationId),
-        this.getBookingProducts(cityId, subLocationId),
+        this.getUncategorizedProducts(cityId, subLocationId, vendorId),
+        this.getBookingProducts(cityId, subLocationId, vendorId),
       ]);
 
       console.log('[HomepageService] Categories fetched:', categories.length);
@@ -45,6 +58,7 @@ export class HomepageService {
         categories,
         cityId,
         subLocationId,
+        vendorId,
       );
 
       console.log('[HomepageService] Products by category fetched:', Object.keys(productsByCategory).length);
@@ -76,12 +90,14 @@ export class HomepageService {
     categories: any[],
     cityId?: string,
     subLocationId?: string,
+    vendorId?: string,
   ) {
     const productPromises = categories.map(async (category) => {
       try {
         const filters: any = { productType: 'physical' };
         if (cityId) filters.cityId = cityId;
         if (subLocationId) filters.subLocationId = subLocationId;
+        if (vendorId) filters.vendorId = vendorId;
 
         // Use findByCategory which properly filters by category and location
         const products = await this.productsService.findByCategory(category.id, filters);
@@ -110,7 +126,7 @@ export class HomepageService {
     return productsByCategory;
   }
 
-  private async getUncategorizedProducts(cityId?: string, subLocationId?: string) {
+  private async getUncategorizedProducts(cityId?: string, subLocationId?: string, vendorId?: string) {
     try {
       // Call findAll with correct parameters for uncategorized products
       const result = await this.productsService.findAll(
@@ -118,7 +134,7 @@ export class HomepageService {
         100,            // limit
         'active',       // status
         undefined,      // search
-        undefined,      // vendorId
+        vendorId,       // vendorId
         true,           // uncategorized
         cityId,         // cityId
         subLocationId,  // subLocationId
@@ -132,14 +148,14 @@ export class HomepageService {
     }
   }
 
-  private async getBookingProducts(cityId?: string, subLocationId?: string) {
+  private async getBookingProducts(cityId?: string, subLocationId?: string, vendorId?: string) {
     try {
       const result = await this.productsService.findAll(
         1,              // page
         100,            // limit
         'active',       // status
         undefined,      // search
-        undefined,      // vendorId
+        vendorId,       // vendorId
         false,          // uncategorized
         cityId,         // cityId
         subLocationId,  // subLocationId
@@ -150,6 +166,17 @@ export class HomepageService {
     } catch (error) {
       console.error('[HomepageService] Error fetching booking products:', error);
       return [];
+    }
+  }
+
+  private async getVendorBySlug(slug: string) {
+    try {
+      return await this.vendorRepository.findOne({
+        where: { slug },
+      });
+    } catch (error) {
+      console.error('[HomepageService] Error fetching vendor by slug:', error);
+      return null;
     }
   }
 }

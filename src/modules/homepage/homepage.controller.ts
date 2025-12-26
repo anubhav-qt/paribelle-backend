@@ -9,7 +9,8 @@ export class HomepageController {
   async getHomepageData(
     @Query('cityId') cityId?: string,
     @Query('subLocationId') subLocationId?: string,
+    @Query('vendorSlug') vendorSlug?: string,
   ) {
-    return this.homepageService.getHomepageData(cityId, subLocationId);
+    return this.homepageService.getHomepageData(cityId, subLocationId, vendorSlug);
   }
 }

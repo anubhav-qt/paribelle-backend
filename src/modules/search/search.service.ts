@@ -50,7 +50,7 @@ export class SearchService {
         where: {
           name: ILike(searchPattern),
         },
-        take: 3,
+        take: 5,
         select: ['id', 'name', 'slug'],
         order: { name: 'ASC' },
       }),
@@ -61,7 +61,7 @@ export class SearchService {
           storeName: ILike(searchPattern),
           status: VendorStatus.ACTIVE,
         },
-        take: 3,
+        take: 5,
         select: ['id', 'storeName', 'slug'],
         order: { storeName: 'ASC' },
       }),
