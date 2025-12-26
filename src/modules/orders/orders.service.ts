@@ -166,6 +166,16 @@ export class OrdersService {
     return orders.map(order => this.transformOrder(order));
   }
 
+  async findByUserAndStatus(userId: string, status: OrderStatus) {
+    const orders = await this.orderRepository.find({
+      where: { userId, status },
+      relations: ['items', 'items.product', 'items.product.vendor', 'vendor'],
+      order: { createdAt: 'DESC' },
+    });
+
+    return orders.map(order => this.transformOrder(order));
+  }
+
   async findByVendorId(vendorId: string) {
     // Find all order items where the product belongs to this vendor
     const orderItems = await this.orderItemRepository

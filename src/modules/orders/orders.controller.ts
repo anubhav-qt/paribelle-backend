@@ -18,9 +18,12 @@ export class OrdersController {
   }
 
   @Get()
-  findAll(@Request() req, @Query('vendorId') vendorId?: string) {
+  findAll(@Request() req, @Query('vendorId') vendorId?: string, @Query('status') status?: string) {
     if (vendorId) {
       return this.ordersService.findByVendorId(vendorId);
+    }
+    if (status) {
+      return this.ordersService.findByUserAndStatus(req.user.id, status as OrderStatus);
     }
     return this.ordersService.findAll(req.user.id);
   }

@@ -122,13 +122,15 @@ export class ReviewsService {
       return cached as any;
     }
 
-    const [reviews, total] = await this.reviewRepository.findAndCount({
-      where: { productId, isApproved: true },
-      relations: ['user'],
-      order: { createdAt: 'DESC' },
-      skip: (page - 1) * limit,
-      take: limit,
-    });
+    const queryBuilder = this.reviewRepository.createQueryBuilder('review')
+      .leftJoinAndSelect('review.user', 'user')
+      .where('review.productId = :productId', { productId })
+      .andWhere('(review.isApproved = :isApproved OR review.isApproved IS NULL)', { isApproved: true })
+      .orderBy('review.createdAt', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit);
+
+    const [reviews, total] = await queryBuilder.getManyAndCount();
 
     const averageRating = await this.getProductAverageRating(productId);
 
@@ -476,7 +478,7 @@ export class ReviewsService {
       .select('AVG(review.rating)', 'average')
       .addSelect('COUNT(review.id)', 'count')
       .where('review.productId = :productId', { productId })
-      .andWhere('review.isApproved = :isApproved', { isApproved: true })
+      .andWhere('(review.isApproved = :isApproved OR review.isApproved IS NULL)', { isApproved: true })
       .getRawOne();
 
     const averageRating = result?.average ? parseFloat(result.average) : 0;
@@ -493,7 +495,7 @@ export class ReviewsService {
       .createQueryBuilder('review')
       .select('AVG(review.rating)', 'average')
       .where('review.productId = :productId', { productId })
-      .andWhere('review.isApproved = :isApproved', { isApproved: true })
+      .andWhere('(review.isApproved = :isApproved OR review.isApproved IS NULL)', { isApproved: true })
       .getRawOne();
 
     return result?.average ? Math.round(parseFloat(result.average) * 10) / 10 : 0;
