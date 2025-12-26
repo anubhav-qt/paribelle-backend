@@ -24,6 +24,7 @@ export class HomepageService {
         marketplaceName,
         categories,
         uncategorizedProducts,
+        bookingProducts,
       ] = await Promise.all([
         this.settingsService.getSetting('location_filter_enabled'),
         this.settingsService.getSetting('currency'),
@@ -32,10 +33,12 @@ export class HomepageService {
         this.settingsService.getSetting('marketplace_name'),
         this.categoriesService.findAllRootCategories(),
         this.getUncategorizedProducts(cityId, subLocationId),
+        this.getBookingProducts(cityId, subLocationId),
       ]);
 
       console.log('[HomepageService] Categories fetched:', categories.length);
       console.log('[HomepageService] Uncategorized products:', uncategorizedProducts.length);
+      console.log('[HomepageService] Booking products:', bookingProducts.length);
 
       // Fetch products for each category in parallel
       const productsByCategory = await this.getProductsByCategories(
@@ -45,6 +48,11 @@ export class HomepageService {
       );
 
       console.log('[HomepageService] Products by category fetched:', Object.keys(productsByCategory).length);
+
+      // Add booking products as a special category if there are any
+      if (bookingProducts.length > 0) {
+        productsByCategory['bookings-services'] = bookingProducts;
+      }
 
       return {
         settings: {
@@ -120,6 +128,27 @@ export class HomepageService {
       return result.products || [];
     } catch (error) {
       console.error('[HomepageService] Error fetching uncategorized products:', error);
+      return [];
+    }
+  }
+
+  private async getBookingProducts(cityId?: string, subLocationId?: string) {
+    try {
+      const result = await this.productsService.findAll(
+        1,              // page
+        100,            // limit
+        'active',       // status
+        undefined,      // search
+        undefined,      // vendorId
+        false,          // uncategorized
+        cityId,         // cityId
+        subLocationId,  // subLocationId
+        'booking',      // productType
+      );
+      
+      return result.products || [];
+    } catch (error) {
+      console.error('[HomepageService] Error fetching booking products:', error);
       return [];
     }
   }
