@@ -19,8 +19,14 @@ async function bootstrap() {
   app.useGlobalInterceptors(new LoggingInterceptor(monitoringService));
 
   // Serve static files from public directory
-  // In production/dist, __dirname is 'dist/src', so we need to go up two levels to reach 'public'
-  app.useStaticAssets(join(__dirname, '..', '..', 'public'), {
+  // In development: __dirname is 'src', go up one level to project root, then into 'public'
+  // In production/dist: __dirname is 'dist/src', go up two levels to project root, then into 'public'
+  const publicPath = process.env.NODE_ENV === 'production' 
+    ? join(__dirname, '..', '..', 'public')
+    : join(__dirname, '..', 'public');
+  
+  console.log('Serving static files from:', publicPath);
+  app.useStaticAssets(publicPath, {
     prefix: '/',
   });
 

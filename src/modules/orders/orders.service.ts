@@ -255,7 +255,7 @@ export class OrdersService {
             order.user.email,
             order.orderNumber,
             order.id,
-            order.shippingName || order.user.name || 'Customer',
+            order.shippingName || `${order.user.firstName} ${order.user.lastName}` || 'Customer',
           );
         } catch (error) {
           // Log error but don't fail the status update
