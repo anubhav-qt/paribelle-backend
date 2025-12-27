@@ -24,6 +24,7 @@ import { SimpleEmailModule } from './modules/simple-email/simple-email.module';
 import { AddressesModule } from './modules/addresses/addresses.module';
 import { SearchModule } from './modules/search/search.module';
 import { CacheModule } from './modules/cache/cache.module';
+import { MarketplacePagesModule } from './modules/marketplace-pages/marketplace-pages.module';
 
 @Module({
   imports: [
@@ -105,6 +106,7 @@ import { CacheModule } from './modules/cache/cache.module';
     MonitoringModule,
     AddressesModule,
     SearchModule,
+    MarketplacePagesModule,
   ],
 })
 export class AppModule {}
