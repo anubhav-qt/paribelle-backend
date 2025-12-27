@@ -25,6 +25,7 @@ import { AddressesModule } from './modules/addresses/addresses.module';
 import { SearchModule } from './modules/search/search.module';
 import { CacheModule } from './modules/cache/cache.module';
 import { MarketplacePagesModule } from './modules/marketplace-pages/marketplace-pages.module';
+import { FooterSettingsModule } from './modules/footer-settings/footer-settings.module';
 
 @Module({
   imports: [
@@ -107,6 +108,7 @@ import { MarketplacePagesModule } from './modules/marketplace-pages/marketplace-
     AddressesModule,
     SearchModule,
     MarketplacePagesModule,
+    FooterSettingsModule,
   ],
 })
 export class AppModule {}
