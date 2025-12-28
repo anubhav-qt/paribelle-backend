@@ -20,12 +20,13 @@ export class HomepageService {
     try {
       console.log('[HomepageService] Fetching homepage data...', { cityId, subLocationId, vendorSlug });
       
-      // If vendorSlug is provided, get the vendor ID first
+      // If vendorSlug is provided, get the vendor
       let vendorId: string | undefined;
+      let vendor: Vendor | null = null;
       if (vendorSlug) {
-        const vendor = await this.getVendorBySlug(vendorSlug);
+        vendor = await this.getVendorBySlug(vendorSlug);
         vendorId = vendor?.id;
-        console.log('[HomepageService] Vendor found:', vendorId);
+        console.log('[HomepageService] Vendor found:', vendorId, 'categoryDisplayMode:', vendor?.categoryDisplayMode);
       }
       
       // Fetch all data in parallel
@@ -41,7 +42,8 @@ export class HomepageService {
       ] = await Promise.all([
         this.settingsService.getSetting('location_filter_enabled'),
         this.settingsService.getSetting('currency'),
-        this.settingsService.getSetting('category_display_mode'),
+        // Use vendor's categoryDisplayMode if vendor store, otherwise use marketplace setting
+        vendor ? Promise.resolve(vendor.categoryDisplayMode || 'sidebar') : this.settingsService.getSetting('category_display_mode'),
         this.settingsService.getSetting('marketplace_logo'),
         this.settingsService.getSetting('marketplace_name'),
         this.categoriesService.findAllRootCategories(),

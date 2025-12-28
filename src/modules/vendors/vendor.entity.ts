@@ -213,6 +213,10 @@ export class Vendor {
     };
   };
 
+  // Category Display Mode
+  @Column({ type: 'varchar', length: 10, default: 'sidebar', nullable: true })
+  categoryDisplayMode: string;
+
   // About & Content
   @Column({ type: 'text', nullable: true })
   aboutContent: string;
