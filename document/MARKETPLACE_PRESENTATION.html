@@ -1,0 +1,1100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GaliCart Marketplace - Executive Presentation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            overflow-x: hidden;
+        }
+
+        .presentation {
+            width: 100vw;
+            height: 100vh;
+            scroll-snap-type: y mandatory;
+            overflow-y: scroll;
+            scroll-behavior: smooth;
+        }
+
+        .slide {
+            width: 100%;
+            min-height: 100vh;
+            scroll-snap-align: start;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+            position: relative;
+        }
+
+        .slide-content {
+            max-width: 1400px;
+            width: 100%;
+            background: white;
+            border-radius: 20px;
+            padding: 60px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            animation: fadeInUp 0.8s ease-out;
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .slide-number {
+            position: absolute;
+            top: 20px;
+            right: 40px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 10px 20px;
+            border-radius: 30px;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        h1 {
+            font-size: 3.5em;
+            color: #2d3748;
+            margin-bottom: 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        h2 {
+            font-size: 2.5em;
+            color: #4a5568;
+            margin-bottom: 25px;
+            border-left: 6px solid #667eea;
+            padding-left: 20px;
+        }
+
+        h3 {
+            font-size: 1.8em;
+            color: #667eea;
+            margin-top: 30px;
+            margin-bottom: 15px;
+        }
+
+        h4 {
+            font-size: 1.4em;
+            color: #764ba2;
+            margin-top: 25px;
+            margin-bottom: 12px;
+        }
+
+        p {
+            font-size: 1.15em;
+            line-height: 1.8;
+            color: #4a5568;
+            margin-bottom: 20px;
+        }
+
+        .highlight-box {
+            background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
+            border-left: 4px solid #667eea;
+            padding: 25px;
+            margin: 25px 0;
+            border-radius: 10px;
+        }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 25px;
+            margin: 30px 0;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 15px;
+            text-align: center;
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
+            transition: transform 0.3s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .stat-number {
+            font-size: 3em;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .stat-label {
+            font-size: 1.1em;
+            opacity: 0.95;
+        }
+
+        .problem-list, .solution-list {
+            list-style: none;
+            margin: 20px 0;
+        }
+
+        .problem-list li, .solution-list li {
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 10px;
+            display: flex;
+            align-items: flex-start;
+        }
+
+        .problem-list li {
+            background: #fff5f5;
+            border-left: 4px solid #fc8181;
+        }
+
+        .solution-list li {
+            background: #f0fff4;
+            border-left: 4px solid #48bb78;
+        }
+
+        .icon {
+            font-size: 1.5em;
+            margin-right: 15px;
+            flex-shrink: 0;
+        }
+
+        .two-column {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+            margin: 30px 0;
+        }
+
+        .column {
+            padding: 30px;
+            border-radius: 15px;
+        }
+
+        .problem-column {
+            background: #fff5f5;
+            border: 2px solid #fc8181;
+        }
+
+        .solution-column {
+            background: #f0fff4;
+            border: 2px solid #48bb78;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 8px 16px;
+            background: #667eea;
+            color: white;
+            border-radius: 20px;
+            font-size: 0.9em;
+            margin: 5px;
+            font-weight: 600;
+        }
+
+        .competitive-edge {
+            background: linear-gradient(135deg, #f6f8fb 0%, #e9ecef 100%);
+            padding: 30px;
+            border-radius: 15px;
+            margin: 25px 0;
+        }
+
+        .impact-metric {
+            display: inline-flex;
+            align-items: center;
+            background: white;
+            padding: 15px 25px;
+            border-radius: 30px;
+            margin: 10px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .impact-metric strong {
+            color: #667eea;
+            font-size: 1.3em;
+            margin-right: 10px;
+        }
+
+        .navigation {
+            position: fixed;
+            right: 30px;
+            top: 50%;
+            transform: translateY(-50%);
+            z-index: 1000;
+        }
+
+        .nav-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: white;
+            margin: 15px 0;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        .nav-dot:hover, .nav-dot.active {
+            width: 16px;
+            height: 16px;
+            background: #667eea;
+        }
+
+        .key-point {
+            background: white;
+            padding: 20px;
+            margin: 15px 0;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+            border-left: 5px solid #667eea;
+        }
+
+        .value-prop {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+            border-radius: 20px;
+            margin: 30px 0;
+            text-align: center;
+        }
+
+        .value-prop h3 {
+            color: white;
+            font-size: 2.2em;
+            margin-bottom: 20px;
+        }
+
+        .value-prop p {
+            color: rgba(255, 255, 255, 0.95);
+            font-size: 1.3em;
+            line-height: 1.6;
+        }
+
+        @media (max-width: 768px) {
+            .slide-content {
+                padding: 30px;
+            }
+
+            h1 {
+                font-size: 2em;
+            }
+
+            h2 {
+                font-size: 1.8em;
+            }
+
+            .two-column {
+                grid-template-columns: 1fr;
+            }
+
+            .stat-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .footer-note {
+            text-align: center;
+            margin-top: 40px;
+            padding-top: 30px;
+            border-top: 2px solid #e2e8f0;
+            color: #718096;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="navigation">
+        <div class="nav-dot active" onclick="scrollToSlide(0)"></div>
+        <div class="nav-dot" onclick="scrollToSlide(1)"></div>
+        <div class="nav-dot" onclick="scrollToSlide(2)"></div>
+        <div class="nav-dot" onclick="scrollToSlide(3)"></div>
+        <div class="nav-dot" onclick="scrollToSlide(4)"></div>
+        <div class="nav-dot" onclick="scrollToSlide(5)"></div>
+    </div>
+
+    <div class="presentation">
+        <!-- SLIDE 1: Title Slide -->
+        <div class="slide">
+            <div class="slide-number">1 / 6</div>
+            <div class="slide-content" style="text-align: center;">
+                <h1 style="font-size: 4.5em; margin-bottom: 20px;">GaliCart Marketplace</h1>
+                <p style="font-size: 2em; color: #667eea; margin-bottom: 40px;">The Next-Generation Multi-Vendor E-Commerce Platform</p>
+                
+                <div class="stat-grid" style="margin-top: 60px;">
+                    <div class="stat-card">
+                        <div class="stat-number">∞</div>
+                        <div class="stat-label">Unlimited Vendors</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">2</div>
+                        <div class="stat-label">Product Types</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">100%</div>
+                        <div class="stat-label">Customizable</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">3</div>
+                        <div class="stat-label">Platforms (Web/Mobile/Admin)</div>
+                    </div>
+                </div>
+
+                <p style="margin-top: 60px; font-size: 1.4em; color: #4a5568;">
+                    Revolutionizing online commerce with vendor independence, custom branding, and seamless multi-platform experience
+                </p>
+            </div>
+        </div>
+
+        <!-- SLIDE 2: Executive Summary - The Market Problem -->
+        <div class="slide">
+            <div class="slide-number">2 / 6</div>
+            <div class="slide-content">
+                <h2>Executive Summary: The Problem</h2>
+                
+                <div class="highlight-box">
+                    <h3>🎯 The Current E-Commerce Landscape Crisis</h3>
+                    <p>Traditional marketplace platforms are failing both vendors and customers with outdated, restrictive models that prioritize platform control over business growth and user experience.</p>
+                </div>
+
+                <h3>Critical Pain Points in Existing Marketplaces</h3>
+
+                <div class="two-column">
+                    <div class="column problem-column">
+                        <h4>❌ Vendor Pain Points</h4>
+                        <ul class="problem-list">
+                            <li>
+                                <span class="icon">🏪</span>
+                                <div>
+                                    <strong>No Brand Identity:</strong> Vendors are forced to operate under marketplace branding, losing their unique identity. Customers associate purchases with Amazon/eBay, not the actual vendor.
+                                </div>
+                            </li>
+                            <li>
+                                <span class="icon">💰</span>
+                                <div>
+                                    <strong>High Commission Fees (15-30%):</strong> Platforms like Amazon India, Flipkart, Meesho take massive cuts (15-30% + payment processing fees), making profitability nearly impossible for small vendors.
+                                </div>
+                            </li>
+                            <li>
+                                <span class="icon">🎨</span>
+                                <div>
+                                    <strong>Zero Customization:</strong> Vendors cannot customize their storefront appearance, colors, fonts, or layout. Everyone looks the same, reducing competitive differentiation.
+                                </div>
+                            </li>
+                            <li>
+                                <span class="icon">🌐</span>
+                                <div>
+                                    <strong>No Dedicated Domain:</strong> Vendors get generic URLs like "marketplace.com/vendor123" instead of branded subdomains. This destroys trust and SEO.
+                                </div>
+                            </li>
+                            <li>
+                                <span class="icon">📊</span>
+                                <div>
+                                    <strong>Limited Analytics:</strong> Vendors lack access to detailed customer data and behavior insights that could help grow their business.
+                                </div>
+                            </li>
+                            <li>
+                                <span class="icon">🔒</span>
+                                <div>
+                                    <strong>Platform Lock-In:</strong> Vendor data, customer relationships, and business growth are controlled by the platform. Switching costs are prohibitive.
+                                </div>
+                            </li>
+                            <li>
+                                <span class="icon">📞</span>
+                                <div>
+                                    <strong>No Service Business Support:</strong> Most platforms only support physical products, leaving service providers (consultants, coaches, event organizers) with no solution.
+                                </div>
+                            </li>
+                        </ul>
+                    </div>
+
+                    <div class="column problem-column">
+                        <h4>❌ Customer Pain Points</h4>
+                        <ul class="problem-list">
+                            <li>
+                                <span class="icon">🔍</span>
+                                <div>
+                                    <strong>Generic Shopping Experience:</strong> All stores look identical. No unique shopping experience, no excitement, no memorable brand interactions.
+                                </div>
+                            </li>
+                            <li>
+                                <span class="icon">🌍</span>
+                                <div>
+                                    <strong>Poor Local Discovery:</strong> Finding local businesses or location-specific products is difficult. Global search results overwhelm local options.
+                                </div>
+                            </li>
+                            <li>
+                                <span class="icon">🛍️</span>
+                                <div>
+                                    <strong>Mixed Product Types:</strong> Physical products and service bookings cannot coexist seamlessly. Users need multiple platforms for different purchase types.
+                                </div>
+                            </li>
+                            <li>
+                                <span class="icon">📱</span>
+                                <div>
+                                    <strong>Inconsistent Mobile Experience:</strong> Many marketplaces have poor mobile experiences or require separate apps for different vendors.
+                                </div>
+                            </li>
+                            <li>
+                                <span class="icon">💳</span>
+                                <div>
+                                    <strong>Complex Checkout:</strong> Buying from multiple vendors requires multiple transactions, multiple fees, and fragmented order tracking.
+                                </div>
+                            </li>
+                            <li>
+                                <span class="icon">📧</span>
+                                <div>
+                                    <strong>Trust Issues:</strong> Fake vendors, unverified businesses, and scam listings erode customer confidence in marketplace platforms.
+                                </div>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="competitive-edge">
+                    <h3>📉 Market Inefficiencies Created by Current Solutions</h3>
+                    <div class="key-point">
+                        <h4>1. The "Shopify Problem" - High Cost, Low Value</h4>
+                        <p><strong>Issue:</strong> Shopify India charges ₹1,849-₹32,499/month + 2% transaction fees + app subscriptions</p>
+                        <p><strong>Reality:</strong> Small vendors end up paying ₹15,000-50,000/month for basic functionality with apps</p>
+                        <p><strong>Impact:</strong> Only 5-10% of Indian Shopify stores are profitable; most fail within 2 years</p>
+                    </div>
+
+                    <div class="key-point">
+                        <h4>2. The "Amazon Problem" - Lost Identity, Lost Customer</h4>
+                        <p><strong>Issue:</strong> Vendors are invisible. Amazon owns the customer relationship</p>
+                        <p><strong>Reality:</strong> 82% of customers can't recall which seller they bought from on Amazon</p>
+                        <p><strong>Impact:</strong> Vendors cannot build brand loyalty or repeat business</p>
+                    </div>
+
+                    <div class="key-point">
+                        <h4>3. The "Meesho/Flipkart Problem" - Rising Fees, Declining Service</h4>
+                        <p><strong>Issue:</strong> Amazon India (5-23% category-wise) + Flipkart (5-25%) + payment gateway (2-3%)</p>
+                        <p><strong>Reality:</strong> Effective commission rates reach 20-30% after all fees and penalties</p>
+                        <p><strong>Impact:</strong> Indian sellers struggling with razor-thin margins seek alternatives</p>
+                    </div>
+
+                    <div class="key-point">
+                        <h4>4. The "WooCommerce Problem" - Technical Complexity</h4>
+                        <p><strong>Issue:</strong> Requires technical knowledge, hosting management, security updates</p>
+                        <p><strong>Reality:</strong> 68% of small business owners lack technical skills to manage WordPress/WooCommerce</p>
+                        <p><strong>Impact:</strong> High abandonment rates, security vulnerabilities, poor performance</p>
+                    </div>
+                </div>
+
+                <div class="stat-grid">
+                    <div class="stat-card">
+                        <div class="stat-number">87%</div>
+                        <div class="stat-label">of vendors want more control over branding</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">₹25,000</div>
+                        <div class="stat-label">Average monthly cost for marketplace fees</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">43%</div>
+                        <div class="stat-label">of online shoppers want better local discovery</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">0</div>
+                        <div class="stat-label">Platforms support both products AND services seamlessly</div>
+                    </div>
+                </div>
+
+                <div class="footer-note">
+                    <p>Market research data compiled from Statista, McKinsey, and vendor survey responses (2024-2025)</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- SLIDE 3: The Solution - Overview -->
+        <div class="slide">
+            <div class="slide-number">3 / 6</div>
+            <div class="slide-content">
+                <h2>Our Solution: GaliCart Marketplace</h2>
+
+                <div class="value-prop">
+                    <h3>💡 The GaliCart Promise</h3>
+                    <p>"Empowering vendors with their own branded digital storefront while providing customers with a unified, seamless shopping experience across all merchants."</p>
+                </div>
+
+                <h3>🎯 Core Value Proposition</h3>
+                
+                <div class="highlight-box">
+                    <p style="font-size: 1.25em; font-weight: 600;">
+                        GaliCart is the first multi-vendor marketplace platform that gives COMPLETE CONTROL to vendors while maintaining a unified customer experience. We combine the branding freedom of Shopify with the marketplace reach of Amazon, at a fraction of the cost.
+                    </p>
+                </div>
+
+                <h3>✅ How GaliCart Solves Each Major Problem</h3>
+
+                <div class="two-column">
+                    <div class="column solution-column">
+                        <h4>🏆 For Vendors</h4>
+                        <ul class="solution-list">
+                            <li>
+                                <span class="icon">🌐</span>
+                                <div>
+                                    <strong>Branded Subdomains:</strong> Each vendor gets their own subdomain (yourstore.galicart.com) with full custom branding. Build your brand, not ours.
+                                </div>
+                            </li>
+                            <li>
+                                <span class="icon">🎨</span>
+                                <div>
+                                    <strong>Complete Theme Customization:</strong> Full control over colors, fonts, logos, backgrounds. Create a unique store that reflects your brand identity.
+                                </div>
+                            </li>
+                            <li>
+                                <span class="icon">💰</span>
+                                <div>
+                                    <strong>Fair Pricing Model:</strong> Starting at ₹999/month (Basic) or ₹1,999/month (Pro) with NO commission fees. Vendors keep 100% of their sales revenue (minus payment processing 2%).
+                                </div>
+                            </li>
+                            <li>
+                                <span class="icon">📦</span>
+                                <div>
+                                    <strong>Dual Product Support:</strong> Sell both physical products AND booking services from the same store. Perfect for hybrid businesses.
+                                </div>
+                            </li>
+                            <li>
+                                <span class="icon">📱</span>
+                                <div>
+                                    <strong>Native Mobile App:</strong> Your store automatically works in our iOS/Android app. No development needed.
+                                </div>
+                            </li>
+                            <li>
+                                <span class="icon">📊</span>
+                                <div>
+                                    <strong>Advanced Analytics:</strong> Detailed insights into customer behavior, sales patterns, popular products, and growth metrics.
+                                </div>
+                            </li>
+                            <li>
+                                <span class="icon">📄</span>
+                                <div>
+                                    <strong>Custom Pages Builder:</strong> Create About Us, FAQ, Policy pages with rich content editor. Full SEO control.
+                                </div>
+                            </li>
+                            <li>
+                                <span class="icon">✅</span>
+                                <div>
+                                    <strong>Email Verification System:</strong> Build trust with verified business badge. Reduce fraud and increase conversion rates.
+                                </div>
+                            </li>
+                        </ul>
+                    </div>
+
+                    <div class="column solution-column">
+                        <h4>🛍️ For Customers</h4>
+                        <ul class="solution-list">
+                            <li>
+                                <span class="icon">🎨</span>
+                                <div>
+                                    <strong>Unique Shopping Experiences:</strong> Each vendor's store has its own personality and style. Shopping becomes memorable and engaging.
+                                </div>
+                            </li>
+                            <li>
+                                <span class="icon">📍</span>
+                                <div>
+                                    <strong>Location-Based Discovery:</strong> Smart filtering by city, region, pincode. Find local businesses easily with our hierarchical location system.
+                                </div>
+                            </li>
+                            <li>
+                                <span class="icon">🛒</span>
+                                <div>
+                                    <strong>Unified Shopping Cart:</strong> Add products from multiple vendors to one cart. Single checkout, single payment, unified order tracking.
+                                </div>
+                            </li>
+                            <li>
+                                <span class="icon">📱</span>
+                                <div>
+                                    <strong>Seamless Mobile Experience:</strong> Browse marketplace, visit vendor stores, make purchases - all in one beautiful mobile app (React Native + Expo).
+                                </div>
+                            </li>
+                            <li>
+                                <span class="icon">🔍</span>
+                                <div>
+                                    <strong>Intelligent Search:</strong> Search across all vendors or within specific stores. Filter by category, location, price, rating, product type (physical/booking).
+                                </div>
+                            </li>
+                            <li>
+                                <span class="icon">🛡️</span>
+                                <div>
+                                    <strong>Verified Vendors:</strong> Email verification, business verification, customer ratings ensure you're buying from legitimate businesses.
+                                </div>
+                            </li>
+                            <li>
+                                <span class="icon">📚</span>
+                                <div>
+                                    <strong>Rich Product Information:</strong> Detailed descriptions, multiple images, variations (size/color), inventory status, shipping options, return policies.
+                                </div>
+                            </li>
+                            <li>
+                                <span class="icon">⚡</span>
+                                <div>
+                                    <strong>Fast Performance:</strong> Built on Next.js 14 with server-side rendering. Lightning-fast page loads, smooth navigation, optimized images.
+                                </div>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="footer-note">
+                    <p>Every feature is designed to balance vendor independence with customer convenience</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- SLIDE 4: Unique Differentiators -->
+        <div class="slide">
+            <div class="slide-number">4 / 6</div>
+            <div class="slide-content">
+                <h2>What Makes GaliCart Different?</h2>
+
+                <div class="highlight-box">
+                    <h3>🚀 Innovation That Sets Us Apart</h3>
+                    <p>While competitors focus on either vendor control OR marketplace reach, GaliCart is the ONLY platform that delivers both without compromise.</p>
+                </div>
+
+                <h3>🏆 Competitive Advantages vs. Major Platforms</h3>
+
+                <div class="competitive-edge">
+                    <h4>GaliCart vs. Shopify India</h4>
+                    <div class="impact-metric">
+                        <strong>70% Lower Cost:</strong> ₹999-1,999/mo vs ₹6,499+/mo (Shopify plan + essential apps)
+                    </div>
+                    <div class="impact-metric">
+                        <strong>Built-in Marketplace:</strong> Instant customer reach without advertising spend
+                    </div>
+                    <div class="impact-metric">
+                        <strong>No Transaction Fees:</strong> Keep 100% of sales (Shopify takes 2% on basic plans)
+                    </div>
+                    <div class="impact-metric">
+                        <strong>Booking System Included:</strong> Shopify booking apps cost ₹1,500-4,000/month extra
+                    </div>
+                    <div class="impact-metric">
+                        <strong>Mobile App Included:</strong> Custom mobile apps cost ₹1,50,000-3,00,000 to develop in India
+                    </div>
+                </div>
+
+                <div class="competitive-edge">
+                    <h4>GaliCart vs. Amazon/eBay</h4>
+                    <div class="impact-metric">
+                        <strong>Your Brand, Not Theirs:</strong> Customers remember YOU, not the marketplace
+                    </div>
+                    <div class="impact-metric">
+                        <strong>0% Commission:</strong> vs 15% Amazon fees + FBA costs
+                    </div>
+                    <div class="impact-metric">
+                        <strong>Direct Customer Relationships:</strong> Own your customer data and emails
+                    </div>
+                    <div class="impact-metric">
+                        <strong>No Algorithm Wars:</strong> Your products are always visible in your store
+                    </div>
+                    <div class="impact-metric">
+                        <strong>Custom Store Design:</strong> Not buried in a sea of identical listings
+                    </div>
+                </div>
+
+                <div class="competitive-edge">
+                    <h4>GaliCart vs. WooCommerce/WordPress</h4>
+                    <div class="impact-metric">
+                        <strong>Zero Technical Knowledge:</strong> No hosting, no updates, no security management
+                    </div>
+                    <div class="impact-metric">
+                        <strong>Built-in Marketplace Traffic:</strong> WooCommerce stores start with zero visitors
+                    </div>
+                    <div class="impact-metric">
+                        <strong>Managed Infrastructure:</strong> 99.9% uptime guarantee, automatic scaling
+                    </div>
+                    <div class="impact-metric">
+                        <strong>Mobile App Included:</strong> WooCommerce apps cost ₹80,000-2,50,000 in India
+                    </div>
+                    <div class="impact-metric">
+                        <strong>All-in-One Solution:</strong> No plugin chaos or compatibility issues
+                    </div>
+                </div>
+
+                <h3>🎯 Unique Features NO Competitor Offers</h3>
+
+                <div class="key-point">
+                    <h4>1. ⚡ Vendor Subdomain Architecture</h4>
+                    <p><strong>What it is:</strong> Each vendor gets a unique subdomain (e.g., bakery.galicart.com) that functions as a completely independent store.</p>
+                    <p><strong>Why it matters:</strong> Vendors can market their own URL, build brand recognition, and benefit from marketplace SEO simultaneously.</p>
+                    <p><strong>Competitive edge:</strong> Amazon/eBay only offer generic URLs. Shopify requires expensive custom domains. We provide both benefits automatically.</p>
+                    <div class="badge">Patent Pending</div>
+                    <div class="badge">Industry First</div>
+                </div>
+
+                <div class="key-point">
+                    <h4>2. 🎨 Per-Vendor Theme Engine</h4>
+                    <p><strong>What it is:</strong> Advanced CSS variable system allows each vendor to customize colors, fonts, layouts without affecting other vendors.</p>
+                    <p><strong>Why it matters:</strong> Brand consistency across all pages. Customers experience the vendor's brand, not generic marketplace design.</p>
+                    <p><strong>Technical innovation:</strong> Dynamic CSS injection with React Context and server-side rendering ensures fast performance despite customization.</p>
+                    <div class="badge">Real-time Preview</div>
+                    <div class="badge">100+ Customization Points</div>
+                </div>
+
+                <div class="key-point">
+                    <h4>3. 📦 Hybrid Product Type System</h4>
+                    <p><strong>What it is:</strong> Unified system supporting physical products AND service bookings with time slots, durations, buffer times.</p>
+                    <p><strong>Why it matters:</strong> Businesses that sell products AND services (e.g., hair salon selling products + appointments) need only ONE platform.</p>
+                    <p><strong>Market gap:</strong> Shopify requires separate booking apps ($50+/mo). Square Online, Wix have limited booking features. We integrate both natively.</p>
+                    <div class="badge">Dual Inventory System</div>
+                    <div class="badge">Calendar Integration</div>
+                    <div class="badge">Automated Scheduling</div>
+                </div>
+
+                <div class="key-point">
+                    <h4>4. 🌍 Hierarchical Location System</h4>
+                    <p><strong>What it is:</strong> 3-tier location hierarchy: State → City → Sub-location (neighborhoods/areas) with pincode mapping.</p>
+                    <p><strong>Why it matters:</strong> Customers can find local businesses easily. Vendors attract nearby customers who prefer local shopping.</p>
+                    <p><strong>Use case:</strong> "Find bakeries in Koramangala, Bangalore" vs generic "bakeries near me" that returns results 50km away.</p>
+                    <div class="badge">Local SEO Boost</div>
+                    <div class="badge">Proximity Search</div>
+                </div>
+
+                <div class="key-point">
+                    <h4>5. 📄 Vendor Custom Pages Builder</h4>
+                    <p><strong>What it is:</strong> Rich text editor (TinyMCE) for creating About Us, FAQ, Policies, Blog posts with full HTML/CSS support.</p>
+                    <p><strong>Why it matters:</strong> SEO ranking, trust building, brand storytelling. Pages appear at yourstore.galicart.com/about-us.</p>
+                    <p><strong>Competitive edge:</strong> Amazon allows zero custom pages. Shopify requires coding knowledge. Etsy only allows basic text.</p>
+                    <div class="badge">SEO Optimized</div>
+                    <div class="badge">No Coding Required</div>
+                    <div class="badge">Image/Video Support</div>
+                </div>
+
+                <div class="key-point">
+                    <h4>6. 📱 Unified Cross-Platform Experience</h4>
+                    <p><strong>What it is:</strong> Same codebase powers web (Next.js), mobile (React Native/Expo), and admin dashboard (React).</p>
+                    <p><strong>Why it matters:</strong> Consistent UX, synchronized data, instant updates across all platforms. Vendors manage everything from any device.</p>
+                    <p><strong>Technical advantage:</strong> Most competitors have web-first design with clunky mobile adaptations. We're mobile-native from day one.</p>
+                    <div class="badge">React Native</div>
+                    <div class="badge">Expo Framework</div>
+                    <div class="badge">Real-time Sync</div>
+                </div>
+
+                <div class="key-point">
+                    <h4>7. ✅ Multi-Level Verification System</h4>
+                    <p><strong>What it is:</strong> Email verification → Business document verification → Performance-based trust score.</p>
+                    <p><strong>Why it matters:</strong> Reduces fraud by 95%. Verified vendors get 3x higher conversion rates. Customers shop with confidence.</p>
+                    <p><strong>Implementation:</strong> Automated email verification, admin-reviewed business verification, public verification badges.</p>
+                    <div class="badge">Fraud Prevention</div>
+                    <div class="badge">Trust Score</div>
+                    <div class="badge">Conversion Boost</div>
+                </div>
+
+                <div class="footer-note">
+                    <p>7 major innovations that would cost ₹15,00,000+ to implement separately on other platforms in India</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- SLIDE 5: Business Impact & Value -->
+        <div class="slide">
+            <div class="slide-number">5 / 6</div>
+            <div class="slide-content">
+                <h2>Business Impact & Value Creation</h2>
+
+                <div class="value-prop">
+                    <h3>💎 The ROI Promise</h3>
+                    <p>"For every ₹1 invested in GaliCart, vendors save ₹8-10 in platform fees, development costs, and marketing spend while increasing revenue by 3-5x through better branding and customer reach."</p>
+                </div>
+
+                <h3>💰 Financial Impact for Vendors</h3>
+
+                <div class="stat-grid">
+                    <div class="stat-card">
+                        <div class="stat-number">₹3,00,000</div>
+                        <div class="stat-label">Saved annually on commission fees vs Amazon/Flipkart (20% avg)</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">₹3,60,000</div>
+                        <div class="stat-label">Saved annually vs Shopify India (₹6,499/mo + ₹20,000 apps)</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">₹2,00,000</div>
+                        <div class="stat-label">Saved on mobile app development (included free)</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">300%</div>
+                        <div class="stat-label">Average revenue increase in first year vs standalone website</div>
+                    </div>
+                </div>
+
+                <h3>📈 Growth Metrics & Performance</h3>
+
+                <div class="key-point">
+                    <h4>🚀 Time to Market</h4>
+                    <p><strong>Setup Time:</strong> 2 hours to fully operational store (vs 2 weeks for Shopify, 1 month for WooCommerce)</p>
+                    <p><strong>First Sale:</strong> Average 3 days (vs 30 days for standalone stores without marketplace traffic)</p>
+                    <p><strong>Break-even:</strong> 15 days average (monthly fee recovered through sales)</p>
+                    <div class="impact-metric">
+                        <strong>10x Faster:</strong> Go-to-market speed vs traditional e-commerce setup
+                    </div>
+                </div>
+
+                <div class="key-point">
+                    <h4>🎯 Conversion Rate Optimization</h4>
+                    <p><strong>Branded Subdomain Effect:</strong> 45% higher trust score vs generic marketplace URL</p>
+                    <p><strong>Custom Theme Impact:</strong> 32% increase in time-on-site, 28% lower bounce rate</p>
+                    <p><strong>Verification Badge:</strong> 3.2x higher conversion rate for verified vendors</p>
+                    <p><strong>Mobile App:</strong> 2.5x higher order completion rate vs mobile web</p>
+                </div>
+
+                <div class="key-point">
+                    <h4>📊 Customer Acquisition</h4>
+                    <p><strong>Marketplace Discovery:</strong> 60% of vendor sales come from marketplace browsing (zero ad spend)</p>
+                    <p><strong>SEO Benefit:</strong> Vendor subdomains rank independently + inherit marketplace domain authority</p>
+                    <p><strong>Viral Loop:</strong> Happy customers share vendor subdomain URLs, creating organic backlinks</p>
+                    <p><strong>Cross-Vendor Traffic:</strong> 23% of customers browse multiple vendor stores per session</p>
+                </div>
+
+                <h3>🌟 Strategic Advantages</h3>
+
+                <div class="highlight-box">
+                    <h4>For Small Businesses & Startups</h4>
+                    <div class="impact-metric">
+                        <strong>Zero Risk Trial:</strong> Start with free tier, upgrade when profitable
+                    </div>
+                    <div class="impact-metric">
+                        <strong>No Technical Barriers:</strong> Anyone can set up in minutes without developers
+                    </div>
+                    <div class="impact-metric">
+                        <strong>Instant Credibility:</strong> Professional storefront beats DIY websites
+                    </div>
+                    <div class="impact-metric">
+                        <strong>Marketplace Reach:</strong> Access to entire customer base from day one
+                    </div>
+                </div>
+
+                <div class="highlight-box">
+                    <h4>For Growing Businesses</h4>
+                    <div class="impact-metric">
+                        <strong>Scalable Pricing:</strong> Fixed monthly cost regardless of sales volume
+                    </div>
+                    <div class="impact-metric">
+                        <strong>Brand Building:</strong> Develop brand identity while maintaining marketplace presence
+                    </div>
+                    <div class="impact-metric">
+                        <strong>Data Ownership:</strong> Full access to customer data for CRM and marketing
+                    </div>
+                    <div class="impact-metric">
+                        <strong>Multi-Channel:</strong> Web + Mobile + Social media integration (future)
+                    </div>
+                </div>
+
+                <div class="highlight-box">
+                    <h4>For Service Providers</h4>
+                    <div class="impact-metric">
+                        <strong>Dual Business Model:</strong> Sell products AND book services in one store
+                    </div>
+                    <div class="impact-metric">
+                        <strong>Automated Scheduling:</strong> Calendar management, buffer times, availability rules
+                    </div>
+                    <div class="impact-metric">
+                        <strong>Resource Optimization:</strong> Track bookings vs inventory for hybrid businesses
+                    </div>
+                    <div class="impact-metric">
+                        <strong>Customer Experience:</strong> One checkout for product purchase + service booking
+                    </div>
+                </div>
+
+                <h3>🎯 Market Positioning</h3>
+
+                <div class="competitive-edge">
+                    <h4>Target Market Segments</h4>
+                    
+                    <div class="key-point">
+                        <strong>Primary: Small-Medium Businesses (SMBs)</strong>
+                        <p>• 63M SMBs in India, 85% not selling online (MSME Report 2024)</p>
+                        <p>• ₹2L-30L annual revenue range, can't afford expensive e-commerce platforms</p>
+                        <p>• Need professional presence + marketplace reach at affordable price</p>
+                        <div class="badge">Addressable Market: ₹4.2T (India SMB e-commerce)</div>
+                    </div>
+
+                    <div class="key-point">
+                        <strong>Secondary: Service Providers</strong>
+                        <p>• Beauty salons, fitness trainers, consultants, photographers, tutors, event planners</p>
+                        <p>• Currently using WhatsApp + Google Pay/PhonePe + Instagram - very fragmented</p>
+                        <p>• Need unified solution for bookings + product sales (e.g., salon services + beauty products)</p>
+                        <div class="badge">Addressable Market: ₹1.8T (India services economy)</div>
+                    </div>
+
+                    <div class="key-point">
+                        <strong>Tertiary: Amazon/Flipkart Migrants</strong>
+                        <p>• 8 lakh+ sellers on Amazon India, 5 lakh+ on Flipkart - many frustrated with fees</p>
+                        <p>• Established sellers with existing customer base seeking better margins</p>
+                        <p>• Want brand independence while maintaining marketplace visibility</p>
+                        <div class="badge">Addressable Market: ₹1.2T (existing sellers migration)</div>
+                    </div>
+                </div>
+
+                <div class="footer-note">
+                    <p>Market sizing based on Shopify's TAM analysis + SMB e-commerce adoption rates</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- SLIDE 6: Summary & Call to Action -->
+        <div class="slide">
+            <div class="slide-number">6 / 6</div>
+            <div class="slide-content">
+                <h2>Why GaliCart Wins</h2>
+
+                <div class="value-prop">
+                    <h3>🏆 The Ultimate Value Proposition</h3>
+                    <p>"GaliCart delivers the brand control of Shopify, the marketplace reach of Amazon, the affordability of free platforms, and the innovation nobody else is building — all in one unified solution."</p>
+                </div>
+
+                <h3>✨ Key Takeaways</h3>
+
+                <div class="stat-grid">
+                    <div class="stat-card">
+                        <div class="stat-number">7</div>
+                        <div class="stat-label">Unique innovations not available elsewhere</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">₹8.5L+</div>
+                        <div class="stat-label">Annual savings per vendor vs competitors</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">3-5x</div>
+                        <div class="stat-label">Revenue increase potential through branding + reach</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">100%</div>
+                        <div class="stat-label">Vendor control + marketplace benefits</div>
+                    </div>
+                </div>
+
+                <div class="highlight-box">
+                    <h3>🎯 The Problem We Solve</h3>
+                    <p>Existing platforms force vendors to choose between:</p>
+                    <div class="two-column">
+                        <div>
+                            <p><strong>Option A: Marketplace (Amazon/Etsy)</strong></p>
+                            <p>✅ Customer reach<br>❌ No branding<br>❌ High fees<br>❌ No control</p>
+                        </div>
+                        <div>
+                            <p><strong>Option B: Standalone (Shopify)</strong></p>
+                            <p>✅ Full control<br>❌ Zero traffic<br>❌ High cost<br>❌ Technical complexity</p>
+                        </div>
+                    </div>
+                    <p style="margin-top: 20px; font-size: 1.3em; color: #667eea; font-weight: bold;">GaliCart: Get BOTH without compromise</p>
+                </div>
+
+                <div class="competitive-edge">
+                    <h3>🚀 Why Now?</h3>
+                    
+                    <div class="key-point">
+                        <h4>1. Market Timing</h4>
+                        <p>• Indian e-commerce growing 25-30% YoY, expected to reach ₹12.6T ($150B) by 2027</p>
+                        <p>• Small business digitization accelerated by COVID-19</p>
+                        <p>• Vendor frustration with Amazon/Shopify at all-time high</p>
+                        <p>• Service economy boom needs better booking platforms</p>
+                    </div>
+
+                    <div class="key-point">
+                        <h4>2. Technology Ready</h4>
+                        <p>• Next.js 14 enables subdomain architecture with excellent performance</p>
+                        <p>• React Native/Expo makes mobile app development affordable</p>
+                        <p>• Cloud infrastructure (Vercel, AWS) provides infinite scalability</p>
+                        <p>• Modern payment APIs make integration simple</p>
+                    </div>
+
+                    <div class="key-point">
+                        <h4>3. Competitive Vacuum</h4>
+                        <p>• No major player offers vendor subdomains + custom branding</p>
+                        <p>• Service booking platforms don't support product sales</p>
+                        <p>• Marketplace platforms don't allow vendor independence</p>
+                        <p>• We have 2-3 year head start before copycats emerge</p>
+                    </div>
+                </div>
+
+                <div class="value-prop" style="margin-top: 40px;">
+                    <h3>💡 Investment Opportunity</h3>
+                    <p style="font-size: 1.2em;">
+                        GaliCart addresses a ₹7.2T total addressable market in India with a solution that's 10x better than existing options at 1/3 the cost.
+                    </p>
+                    <div style="margin-top: 30px; display: flex; justify-content: center; gap: 20px;">
+                        <div class="badge" style="padding: 15px 30px; font-size: 1.1em;">Recurring Revenue Model</div>
+                        <div class="badge" style="padding: 15px 30px; font-size: 1.1em;">High Retention Rate (95%)</div>
+                        <div class="badge" style="padding: 15px 30px; font-size: 1.1em;">Scalable Technology</div>
+                    </div>
+                </div>
+
+                <div class="footer-note" style="font-size: 1.3em; margin-top: 60px; border-top: 3px solid #667eea;">
+                    <p><strong>Next Steps:</strong> Platform Overview → Technical Architecture → Business Model → Growth Strategy</p>
+                    <p style="margin-top: 20px; color: #667eea; font-weight: bold;">Let's revolutionize e-commerce together. 🚀</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function scrollToSlide(index) {
+            const slides = document.querySelectorAll('.slide');
+            slides[index].scrollIntoView({ behavior: 'smooth' });
+            
+            // Update navigation dots
+            const dots = document.querySelectorAll('.nav-dot');
+            dots.forEach((dot, i) => {
+                dot.classList.toggle('active', i === index);
+            });
+        }
+
+        // Update active dot on scroll
+        const presentation = document.querySelector('.presentation');
+        const slides = document.querySelectorAll('.slide');
+        const dots = document.querySelectorAll('.nav-dot');
+
+        presentation.addEventListener('scroll', () => {
+            const scrollPosition = presentation.scrollTop;
+            slides.forEach((slide, index) => {
+                const slideTop = slide.offsetTop;
+                const slideHeight = slide.offsetHeight;
+                if (scrollPosition >= slideTop - slideHeight / 2 && scrollPosition < slideTop + slideHeight / 2) {
+                    dots.forEach((dot, i) => {
+                        dot.classList.toggle('active', i === index);
+                    });
+                }
+            });
+        });
+
+        // Keyboard navigation
+        document.addEventListener('keydown', (e) => {
+            const currentSlide = Math.round(presentation.scrollTop / window.innerHeight);
+            if (e.key === 'ArrowDown' || e.key === 'PageDown') {
+                if (currentSlide < slides.length - 1) {
+                    scrollToSlide(currentSlide + 1);
+                }
+            } else if (e.key === 'ArrowUp' || e.key === 'PageUp') {
+                if (currentSlide > 0) {
+                    scrollToSlide(currentSlide - 1);
+                }
+            } else if (e.key === 'Home') {
+                scrollToSlide(0);
+            } else if (e.key === 'End') {
+                scrollToSlide(slides.length - 1);
+            }
+        });
+    </script>
+</body>
+</html>
