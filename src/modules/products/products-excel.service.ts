@@ -21,19 +21,20 @@ export class ProductsExcelService {
     private vendorsRepository: Repository<Vendor>,
   ) {}
 
-  async exportToExcel(vendorId: string): Promise<Buffer> {
+  async exportToExcel(vendorId: string | null): Promise<Buffer> {
     try {
-      console.log('Starting Excel export for vendor:', vendorId);
+      console.log('Starting Excel export for vendor:', vendorId || 'ALL');
       const workbook = new ExcelJS.Workbook();
       
-      // Get vendor's products with categories
+      // Get products with categories
       console.log('Fetching products...');
+      const whereCondition = vendorId ? { vendorId } : {};
       const products = await this.productsRepository.find({
-        where: { vendorId },
+        where: whereCondition,
         relations: ['categories'],
       });
 
-      console.log(`Found ${products.length} products for vendor ${vendorId}`);
+      console.log(`Found ${products.length} products${vendorId ? ` for vendor ${vendorId}` : ' (all vendors)'}`);
 
       // Get all categories with their filter configurations
       console.log('Fetching categories...');
@@ -113,16 +114,32 @@ export class ProductsExcelService {
 
         // Add products data
         categoryProducts.forEach(product => {
+          // Handle images: keep full URLs for external images, just filename for local paths
+          const imagesList = product.images ? product.images.map(img => {
+            // If it's an external URL (http/https), keep the full URL
+            if (img.startsWith('http://') || img.startsWith('https://')) {
+              return img;
+            }
+            // For local paths, just use the filename
+            return path.basename(img);
+          }).join(', ') : '';
+
           const rowData: any = {
             name: product.name,
             description: product.description || '',
-            images: product.images ? product.images.map(img => path.basename(img)).join(', ') : '',
+            images: imagesList,
             price: product.price,
             compareAtPrice: product.compareAtPrice || '',
             stockQuantity: product.stockQuantity,
             status: product.status,
             _id: product.id, // Hidden ID for updates
           };
+
+          // Debug logging for images
+          if (product.images && product.images.length > 0) {
+            console.log(`Product "${product.name}" has ${product.images.length} images:`, product.images);
+            console.log(`Excel column value: "${imagesList}"`);
+          }
 
           // Add attribute values
           if (product.attributes) {
@@ -254,16 +271,17 @@ export class ProductsExcelService {
     }
   }
 
-  async exportToZip(vendorId: string): Promise<Buffer> {
+  async exportToZip(vendorId: string | null): Promise<Buffer> {
     try {
-      console.log('Starting ZIP export for vendor:', vendorId);
+      console.log('Starting ZIP export for vendor:', vendorId || 'ALL');
       
       // Get the Excel buffer first
       const excelBuffer = await this.exportToExcel(vendorId);
       
-      // Get vendor's products to extract images
+      // Get products to extract images
+      const whereCondition = vendorId ? { vendorId } : {};
       const products = await this.productsRepository.find({
-        where: { vendorId },
+        where: whereCondition,
       });
 
       console.log(`Found ${products.length} products for ZIP export`);
@@ -350,7 +368,7 @@ export class ProductsExcelService {
     return this.importFromExcelWithImages(vendorId, buffer, []);
   }
 
-  async importFromZip(vendorId: string, zipBuffer: Buffer): Promise<{ created: number; updated: number; errors: string[] }> {
+  async importFromZip(vendorId: string | null, zipBuffer: Buffer): Promise<{ created: number; updated: number; errors: string[] }> {
     try {
       // Extract ZIP file
       const zip = new AdmZip(zipBuffer);
@@ -406,12 +424,18 @@ export class ProductsExcelService {
   }
 
   async importFromExcelWithImages(
-    vendorId: string,
+    vendorId: string | null,
     buffer: Buffer,
     imageFiles: Express.Multer.File[],
   ): Promise<{ created: number; updated: number; errors: string[] }> {
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(buffer as any);
+
+    // If vendorId is null (admin importing all), we need to handle this differently
+    // For now, throw an error as importing all products requires vendor specification in Excel
+    if (!vendorId) {
+      throw new Error('Import for all vendors requires vendor IDs to be specified in the Excel file');
+    }
 
     const vendor = await this.vendorsRepository.findOne({ where: { id: vendorId } });
     if (!vendor) {

@@ -116,7 +116,9 @@ export class ProductsController {
     @Param('vendorId') vendorId: string,
     @Res() res: Response,
   ) {
-    const buffer = await this.productsExcelService.exportToZip(vendorId);
+    // Handle 'all' for admin to export all products
+    const targetVendorId = vendorId === 'all' ? null : vendorId;
+    const buffer = await this.productsExcelService.exportToZip(targetVendorId);
     
     res.setHeader(
       'Content-Type',
@@ -175,8 +177,10 @@ export class ProductsController {
     }
 
     try {
+      // Handle 'all' for admin to import all products
+      const targetVendorId = vendorId === 'all' ? null : vendorId;
       const result = await this.productsExcelService.importFromZip(
-        vendorId,
+        targetVendorId,
         file.buffer,
       );
       
