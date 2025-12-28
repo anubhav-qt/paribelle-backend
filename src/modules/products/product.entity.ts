@@ -109,6 +109,28 @@ export class Product {
   @Column({ type: 'jsonb', nullable: true })
   attributes: Record<string, any>;
 
+  // Product Variations Support
+  @Column({ default: false })
+  isParent: boolean;
+
+  @Column({ nullable: true })
+  parentProductId: string;
+
+  @ManyToOne(() => Product, (product) => product.variations, { nullable: true })
+  @JoinColumn({ name: 'parentProductId' })
+  parentProduct: Product;
+
+  @OneToMany(() => Product, (product) => product.parentProduct)
+  variations: Product[];
+
+  // Variation themes for parent products (e.g., ['color', 'size'])
+  @Column('text', { array: true, nullable: true })
+  variationThemes: string[];
+
+  // Specific attributes for this variation (e.g., {color: 'red', size: 'M'})
+  @Column({ type: 'jsonb', nullable: true })
+  variationAttributes: Record<string, string>;
+
   // Shipping
   @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
   weight: number;

@@ -236,6 +236,8 @@ export class ProductsService {
       .leftJoinAndSelect('product.categories', 'category')
       .leftJoinAndSelect('product.vendor', 'vendor')
       .leftJoinAndSelect('product.reviews', 'review')
+      .leftJoinAndSelect('product.variations', 'variations')
+      .leftJoinAndSelect('product.parentProduct', 'parentProduct')
       .leftJoinAndSelect('vendor.locationCity', 'city')
       .leftJoinAndSelect('vendor.locationSubLocation', 'subLocation')
       .select([
@@ -255,9 +257,43 @@ export class ProductsService {
         'review.rating',
         'review.comment',
         'review.createdAt',
+        'variations',
+        'parentProduct.id',
+        'parentProduct.name',
+        'parentProduct.slug',
       ])
       .where('product.id = :id', { id })
       .getOne();
+  }
+
+  /**
+   * Get all variations for a parent product
+   */
+  async findVariations(parentProductId: string): Promise<Product[]> {
+    return this.productsRepository.find({
+      where: { parentProductId },
+      relations: ['vendor', 'categories'],
+      order: { createdAt: 'ASC' },
+    });
+  }
+
+  /**
+   * Find a specific variation by parent product ID and variation attributes
+   */
+  async findVariationByAttributes(
+    parentProductId: string,
+    attributes: Record<string, string>,
+  ): Promise<Product | null> {
+    const variations = await this.findVariations(parentProductId);
+    
+    return variations.find((variation) => {
+      if (!variation.variationAttributes) return false;
+      
+      // Check if all attributes match
+      return Object.entries(attributes).every(
+        ([key, value]) => variation.variationAttributes[key] === value,
+      );
+    }) || null;
   }
 
   async findBySlug(slug: string): Promise<Product | null> {
@@ -266,6 +302,8 @@ export class ProductsService {
       .leftJoinAndSelect('product.categories', 'category')
       .leftJoinAndSelect('product.vendor', 'vendor')
       .leftJoinAndSelect('product.reviews', 'review')
+      .leftJoinAndSelect('product.variations', 'variations')
+      .leftJoinAndSelect('product.parentProduct', 'parentProduct')
       .leftJoinAndSelect('vendor.locationCity', 'city')
       .leftJoinAndSelect('vendor.locationSubLocation', 'subLocation')
       .select([
@@ -285,13 +323,17 @@ export class ProductsService {
         'review.rating',
         'review.comment',
         'review.createdAt',
+        'variations',
+        'parentProduct.id',
+        'parentProduct.name',
+        'parentProduct.slug',
       ])
       .where('product.slug = :slug', { slug })
       .getOne();
   }
 
   async create(productData: any): Promise<Product> {
-    const { categoryIds, newFilterOptions, categoryId, ...data } = productData;
+    const { categoryIds, newFilterOptions, categoryId, variations, ...data } = productData;
     
     // If categoryIds are provided, fetch the categories first
     let categories: Category[] = [];
@@ -338,17 +380,56 @@ export class ProductsService {
       }
     }
     
-    // Create and save the product with categories
+    // Create and save the parent product with categories
     const productToSave = {
       ...data,
       categories,
+      isParent: variations && variations.length > 0,
     };
     
     const product = this.productsRepository.create(productToSave);
     const savedProduct = await this.productsRepository.save(product);
+    const parentProduct = Array.isArray(savedProduct) ? savedProduct[0] : savedProduct;
     
-    // Return the first item if it's an array, otherwise return as is
-    return Array.isArray(savedProduct) ? savedProduct[0] : savedProduct;
+    // If variations are provided, create child products
+    if (variations && Array.isArray(variations) && variations.length > 0) {
+      for (const variation of variations) {
+        const variationProduct = this.productsRepository.create({
+          name: `${parentProduct.name} - ${Object.values(variation.attributes).join(' ')}`,
+          slug: `${parentProduct.slug}-${Object.values(variation.attributes).join('-').toLowerCase().replace(/\s+/g, '-')}`,
+          description: parentProduct.description,
+          shortDescription: parentProduct.shortDescription,
+          price: variation.price || parentProduct.price,
+          compareAtPrice: variation.compareAtPrice || parentProduct.compareAtPrice,
+          costPerItem: variation.costPerItem || parentProduct.costPerItem,
+          sku: variation.sku,
+          stockQuantity: variation.stockQuantity,
+          lowStockThreshold: parentProduct.lowStockThreshold,
+          trackInventory: parentProduct.trackInventory,
+          status: parentProduct.status,
+          productType: parentProduct.productType,
+          images: variation.images || [],
+          featuredImage: variation.featuredImage || (variation.images && variation.images[0]) || '',
+          metaTitle: parentProduct.metaTitle,
+          metaDescription: parentProduct.metaDescription,
+          metaKeywords: parentProduct.metaKeywords,
+          weight: variation.weight || parentProduct.weight,
+          weightUnit: parentProduct.weightUnit,
+          length: variation.length || parentProduct.length,
+          width: variation.width || parentProduct.width,
+          height: variation.height || parentProduct.height,
+          dimensionUnit: parentProduct.dimensionUnit,
+          vendorId: parentProduct.vendorId,
+          parentProductId: parentProduct.id,
+          variationAttributes: variation.attributes,
+          categories,
+        });
+        
+        await this.productsRepository.save(variationProduct);
+      }
+    }
+    
+    return parentProduct;
   }
 
   async update(id: string, productData: any): Promise<Product | null> {
