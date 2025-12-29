@@ -26,6 +26,7 @@ import { SearchModule } from './modules/search/search.module';
 import { CacheModule } from './modules/cache/cache.module';
 import { MarketplacePagesModule } from './modules/marketplace-pages/marketplace-pages.module';
 import { FooterSettingsModule } from './modules/footer-settings/footer-settings.module';
+import { PlatformModule } from './modules/platform/platform.module';
 
 @Module({
   imports: [
@@ -109,6 +110,7 @@ import { FooterSettingsModule } from './modules/footer-settings/footer-settings.
     SearchModule,
     MarketplacePagesModule,
     FooterSettingsModule,
+    PlatformModule,
   ],
 })
 export class AppModule {}

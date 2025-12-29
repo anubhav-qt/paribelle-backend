@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { Product, ProductStatus } from './product.entity';
+import { ProductVariant } from './product-variant.entity';
 import { Category } from '../categories/category.entity';
 import { CategoriesService } from '../categories/categories.service';
 
@@ -10,6 +11,8 @@ export class ProductsService {
   constructor(
     @InjectRepository(Product)
     private productsRepository: Repository<Product>,
+    @InjectRepository(ProductVariant)
+    private productVariantsRepository: Repository<ProductVariant>,
     @InjectRepository(Category)
     private categoriesRepository: Repository<Category>,
     private categoriesService: CategoriesService,
@@ -333,7 +336,7 @@ export class ProductsService {
   }
 
   async create(productData: any): Promise<Product> {
-    const { categoryIds, newFilterOptions, categoryId, variations, ...data } = productData;
+    const { categoryIds, newFilterOptions, categoryId, variations, variants, variantOptions, ...data } = productData;
     
     // If categoryIds are provided, fetch the categories first
     let categories: Category[] = [];
@@ -385,13 +388,15 @@ export class ProductsService {
       ...data,
       categories,
       isParent: variations && variations.length > 0,
+      hasVariants: variantOptions && Array.isArray(variantOptions) && variantOptions.length > 0,
+      variantOptions: variantOptions || null,
     };
     
     const product = this.productsRepository.create(productToSave);
     const savedProduct = await this.productsRepository.save(product);
     const parentProduct = Array.isArray(savedProduct) ? savedProduct[0] : savedProduct;
     
-    // If variations are provided, create child products
+    // If category-based variations are provided, create child products
     if (variations && Array.isArray(variations) && variations.length > 0) {
       for (const variation of variations) {
         const variationProduct = this.productsRepository.create({
@@ -426,6 +431,22 @@ export class ProductsService {
         });
         
         await this.productsRepository.save(variationProduct);
+      }
+    }
+
+    // If custom variants are provided, create ProductVariant entries
+    if (variants && Array.isArray(variants) && variants.length > 0) {
+      for (const variant of variants) {
+        const productVariant = this.productVariantsRepository.create({
+          productId: parentProduct.id,
+          variantAttributes: variant.attributes,
+          sku: variant.sku,
+          price: variant.price,
+          stockQuantity: variant.stock,
+          isActive: true,
+        });
+        
+        await this.productVariantsRepository.save(productVariant);
       }
     }
     

@@ -58,6 +58,28 @@ export class Product {
   @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
   costPerItem: number;
 
+  // GST and Tax fields
+  @Column({ nullable: true })
+  hsnCode: string;
+
+  @Column({ nullable: true })
+  sacCode: string;
+
+  @Column({ type: 'decimal', precision: 5, scale: 2, default: 18.00 })
+  gstRate: number;
+
+  @Column({ default: 'selling_price_without_gst' })
+  priceType: string; // 'mrp_with_gst' | 'selling_price_without_gst'
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  mrp: number;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  basePrice: number;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  gstAmount: number;
+
   @Column()
   sku: string;
 
@@ -109,7 +131,14 @@ export class Product {
   @Column({ type: 'jsonb', nullable: true })
   attributes: Record<string, any>;
 
-  // Product Variations Support
+  // Enhanced Variants Support
+  @Column({ default: false })
+  hasVariants: boolean;
+
+  @Column({ type: 'jsonb', nullable: true })
+  variantOptions: Record<string, string[]>; // e.g., { size: ['S', 'M', 'L'], color: ['Red', 'Blue'] }
+
+  // Product Variations Support (legacy)
   @Column({ default: false })
   isParent: boolean;
 

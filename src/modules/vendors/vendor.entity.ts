@@ -31,6 +31,29 @@ export enum VendorType {
   BUSINESS = 'business',
 }
 
+export enum KYCStatus {
+  PENDING = 'pending',
+  SUBMITTED = 'submitted',
+  UNDER_REVIEW = 'under_review',
+  APPROVED = 'approved',
+  REJECTED = 'rejected',
+}
+
+export enum GSTRegistrationType {
+  UNREGISTERED = 'unregistered',
+  REGULAR = 'regular',
+  COMPOSITION = 'composition',
+}
+
+export interface KYCDocument {
+  type: string;
+  documentNumber?: string;
+  documentUrl: string;
+  uploadedAt: Date;
+  fileName: string;
+  fileSize: number;
+}
+
 @Entity('vendors')
 export class Vendor {
   @PrimaryGeneratedColumn('uuid')
@@ -158,6 +181,45 @@ export class Vendor {
 
   @Column({ type: 'timestamp', nullable: true })
   kycVerifiedAt: Date;
+
+  // New comprehensive KYC fields
+  @Column({
+    type: 'enum',
+    enum: KYCStatus,
+    default: KYCStatus.PENDING,
+  })
+  kycStatus: KYCStatus;
+
+  @Column({ type: 'jsonb', nullable: true })
+  kycDocuments: KYCDocument[];
+
+  @Column({ type: 'timestamp', nullable: true })
+  kycSubmittedAt: Date;
+
+  @Column({ type: 'timestamp', nullable: true })
+  kycApprovedAt: Date;
+
+  @Column({ type: 'uuid', nullable: true })
+  kycApprovedBy: string;
+
+  @Column({ type: 'text', nullable: true })
+  kycRejectedReason: string | null;
+
+  @Column({ nullable: true })
+  panNumber: string;
+
+  @Column({
+    type: 'enum',
+    enum: GSTRegistrationType,
+    default: GSTRegistrationType.UNREGISTERED,
+  })
+  gstRegistrationType: GSTRegistrationType;
+
+  @Column({ nullable: true })
+  gstState: string;
+
+  @Column({ default: 'per_order' })
+  invoiceFrequency: string; // per_order, daily, weekly, monthly
 
   // Subdomain/custom domain support
   @Column({ nullable: true, unique: true })

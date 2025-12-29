@@ -9,6 +9,8 @@ import { VendorsController } from './vendors.controller';
 import { VendorsService } from './vendors.service';
 import { VendorPagesController } from './vendor-pages.controller';
 import { VendorPagesService } from './vendor-pages.service';
+import { KYCController } from './kyc.controller';
+import { KYCService } from './kyc.service';
 import { LocationsModule } from '../locations/locations.module';
 
 @Module({
@@ -16,8 +18,8 @@ import { LocationsModule } from '../locations/locations.module';
     TypeOrmModule.forFeature([Vendor, User, VendorPage, VendorBlogPost, VendorNavigation]),
     LocationsModule,
   ],
-  controllers: [VendorsController, VendorPagesController],
-  providers: [VendorsService, VendorPagesService],
-  exports: [VendorsService, VendorPagesService],
+  controllers: [VendorsController, VendorPagesController, KYCController],
+  providers: [VendorsService, VendorPagesService, KYCService],
+  exports: [VendorsService, VendorPagesService, KYCService],
 })
 export class VendorsModule {}
