@@ -1,7 +1,9 @@
 # Product Variants Implementation Guide
 
 ## Overview
-This guide explains the custom product variants feature that allows vendors to create products with multiple options (Size, Color, Material, Packet Size, etc.) independent of category attributes.
+This is the **recommended and only supported method** for creating products with multiple options (Size, Color, Material, Packet Size, etc.). This system creates **one product with multiple variants** stored in the `product_variants` table.
+
+**Note:** The old "Category-Based Variations" system (which created separate child products) has been deprecated and is no longer available for new products.
 
 ## Database Schema
 
@@ -279,16 +281,9 @@ Complex inventory management with health-conscious options
 - Too many combinations = poor UX
 - Consider splitting into separate products if needed
 
-## Differences from Category-Based Variations
+## Legacy System Note
 
-| Feature | Custom Variants | Category Variations |
-|---------|----------------|---------------------|
-| **Dependency** | Independent | Requires category attributes |
-| **Flexibility** | Fully customizable | Limited to category filters |
-| **Use Case** | Any product type | Category-specific products |
-| **Storage** | `product_variants` table | Child products with `parentProductId` |
-| **Attributes** | JSONB object | Category filter values |
-| **Performance** | Single table joins | Multiple product records |
+**Category-Based Variations (DEPRECATED):** The old system that created separate child products with `parentProductId` is no longer supported for new products. Existing products using this system will continue to work, but all new products should use the Product Variants system described in this guide.
 
 ## Troubleshooting
 

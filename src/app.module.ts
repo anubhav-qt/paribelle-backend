@@ -48,7 +48,7 @@ import { PlatformModule } from './modules/platform/platform.module';
             type: 'postgres' as const,
             url: databaseUrl,
             entities: [__dirname + '/**/*.entity{.ts,.js}'],
-            synchronize: configService.get('NODE_ENV') !== 'production',
+            synchronize: false, // Disabled to prevent auto-sync issues - use migrations instead
             logging: configService.get('NODE_ENV') !== 'production',
             dropSchema: false,
             extra: {
@@ -72,7 +72,7 @@ import { PlatformModule } from './modules/platform/platform.module';
           password: configService.get<string>('DB_PASSWORD') || 'admin',
           database: configService.get<string>('DB_DATABASE') || 'marketplace',
           entities: [__dirname + '/**/*.entity{.ts,.js}'],
-          synchronize: configService.get('NODE_ENV') !== 'production',
+          synchronize: false, // Disabled to prevent auto-sync issues - use migrations instead
           logging: configService.get('NODE_ENV') !== 'production',
           dropSchema: false,
           extra: {

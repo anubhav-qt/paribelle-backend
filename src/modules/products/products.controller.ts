@@ -71,6 +71,12 @@ export class ProductsController {
     return this.productsService.findOne(id);
   }
 
+  @Get(':id/variants')
+  @ApiOperation({ summary: 'Get product variants' })
+  async getProductVariants(@Param('id') id: string) {
+    return this.productsService.getProductVariants(id);
+  }
+
   @Post()
   @ApiOperation({ summary: 'Create a new product' })
   async create(@Body() productData: Partial<Product>) {

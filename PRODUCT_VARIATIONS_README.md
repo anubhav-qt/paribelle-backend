@@ -1,12 +1,20 @@
-# Product Variations Feature
+# Product Variations Feature (LEGACY - DEPRECATED)
 
-## Overview
+## ⚠️ DEPRECATION NOTICE
 
-The Product Variations feature enables vendors to create products with multiple options (like color, size, material, etc.) similar to Amazon's product variation system. Each variation can have:
-- Different stock quantities
-- Different prices
-- Different images
-- Unique SKUs
+**This document describes a legacy system that is no longer supported for new products.**
+
+The category-based variations system (which created separate child products with `parentProductId`) has been **deprecated** in favor of the new **Product Variants** system.
+
+**For new products, please use the Product Variants system instead.** See [PRODUCT_VARIANTS_GUIDE.md](PRODUCT_VARIANTS_GUIDE.md) for the current implementation.
+
+This document is kept for reference only to support existing products that were created with the old system.
+
+---
+
+## Overview (Legacy System)
+
+The legacy Product Variations feature enabled vendors to create products with multiple options (like color, size, material, etc.) by creating separate child products. Each variation was stored as a separate product record with a `parentProductId` reference.
 
 ## Architecture
 

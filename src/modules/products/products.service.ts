@@ -234,7 +234,7 @@ export class ProductsService {
   }
 
   async findOne(id: string): Promise<Product | null> {
-    return this.productsRepository
+    const product = await this.productsRepository
       .createQueryBuilder('product')
       .leftJoinAndSelect('product.categories', 'category')
       .leftJoinAndSelect('product.vendor', 'vendor')
@@ -267,6 +267,24 @@ export class ProductsService {
       ])
       .where('product.id = :id', { id })
       .getOne();
+    
+    // If product has variants, fetch them
+    if (product && product.hasVariants) {
+      const variants = await this.getProductVariants(product.id);
+      (product as any).productVariants = variants;
+    }
+    
+    return product;
+  }
+
+  /**
+   * Get all product variants for a product
+   */
+  async getProductVariants(productId: string): Promise<ProductVariant[]> {
+    return this.productVariantsRepository.find({
+      where: { productId },
+      order: { createdAt: 'ASC' },
+    });
   }
 
   /**
@@ -300,7 +318,7 @@ export class ProductsService {
   }
 
   async findBySlug(slug: string): Promise<Product | null> {
-    return this.productsRepository
+    const product = await this.productsRepository
       .createQueryBuilder('product')
       .leftJoinAndSelect('product.categories', 'category')
       .leftJoinAndSelect('product.vendor', 'vendor')
@@ -333,6 +351,14 @@ export class ProductsService {
       ])
       .where('product.slug = :slug', { slug })
       .getOne();
+    
+    // If product has variants, fetch them
+    if (product && product.hasVariants) {
+      const variants = await this.getProductVariants(product.id);
+      (product as any).productVariants = variants;
+    }
+    
+    return product;
   }
 
   async create(productData: any): Promise<Product> {
@@ -383,11 +409,10 @@ export class ProductsService {
       }
     }
     
-    // Create and save the parent product with categories
+    // Create and save the product with categories
     const productToSave = {
       ...data,
       categories,
-      isParent: variations && variations.length > 0,
       hasVariants: variantOptions && Array.isArray(variantOptions) && variantOptions.length > 0,
       variantOptions: variantOptions || null,
     };
@@ -395,46 +420,8 @@ export class ProductsService {
     const product = this.productsRepository.create(productToSave);
     const savedProduct = await this.productsRepository.save(product);
     const parentProduct = Array.isArray(savedProduct) ? savedProduct[0] : savedProduct;
-    
-    // If category-based variations are provided, create child products
-    if (variations && Array.isArray(variations) && variations.length > 0) {
-      for (const variation of variations) {
-        const variationProduct = this.productsRepository.create({
-          name: `${parentProduct.name} - ${Object.values(variation.attributes).join(' ')}`,
-          slug: `${parentProduct.slug}-${Object.values(variation.attributes).join('-').toLowerCase().replace(/\s+/g, '-')}`,
-          description: parentProduct.description,
-          shortDescription: parentProduct.shortDescription,
-          price: variation.price || parentProduct.price,
-          compareAtPrice: variation.compareAtPrice || parentProduct.compareAtPrice,
-          costPerItem: variation.costPerItem || parentProduct.costPerItem,
-          sku: variation.sku,
-          stockQuantity: variation.stockQuantity,
-          lowStockThreshold: parentProduct.lowStockThreshold,
-          trackInventory: parentProduct.trackInventory,
-          status: parentProduct.status,
-          productType: parentProduct.productType,
-          images: variation.images || [],
-          featuredImage: variation.featuredImage || (variation.images && variation.images[0]) || '',
-          metaTitle: parentProduct.metaTitle,
-          metaDescription: parentProduct.metaDescription,
-          metaKeywords: parentProduct.metaKeywords,
-          weight: variation.weight || parentProduct.weight,
-          weightUnit: parentProduct.weightUnit,
-          length: variation.length || parentProduct.length,
-          width: variation.width || parentProduct.width,
-          height: variation.height || parentProduct.height,
-          dimensionUnit: parentProduct.dimensionUnit,
-          vendorId: parentProduct.vendorId,
-          parentProductId: parentProduct.id,
-          variationAttributes: variation.attributes,
-          categories,
-        });
-        
-        await this.productsRepository.save(variationProduct);
-      }
-    }
 
-    // If custom variants are provided, create ProductVariant entries
+    // If variants are provided, create ProductVariant entries
     if (variants && Array.isArray(variants) && variants.length > 0) {
       for (const variant of variants) {
         const productVariant = this.productVariantsRepository.create({
@@ -442,6 +429,7 @@ export class ProductsService {
           variantAttributes: variant.attributes,
           sku: variant.sku,
           price: variant.price,
+          compareAtPrice: variant.compareAtPrice,
           stockQuantity: variant.stock,
           isActive: true,
         });
@@ -454,9 +442,16 @@ export class ProductsService {
   }
 
   async update(id: string, productData: any): Promise<Product | null> {
-    const { categoryIds, ...data } = productData;
+    const { 
+      categoryIds, 
+      variations, 
+      vendor, 
+      reviews, 
+      parentProduct, 
+      ...data 
+    } = productData;
     
-    // Update basic product data
+    // Update basic product data (excluding relation fields)
     if (Object.keys(data).length > 0) {
       await this.productsRepository.update(id, data);
     }

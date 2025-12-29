@@ -33,6 +33,9 @@ export class ProductVariant {
   @Column({ type: 'decimal', precision: 10, scale: 2 })
   price: number;
 
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  compareAtPrice: number;
+
   @Column({ type: 'int', default: 0 })
   stockQuantity: number;
 
