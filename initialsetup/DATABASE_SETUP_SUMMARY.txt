@@ -1,0 +1,135 @@
+┌─────────────────────────────────────────────────────────────────┐
+│         🗄️  MARKETPLACE DATABASE INITIALIZATION TOOLS          │
+└─────────────────────────────────────────────────────────────────┘
+
+📦 CREATED FILES:
+├── init-database.sql ................ Complete SQL schema (27 tables)
+├── init-database.js ................. Node.js setup script ✨
+├── init-database.ps1 ................ PowerShell setup script
+├── DATABASE_INIT_GUIDE.md ........... Full documentation
+└── README_DATABASE_SETUP.md ......... Quick reference guide
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🚀 QUICKEST WAY TO GET STARTED:
+
+  1. Ensure .env file has database credentials
+  2. Run: npm run db:init:create
+  3. Done! ✅
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📝 ALL AVAILABLE METHODS:
+
+┌─────────────────────────────────────────────────────────────┐
+│ METHOD 1: NPM SCRIPTS (Easiest)                            │
+├─────────────────────────────────────────────────────────────┤
+│ npm run db:init:create    → Create & initialize database   │
+│ npm run db:init           → Initialize existing database   │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│ METHOD 2: NODE.JS (Cross-platform)                         │
+├─────────────────────────────────────────────────────────────┤
+│ node init-database.js --create-database                     │
+│ node init-database.js --host localhost --user admin ...     │
+│ node init-database.js --help                                │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│ METHOD 3: POWERSHELL (Windows)                              │
+├─────────────────────────────────────────────────────────────┤
+│ .\init-database.ps1 -CreateDatabase                         │
+│ .\init-database.ps1 -DBHost localhost -DBUser admin ...     │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│ METHOD 4: MANUAL (SQL file)                                 │
+├─────────────────────────────────────────────────────────────┤
+│ psql -U admin -d marketplace -f init-database.sql           │
+└─────────────────────────────────────────────────────────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📊 DATABASE SCHEMA INCLUDES:
+
+✓ 27 Tables with proper relationships
+✓ Foreign keys for data integrity
+✓ Performance indexes on key columns
+✓ UUID primary keys for scalability
+✓ Timestamps on all tables
+
+TABLES BY CATEGORY:
+├── Core ............... users, categories, addresses, hsn_codes
+├── Vendors ............ vendors, vendor_pages, vendor_blog_posts, vendor_navigation
+├── Products ........... products, product_variants
+├── Orders ............. orders, order_items, payments, bookings
+├── Invoices ........... invoices, invoice_items
+├── Reviews ............ reviews, vendor_reviews
+├── Settings ........... settings, platform_settings, homepage_settings, 
+│                        footer_settings, marketplace_pages
+└── Locations .......... cities, sub_locations
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⚙️  CONFIGURATION:
+
+Environment variables (.env file):
+  DB_HOST=localhost
+  DB_PORT=5432
+  DB_USERNAME=admin
+  DB_PASSWORD=your_password
+  DB_DATABASE=marketplace
+
+Command-line arguments take precedence over .env values
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📋 COMPLETE SETUP WORKFLOW:
+
+  Step 1: Install dependencies
+  $ npm install
+
+  Step 2: Configure .env file
+  (Add database credentials)
+
+  Step 3: Initialize database
+  $ npm run db:init:create
+
+  Step 4: Seed sample data (optional)
+  $ npm run seed
+
+  Step 5: Start backend
+  $ npm run dev
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔧 USEFUL NPM SCRIPTS:
+
+  npm run db:init:create ...... Create database & initialize schema
+  npm run db:init ............. Initialize existing database
+  npm run seed ................ Seed sample marketplace data
+  npm run seed:admin .......... Create admin user only
+  npm run migration:run ....... Run TypeORM migrations
+  npm run dev ................. Start backend in dev mode
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📚 DOCUMENTATION:
+
+  Quick Reference ... README_DATABASE_SETUP.md
+  Full Guide ........ DATABASE_INIT_GUIDE.md
+  SQL Schema ........ init-database.sql
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✨ Features:
+  • Cross-platform (Node.js & PowerShell)
+  • Automatic database creation
+  • Environment variable support
+  • Command-line argument support
+  • Detailed error messages
+  • Color-coded output
+  • Safe to run multiple times
+
+🎉 Ready for first-time deployment!
