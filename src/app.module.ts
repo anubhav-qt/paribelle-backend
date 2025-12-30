@@ -28,6 +28,7 @@ import { MarketplacePagesModule } from './modules/marketplace-pages/marketplace-
 import { FooterSettingsModule } from './modules/footer-settings/footer-settings.module';
 import { PlatformModule } from './modules/platform/platform.module';
 import { HsnCodesModule } from './modules/hsn-codes/hsn-codes.module';
+import { InvoicesModule } from './modules/invoices/invoices.module';
 
 @Module({
   imports: [
@@ -113,6 +114,7 @@ import { HsnCodesModule } from './modules/hsn-codes/hsn-codes.module';
     FooterSettingsModule,
     PlatformModule,
     HsnCodesModule,
+    InvoicesModule,
   ],
 })
 export class AppModule {}

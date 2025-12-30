@@ -12,6 +12,7 @@ import { User } from '../users/user.entity';
 import { Vendor } from '../vendors/vendor.entity';
 import { OrderItem } from './order-item.entity';
 import { Payment } from '../payments/payment.entity';
+import { Invoice } from '../invoices/invoice.entity';
 
 export enum OrderStatus {
   PENDING = 'pending',
@@ -170,6 +171,9 @@ export class Order {
 
   @OneToMany(() => Payment, (payment) => payment.order)
   payments: Payment[];
+
+  @OneToMany(() => Invoice, (invoice) => invoice.order)
+  invoices: Invoice[];
 
   @CreateDateColumn()
   createdAt: Date;

@@ -416,4 +416,209 @@ Thank you for shopping with us!
       return false;
     }
   }
+
+  async sendInvoiceEmail(
+    email: string,
+    recipientName: string,
+    subject: string,
+    message: string,
+    invoice: any,
+  ) {
+    const appName = this.configService.get('APP_NAME') || 'GaliCart';
+    const appUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
+    const fs = require('fs').promises;
+    const path = require('path');
+
+    try {
+      // Read PDF file if exists
+      let attachments: Array<{ filename: string; content: Buffer; contentType: string }> = [];
+      if (invoice.pdfUrl) {
+        try {
+          const pdfPath = path.join(process.cwd(), invoice.pdfUrl);
+          const pdfBuffer = await fs.readFile(pdfPath);
+          attachments.push({
+            filename: `invoice-${invoice.invoiceNumber}.pdf`,
+            content: pdfBuffer,
+            contentType: 'application/pdf',
+          });
+        } catch (error) {
+          this.logger.warn(`Failed to read PDF file for invoice ${invoice.invoiceNumber}:`, error);
+        }
+      }
+
+      const invoiceTypeLabel = this.getInvoiceTypeLabel(invoice.type);
+
+      await this.transporter.sendMail({
+        from: this.configService.get('MAIL_FROM') || this.configService.get('MAIL_USER'),
+        to: email,
+        subject,
+        html: `
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <meta charset="utf-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <style>
+                body {
+                  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+                  line-height: 1.6;
+                  color: #333;
+                  margin: 0;
+                  padding: 0;
+                  background-color: #f4f4f4;
+                }
+                .container {
+                  max-width: 600px;
+                  margin: 40px auto;
+                  background: white;
+                  border-radius: 8px;
+                  overflow: hidden;
+                  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                }
+                .header {
+                  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                  padding: 40px 20px;
+                  text-align: center;
+                  color: white;
+                }
+                .header h1 {
+                  margin: 0;
+                  font-size: 28px;
+                  font-weight: 600;
+                }
+                .icon {
+                  font-size: 48px;
+                  margin-bottom: 10px;
+                }
+                .content {
+                  padding: 40px 30px;
+                }
+                .content h2 {
+                  margin-top: 0;
+                  color: #333;
+                  font-size: 24px;
+                }
+                .content p {
+                  margin: 16px 0;
+                  color: #666;
+                  font-size: 16px;
+                }
+                .invoice-info {
+                  background: #f8f9fa;
+                  padding: 20px;
+                  border-radius: 6px;
+                  margin: 24px 0;
+                  border-left: 4px solid #667eea;
+                }
+                .invoice-info p {
+                  margin: 8px 0;
+                }
+                .invoice-info strong {
+                  color: #333;
+                }
+                .button {
+                  display: inline-block;
+                  padding: 14px 32px;
+                  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                  color: white !important;
+                  text-decoration: none;
+                  border-radius: 6px;
+                  font-weight: 600;
+                  font-size: 16px;
+                  margin: 24px 0;
+                  transition: transform 0.2s;
+                }
+                .footer {
+                  padding: 30px;
+                  text-align: center;
+                  background: #f8f9fa;
+                  color: #666;
+                  font-size: 14px;
+                  border-top: 1px solid #e9ecef;
+                }
+                .footer a {
+                  color: #667eea;
+                  text-decoration: none;
+                }
+                .divider {
+                  border: 0;
+                  border-top: 1px solid #e9ecef;
+                  margin: 24px 0;
+                }
+              </style>
+            </head>
+            <body>
+              <div class="container">
+                <div class="header">
+                  <div class="icon">📄</div>
+                  <h1>${appName}</h1>
+                </div>
+                <div class="content">
+                  <h2>${invoiceTypeLabel}</h2>
+                  
+                  ${message}
+                  
+                  <div class="invoice-info">
+                    <p><strong>Invoice Number:</strong> ${invoice.invoiceNumber}</p>
+                    <p><strong>Invoice Date:</strong> ${this.formatDate(invoice.invoiceDate)}</p>
+                    <p><strong>Due Date:</strong> ${this.formatDate(invoice.dueDate)}</p>
+                    <p><strong>Total Amount:</strong> ${this.formatCurrency(invoice.total)}</p>
+                    ${invoice.type === 'vendor' && invoice.payoutAmount ? 
+                      `<p><strong>Payout Amount:</strong> ${this.formatCurrency(invoice.payoutAmount)}</p>` : ''}
+                  </div>
+                  
+                  <hr class="divider">
+                  
+                  <p style="font-size: 14px; color: #666;">
+                    The invoice is attached to this email as a PDF document. If you have any questions or concerns, please don't hesitate to contact us.
+                  </p>
+                </div>
+                <div class="footer">
+                  <p>© ${new Date().getFullYear()} ${appName}. All rights reserved.</p>
+                  <p>
+                    <a href="${appUrl}/contact">Contact Support</a>
+                  </p>
+                </div>
+              </div>
+            </body>
+          </html>
+        `,
+        attachments,
+      });
+
+      this.logger.log(`Invoice email sent to ${email} for invoice ${invoice.invoiceNumber}`);
+      return true;
+    } catch (error) {
+      this.logger.error(`Failed to send invoice email to ${email}:`, error);
+      throw new Error('Failed to send invoice email');
+    }
+  }
+
+  private getInvoiceTypeLabel(type: string): string {
+    switch (type) {
+      case 'customer':
+        return 'Invoice';
+      case 'vendor':
+        return 'Payout Statement';
+      case 'platform':
+        return 'Commission Invoice';
+      default:
+        return 'Invoice';
+    }
+  }
+
+  private formatDate(date: Date | string): string {
+    return new Date(date).toLocaleDateString('en-IN', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+  }
+
+  private formatCurrency(amount: number): string {
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+    }).format(amount);
+  }
 }
