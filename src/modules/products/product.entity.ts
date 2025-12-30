@@ -15,6 +15,7 @@ import { Vendor } from '../vendors/vendor.entity';
 import { Category } from '../categories/category.entity';
 import { OrderItem } from '../orders/order-item.entity';
 import { Review } from '../reviews/review.entity';
+import { ProductVariant } from './product-variant.entity';
 
 export enum ProductStatus {
   DRAFT = 'draft',
@@ -137,6 +138,9 @@ export class Product {
 
   @Column({ type: 'jsonb', nullable: true })
   variantOptions: Record<string, string[]>; // e.g., { size: ['S', 'M', 'L'], color: ['Red', 'Blue'] }
+
+  @OneToMany(() => ProductVariant, (variant) => variant.product)
+  productVariants: ProductVariant[];
 
   // Product Variations Support (legacy)
   @Column({ default: false })

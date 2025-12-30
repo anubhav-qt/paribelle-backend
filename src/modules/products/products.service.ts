@@ -34,6 +34,7 @@ export class ProductsService {
       .leftJoinAndSelect('product.vendor', 'vendor')
       .leftJoinAndSelect('vendor.locationCity', 'city')
       .leftJoinAndSelect('vendor.locationSubLocation', 'subLocation')
+      .leftJoinAndSelect('product.productVariants', 'productVariants')
       .select([
         'product',
         'vendor.id',
@@ -44,6 +45,7 @@ export class ProductsService {
         'city.name',
         'subLocation.id',
         'subLocation.name',
+        'productVariants',
       ]);
 
     // Filter for uncategorized products (products with no categories)
@@ -447,13 +449,29 @@ export class ProductsService {
       variations, 
       vendor, 
       reviews, 
-      parentProduct, 
+      parentProduct,
+      productVariants,
+      variantOptions,
       ...data 
     } = productData;
     
     // Update basic product data (excluding relation fields)
     if (Object.keys(data).length > 0) {
       await this.productsRepository.update(id, data);
+    }
+    
+    // Update product variants if provided
+    if (productVariants && Array.isArray(productVariants) && productVariants.length > 0) {
+      for (const variantData of productVariants) {
+        if (variantData.id) {
+          // Update existing variant
+          await this.productVariantsRepository.update(variantData.id, {
+            price: variantData.price,
+            compareAtPrice: variantData.compareAtPrice,
+            stockQuantity: variantData.stockQuantity,
+          });
+        }
+      }
     }
     
     // If categoryIds are provided, update the categories relationship
