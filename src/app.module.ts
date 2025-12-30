@@ -27,6 +27,7 @@ import { CacheModule } from './modules/cache/cache.module';
 import { MarketplacePagesModule } from './modules/marketplace-pages/marketplace-pages.module';
 import { FooterSettingsModule } from './modules/footer-settings/footer-settings.module';
 import { PlatformModule } from './modules/platform/platform.module';
+import { HsnCodesModule } from './modules/hsn-codes/hsn-codes.module';
 
 @Module({
   imports: [
@@ -111,6 +112,7 @@ import { PlatformModule } from './modules/platform/platform.module';
     MarketplacePagesModule,
     FooterSettingsModule,
     PlatformModule,
+    HsnCodesModule,
   ],
 })
 export class AppModule {}
