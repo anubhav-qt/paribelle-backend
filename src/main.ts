@@ -1,3 +1,5 @@
+console.log('🟢 main.ts file loading...');
+
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
@@ -8,6 +10,8 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { MonitoringService } from './modules/monitoring/monitoring.service';
+
+console.log('🟢 All imports loaded successfully');
 
 async function bootstrap() {
   console.log('🔵 Starting bootstrap...');
