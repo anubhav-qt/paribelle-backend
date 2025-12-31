@@ -1,6 +1,6 @@
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
 
-@Entity('site_settings')
+@Entity('settings')
 export class SiteSetting {
   @PrimaryGeneratedColumn('uuid')
   id: string;
