@@ -1,5 +1,6 @@
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
 
+// Settings entity - maps to 'settings' table in database
 @Entity('settings')
 export class SiteSetting {
   @PrimaryGeneratedColumn('uuid')
