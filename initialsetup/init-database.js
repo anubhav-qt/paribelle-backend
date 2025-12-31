@@ -106,6 +106,10 @@ Notes:
 }
 
 async function createDatabase() {
+  console.log('\n========================================');
+  console.log('🚀 Marketplace Database Initialization');
+  console.log('========================================\n');
+  
   print('\n========================================', 'cyan');
   print('🚀 Marketplace Database Initialization', 'cyan');
   print('========================================\n', 'cyan');
@@ -282,8 +286,8 @@ async function createDatabase() {
 
 // Run the script
 createDatabase().catch(error => {
-  print('❌ Unexpected error!', 'red');
-  print(`   Error: ${error.message}`, 'red');
-  console.error(error);
+  console.error('\n❌ FATAL ERROR: Database initialization failed!');
+  console.error(`Error: ${error.message}`);
+  console.error('Stack trace:', error.stack);
   process.exit(1);
 });
