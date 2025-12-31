@@ -10,7 +10,12 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { MonitoringService } from './modules/monitoring/monitoring.service';
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  console.log('🔵 Starting bootstrap...');
+  
+  try {
+    console.log('🔵 Creating NestJS application...');
+    const app = await NestFactory.create<NestExpressApplication>(AppModule);
+    console.log('✅ NestJS application created');
 
   // Get MonitoringService for the logging interceptor
   const monitoringService = app.get(MonitoringService);
@@ -123,10 +128,17 @@ async function bootstrap() {
   SwaggerModule.setup('api/docs', app, document);
 
   const port = process.env.PORT || 3001;
+  console.log(`🔵 Attempting to listen on port ${port}...`);
   await app.listen(port);
 
   console.log(`🚀 Application is running on: http://localhost:${port}`);
   console.log(`📚 Swagger docs available at: http://localhost:${port}/api/docs`);
+  } catch (error) {
+    console.error('❌ FATAL ERROR during bootstrap:');
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
+    process.exit(1);
+  }
 }
 
 bootstrap();
