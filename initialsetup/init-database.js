@@ -29,14 +29,31 @@ function print(text, color = 'white') {
   console.log(`${colors[color]}${text}${colors.reset}`);
 }
 
+// Parse DATABASE_URL if provided (Render/Heroku style)
+let parsedConfig = {};
+if (process.env.DATABASE_URL) {
+  try {
+    const url = new URL(process.env.DATABASE_URL);
+    parsedConfig = {
+      host: url.hostname,
+      port: parseInt(url.port || '5432'),
+      user: url.username,
+      password: url.password,
+      database: url.pathname.slice(1), // Remove leading slash
+    };
+  } catch (error) {
+    console.error('Warning: Could not parse DATABASE_URL:', error.message);
+  }
+}
+
 // Parse command line arguments
 const args = process.argv.slice(2);
 const config = {
-  host: process.env.DB_HOST || 'localhost',
-  port: parseInt(process.env.DB_PORT || '5432'),
-  user: process.env.DB_USERNAME || 'admin',
-  password: process.env.DB_PASSWORD || 'admin',
-  database: process.env.DB_DATABASE || 'marketplace',
+  host: process.env.DB_HOST || parsedConfig.host || 'localhost',
+  port: parseInt(process.env.DB_PORT || parsedConfig.port || '5432'),
+  user: process.env.DB_USERNAME || parsedConfig.user || 'admin',
+  password: process.env.DB_PASSWORD || parsedConfig.password || 'admin',
+  database: process.env.DB_DATABASE || parsedConfig.database || 'marketplace',
   createDatabase: args.includes('--create-database') || args.includes('-c'),
 };
 
