@@ -133,10 +133,10 @@ async function bootstrap() {
 
   const port = process.env.PORT || 3001;
   console.log(`🔵 Attempting to listen on port ${port}...`);
-  await app.listen(port);
+  await app.listen(port, '0.0.0.0');
 
-  console.log(`🚀 Application is running on: http://localhost:${port}`);
-  console.log(`📚 Swagger docs available at: http://localhost:${port}/api/docs`);
+  console.log(`🚀 Application is running on: http://0.0.0.0:${port}`);
+  console.log(`📚 Swagger docs available at: http://0.0.0.0:${port}/api/docs`);
   } catch (error) {
     console.error('❌ FATAL ERROR during bootstrap:');
     console.error('Error message:', error.message);
