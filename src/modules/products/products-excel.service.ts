@@ -12,6 +12,19 @@ import * as path from 'path';
 import archiver from 'archiver';
 import AdmZip from 'adm-zip';
 
+// Define Multer File type to avoid Express namespace issues
+interface MulterFile {
+  fieldname: string;
+  originalname: string;
+  encoding: string;
+  mimetype: string;
+  size: number;
+  buffer: Buffer;
+  destination?: string;
+  filename?: string;
+  path?: string;
+}
+
 @Injectable()
 export class ProductsExcelService {
   constructor(
@@ -957,7 +970,7 @@ export class ProductsExcelService {
       const zipEntries = zip.getEntries();
 
       let excelBuffer: Buffer | null = null;
-      const imageFiles: Express.Multer.File[] = [];
+      const imageFiles: MulterFile[] = [];
 
       // Process ZIP entries
       zipEntries.forEach(entry => {
@@ -977,7 +990,7 @@ export class ProductsExcelService {
             mimetype: this.getMimeType(filename),
             buffer: fileBuffer,
             size: fileBuffer.length,
-          } as Express.Multer.File);
+          } as MulterFile);
         }
       });
 
@@ -1008,7 +1021,7 @@ export class ProductsExcelService {
   async importFromExcelWithImages(
     vendorId: string | null,
     buffer: Buffer,
-    imageFiles: Express.Multer.File[],
+    imageFiles: MulterFile[],
   ): Promise<{ created: number; updated: number; errors: string[] }> {
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(buffer as any);
@@ -1025,7 +1038,7 @@ export class ProductsExcelService {
     }
 
     // Create a map of uploaded images by filename
-    const imageMap = new Map<string, Express.Multer.File>();
+    const imageMap = new Map<string, MulterFile>();
     imageFiles.forEach(file => {
       imageMap.set(file.originalname.toLowerCase(), file);
     });
@@ -1322,7 +1335,7 @@ export class ProductsExcelService {
     return { created, updated, errors };
   }
 
-  private saveUploadedImage(file: Express.Multer.File, vendorId: string): string {
+  private saveUploadedImage(file: MulterFile, vendorId: string): string {
     // Create uploads directory if it doesn't exist
     const uploadsDir = path.join(process.cwd(), 'public', 'uploads', 'products', vendorId);
     if (!fs.existsSync(uploadsDir)) {
