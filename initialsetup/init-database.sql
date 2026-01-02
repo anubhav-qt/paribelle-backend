@@ -770,7 +770,7 @@ FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE CASCADE;
 -- Users
 CREATE INDEX idx_users_email ON users(email);
 CREATE INDEX idx_users_role ON users(role);
-CREATE INDEX idx_users_emailVerified ON users(email_verified);
+CREATE INDEX idx_users_status ON users(status);
 
 -- Categories
 CREATE INDEX idx_categories_slug ON categories(slug);
