@@ -254,13 +254,15 @@ CREATE TABLE vendor_blog_posts (
     vendor_id UUID NOT NULL REFERENCES vendors(id) ON DELETE CASCADE,
     title VARCHAR(255) NOT NULL,
     slug VARCHAR(255) NOT NULL,
+    content TEXT NOT NULL,
     excerpt TEXT,
-    content TEXT,
     featured_image TEXT,
-    is_published BOOLEAN DEFAULT FALSE,
+    tags TEXT[],
+    status VARCHAR(50) DEFAULT 'draft' CHECK (status IN ('draft', 'published', 'archived')),
+    author_name VARCHAR(255),
+    view_count INTEGER DEFAULT 0,
     meta_title VARCHAR(255),
     meta_description TEXT,
-    tags TEXT[],
     published_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -951,12 +953,12 @@ CREATE INDEX idx_sub_locations_cityId ON sub_locations(city_id);
 -- Vendor Pages
 CREATE UNIQUE INDEX idx_vendor_pages_vendorId_slug ON vendor_pages(vendor_id, slug);
 CREATE INDEX idx_vendor_pages_vendorId ON vendor_pages(vendor_id);
-CREATE INDEX idx_vendor_pages_isPublished ON vendor_pages(is_published);
+CREATE INDEX idx_vendor_pages_status ON vendor_pages(status);
 
 -- Vendor Blog Posts
 CREATE UNIQUE INDEX idx_vendor_blog_posts_vendorId_slug ON vendor_blog_posts(vendor_id, slug);
 CREATE INDEX idx_vendor_blog_posts_vendorId ON vendor_blog_posts(vendor_id);
-CREATE INDEX idx_vendor_blog_posts_isPublished ON vendor_blog_posts(is_published);
+CREATE INDEX idx_vendor_blog_posts_status ON vendor_blog_posts(status);
 
 -- HSN Codes Category Index
 CREATE INDEX idx_hsn_codes_category ON hsn_codes(category);
