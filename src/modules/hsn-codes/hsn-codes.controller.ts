@@ -21,6 +21,19 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../users/user.entity';
 import * as XLSX from 'xlsx';
 
+// Define Multer File type to avoid Express namespace issues
+interface MulterFile {
+  fieldname: string;
+  originalname: string;
+  encoding: string;
+  mimetype: string;
+  size: number;
+  buffer: Buffer;
+  destination?: string;
+  filename?: string;
+  path?: string;
+}
+
 @Controller('hsn-codes')
 @UseGuards(JwtAuthGuard)
 export class HsnCodesController {
@@ -31,7 +44,7 @@ export class HsnCodesController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.SUPER_ADMIN)
   @UseInterceptors(FileInterceptor('file'))
-  async importExcel(@UploadedFile() file: any) {
+  async importExcel(@UploadedFile() file: MulterFile) {
     if (!file) {
       throw new HttpException('No file uploaded', HttpStatus.BAD_REQUEST);
     }

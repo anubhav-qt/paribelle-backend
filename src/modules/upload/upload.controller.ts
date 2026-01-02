@@ -10,6 +10,19 @@ import {
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
+// Define Multer File type to avoid Express namespace issues
+interface MulterFile {
+  fieldname: string;
+  originalname: string;
+  encoding: string;
+  mimetype: string;
+  size: number;
+  buffer: Buffer;
+  destination?: string;
+  filename?: string;
+  path?: string;
+}
+
 @Controller('upload')
 export class UploadController {
   private readonly MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
@@ -22,7 +35,7 @@ export class UploadController {
 
   @Post('image')
   @UseInterceptors(FileInterceptor('file'))
-  uploadImage(@UploadedFile() file: any) {
+  uploadImage(@UploadedFile() file: MulterFile) {
     if (!file) {
       throw new BadRequestException('No file uploaded');
     }
@@ -39,7 +52,7 @@ export class UploadController {
 
   @Post('images')
   @UseInterceptors(FilesInterceptor('files', 10))
-  uploadImages(@UploadedFiles() files: any[]) {
+  uploadImages(@UploadedFiles() files: MulterFile[]) {
     if (!files || files.length === 0) {
       throw new BadRequestException('No files uploaded');
     }
@@ -60,7 +73,7 @@ export class UploadController {
   @Post('kyc-documents')
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(FileInterceptor('file'))
-  uploadKYCDocument(@UploadedFile() file: any) {
+  uploadKYCDocument(@UploadedFile() file: MulterFile) {
     if (!file) {
       throw new BadRequestException('No file uploaded');
     }
