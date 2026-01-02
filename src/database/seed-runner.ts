@@ -3,18 +3,23 @@ import { AppModule } from '../app.module';
 import { seedData } from './seed';
 import { DataSource } from 'typeorm';
 
+// Force unbuffered output
+if ((process.stdout as any)._handle) {
+  (process.stdout as any)._handle.setBlocking(true);
+}
+if ((process.stderr as any)._handle) {
+  (process.stderr as any)._handle.setBlocking(true);
+}
+
 // Helper to ensure logs are flushed in cloud environments
 function log(message: string) {
-  console.log(message);
-  if (process.stdout.write('')) {
-    // Force flush
-  }
+  process.stdout.write(message + '\n');
 }
 
 function logError(message: string, error?: any) {
-  console.error(message, error || '');
-  if (process.stderr.write('')) {
-    // Force flush
+  process.stderr.write(message + '\n');
+  if (error) {
+    process.stderr.write(String(error) + '\n');
   }
 }
 
@@ -27,12 +32,17 @@ async function bootstrap() {
     // Create application context without HTTP server
     log('📦 Creating application context...');
     app = await NestFactory.createApplicationContext(AppModule, {
-      logger: ['error', 'warn'], // Only log errors and warnings to reduce noise
+      logger: false, // Completely disable NestJS logging for cleaner output
       abortOnError: false,
     });
     
     log('🔌 Getting database connection...');
     const dataSource = app.get(DataSource);
+    
+    // Disable TypeORM query logging during seed
+    if (dataSource.options.logging) {
+      (dataSource.options as any).logging = false;
+    }
     
     log('🌱 Running seed data...');
     await seedData(dataSource);

@@ -5,6 +5,11 @@ import { Vendor, VendorStatus } from '../modules/vendors/vendor.entity';
 import { User, UserRole, UserStatus } from '../modules/users/user.entity';
 import * as bcrypt from 'bcrypt';
 
+// Use unbuffered output for cloud environments
+function log(message: string) {
+  process.stdout.write(message + '\n');
+}
+
 export async function seedData(dataSource: DataSource) {
   const userRepository = dataSource.getRepository(User);
   const vendorRepository = dataSource.getRepository(Vendor);
@@ -14,11 +19,11 @@ export async function seedData(dataSource: DataSource) {
   // Check if data already exists
   const existingProducts = await productRepository.count();
   if (existingProducts > 0) {
-    console.log('✅ Seed data already exists, skipping...');
+    log('✅ Seed data already exists, skipping...');
     return;
   }
 
-  console.log('🌱 Seeding database...');
+  log('🌱 Seeding database...');
 
   // Create superadmin user
   let superAdminUser = await userRepository.findOne({ where: { email: 'admin@marketplace.com' } });
@@ -33,7 +38,7 @@ export async function seedData(dataSource: DataSource) {
       emailVerifiedAt: new Date(), // Pre-verified for testing
       status: UserStatus.ACTIVE,
     } as User) as User;
-    console.log('✅ Created superadmin user: admin@marketplace.com');
+    log('✅ Created superadmin user: admin@marketplace.com');
   }
 
   // Create a vendor user
@@ -49,7 +54,7 @@ export async function seedData(dataSource: DataSource) {
       emailVerifiedAt: new Date(), // Pre-verified for testing
       status: UserStatus.ACTIVE,
     } as User) as User;
-    console.log('✅ Created vendor user: vendor@marketplace.com');
+    log('✅ Created vendor user: vendor@marketplace.com');
   }
 
   // Create a normal customer user
@@ -65,7 +70,7 @@ export async function seedData(dataSource: DataSource) {
       emailVerifiedAt: new Date(), // Pre-verified for testing
       status: UserStatus.ACTIVE,
     } as User) as User;
-    console.log('✅ Created customer user: test@marketplace.com');
+    log('✅ Created customer user: test@marketplace.com');
   }
 
   // Create vendor (check if exists first)
@@ -526,19 +531,19 @@ export async function seedData(dataSource: DataSource) {
     },
   ];
 
-  console.log(`📦 Inserting ${products.length} products...`);
+  log(`📦 Inserting ${products.length} products...`);
   let count = 0;
   for (const productData of products) {
     await productRepository.save(productData);
     count++;
     if (count % 5 === 0) {
-      console.log(`   - ${count}/${products.length} products inserted...`);
+      log(`   - ${count}/${products.length} products inserted...`);
     }
   }
-  console.log(`   - ${count}/${products.length} products inserted`);
+  log(`   - ${count}/${products.length} products inserted`);
 
-  console.log('✅ Seed data created successfully!');
-  console.log(`   - ${products.length} products created`);
-  console.log(`   - 5 categories created`);
-  console.log(`   - 1 vendor created`);
+  log('✅ Seed data created successfully!');
+  log(`   - ${products.length} products created`);
+  log(`   - 5 categories created`);
+  log(`   - 1 vendor created`);
 }
