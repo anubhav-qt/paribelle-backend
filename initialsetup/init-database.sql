@@ -802,6 +802,7 @@ CREATE TABLE cities (
     slug VARCHAR(255) UNIQUE NOT NULL,
     state VARCHAR(100),
     country VARCHAR(100) DEFAULT 'India',
+    is_user_created BOOLEAN DEFAULT FALSE,
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -814,6 +815,7 @@ CREATE TABLE sub_locations (
     name VARCHAR(255) NOT NULL,
     slug VARCHAR(255) NOT NULL,
     postal_codes TEXT[],
+    is_user_created BOOLEAN DEFAULT FALSE,
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
