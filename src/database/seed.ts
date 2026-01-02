@@ -52,6 +52,22 @@ export async function seedData(dataSource: DataSource) {
     console.log('✅ Created vendor user: vendor@marketplace.com');
   }
 
+  // Create a normal customer user
+  let customerUser = await userRepository.findOne({ where: { email: 'test@marketplace.com' } });
+  if (!customerUser) {
+    const hashedPassword = await bcrypt.hash('test', 10);
+    customerUser = await userRepository.save({
+      email: 'test@marketplace.com',
+      password: hashedPassword,
+      firstName: 'Test',
+      lastName: 'Customer',
+      role: UserRole.CUSTOMER,
+      emailVerifiedAt: new Date(), // Pre-verified for testing
+      status: UserStatus.ACTIVE,
+    } as User) as User;
+    console.log('✅ Created customer user: test@marketplace.com');
+  }
+
   // Create vendor (check if exists first)
   let vendor = await vendorRepository.findOne({ where: { slug: 'demo-store' } });
   if (!vendor) {
