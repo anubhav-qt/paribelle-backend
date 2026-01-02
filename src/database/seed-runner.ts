@@ -10,11 +10,12 @@ async function bootstrap() {
   try {
     await seedData(dataSource);
     console.log('✅ Seeding completed');
+    await app.close();
+    process.exit(0);
   } catch (error) {
     console.error('❌ Seeding failed:', error);
-    throw error;
-  } finally {
     await app.close();
+    process.exit(1);
   }
 }
 
