@@ -222,14 +222,6 @@ export class VendorsService {
         'banner',
         'aboutImages',
       ]);
-
-      // Delete gallery images if exists
-      if (vendor.gallery && Array.isArray(vendor.gallery)) {
-        const galleryImages = vendor.gallery
-          .map(item => item.imageUrl)
-          .filter(Boolean);
-        await this.fileCleanupService.deleteFiles(galleryImages);
-      }
     }
 
     await this.vendorsRepository.delete(id);
