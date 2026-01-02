@@ -42,7 +42,7 @@ export async function seedData(dataSource: DataSource) {
     contactPhone: '+1234567890',
     description: 'Your trusted marketplace vendor',
     status: VendorStatus.ACTIVE,
-  });
+  }) as Vendor;
 
   // Create categories
   const electronics = await categoryRepository.save({
