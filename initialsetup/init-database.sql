@@ -134,13 +134,30 @@ CREATE TABLE vendors (
     status VARCHAR(50) NOT NULL DEFAULT 'pending',
     commission_rate DECIMAL(5, 2) DEFAULT 10.00,
     
+    -- Shipping Settings
+    free_shipping_threshold DECIMAL(10, 2),
+    shipping_cost DECIMAL(10, 2) DEFAULT 50.00,
+    
     -- Business Information
     business_name VARCHAR(255),
     business_registration_number VARCHAR(100),
     gst_number VARCHAR(50),
+    tax_id VARCHAR(255),
     pan_number VARCHAR(50),
     
+    -- Bank Details
+    bank_account_number VARCHAR(255),
+    bank_ifsc_code VARCHAR(50),
+    bank_account_name VARCHAR(255),
+    
     -- Address
+    address TEXT,
+    city_id UUID,
+    sub_location_id UUID,
+    pincode VARCHAR(20),
+    google_place_id VARCHAR(255),
+    latitude DECIMAL(10, 8),
+    longitude DECIMAL(11, 8),
     address_line1 TEXT,
     address_line2 TEXT,
     city VARCHAR(100),
@@ -161,7 +178,6 @@ CREATE TABLE vendors (
     
     -- Additional Settings
     min_order_amount DECIMAL(10, 2) DEFAULT 0,
-    free_shipping_threshold DECIMAL(10, 2),
     category_display_mode VARCHAR(50) DEFAULT 'grid',
     
     -- Policies
@@ -171,16 +187,43 @@ CREATE TABLE vendors (
     terms_of_service TEXT,
     
     -- KYC
+    is_kyc_verified BOOLEAN DEFAULT FALSE,
+    kyc_document_type VARCHAR(100),
+    kyc_document_url TEXT,
     kyc_status VARCHAR(50) DEFAULT 'pending',
     kyc_documents JSONB,
     kyc_verified_at TIMESTAMP,
+    kyc_submitted_at TIMESTAMP,
+    kyc_approved_at TIMESTAMP,
+    kyc_approved_by UUID,
+    kyc_rejected_reason TEXT,
+    gst_registration_type VARCHAR(50) DEFAULT 'unregistered',
+    gst_state VARCHAR(100),
+    invoice_frequency VARCHAR(50) DEFAULT 'per_order',
     
-    -- Hero Banners
+    -- Subdomain/Custom Domain
+    subdomain VARCHAR(255) UNIQUE,
+    custom_domain VARCHAR(255) UNIQUE,
+    
+    -- Theme & Branding
     hero_banners JSONB,
+    theme_config JSONB,
+    about_content TEXT,
+    about_images JSONB,
+    meta_title VARCHAR(255),
+    meta_description TEXT,
+    meta_keywords TEXT,
+    show_reviews BOOLEAN DEFAULT TRUE,
+    show_related_products BOOLEAN DEFAULT TRUE,
+    enable_blog BOOLEAN DEFAULT FALSE,
+    enable_custom_pages BOOLEAN DEFAULT FALSE,
+    total_sales DECIMAL(15, 2) DEFAULT 0,
+    total_orders INTEGER DEFAULT 0,
+    rating DECIMAL(3, 2) DEFAULT 0,
     
-    -- Location
-    location_city_id UUID,
-    location_sub_location_id UUID,
+    -- Hero Banners (removed duplicate as it's now in KYC section)
+    
+    -- Location (removed duplicate - already in Address section)
     
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
