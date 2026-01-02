@@ -32,7 +32,7 @@ DROP TABLE IF EXISTS vendor_navigation CASCADE;
 DROP TABLE IF EXISTS vendors CASCADE;
 DROP TABLE IF EXISTS addresses CASCADE;
 DROP TABLE IF EXISTS categories CASCADE;
-DROP TABLE IF EXISTS hsnCodes CASCADE;
+DROP TABLE IF EXISTS hsn_codes CASCADE;
 DROP TABLE IF EXISTS users CASCADE;
 DROP TABLE IF EXISTS settings CASCADE;
 DROP TABLE IF EXISTS homepage_settings CASCADE;
@@ -75,7 +75,7 @@ CREATE TABLE categories (
     description TEXT,
     image TEXT,
     parent_id UUID REFERENCES categories(id) ON DELETE CASCADE,
-    vendor_id UUID REFERENCES vendors(id) ON DELETE CASCADE,
+    vendor_id UUID,
     sort_order INTEGER DEFAULT 0,
     is_active BOOLEAN DEFAULT TRUE,
     meta_title VARCHAR(255),
@@ -86,11 +86,13 @@ CREATE TABLE categories (
 );
 
 -- HSN Codes Table
-CREATE TABLE hsnCodes (
+CREATE TABLE hsn_codes (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     code VARCHAR(20) UNIQUE NOT NULL,
     description TEXT NOT NULL,
-    gst_rate DECIMAL(5, 2) DEFAULT 0,
+    recommended_gst_rate DECIMAL(5, 2) DEFAULT 0,
+    category VARCHAR(100),
+    is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -261,7 +263,7 @@ CREATE TABLE products (
     is_taxable BOOLEAN DEFAULT TRUE,
     tax_rate DECIMAL(5, 2) DEFAULT 0,
     hsn_code VARCHAR(20),
-    hsn_code_id UUID REFERENCES hsnCodes(id) ON DELETE SET NULL,
+    hsn_code_id UUID REFERENCES hsn_codes(id) ON DELETE SET NULL,
     meta_title VARCHAR(255),
     meta_description TEXT,
     meta_keywords TEXT,
@@ -753,6 +755,15 @@ CREATE TABLE sub_locations (
 );
 
 -- ============================================================
+-- Foreign Key Constraints (added after all tables are created)
+-- ============================================================
+
+-- Add vendor_id foreign key to categories
+ALTER TABLE categories 
+ADD CONSTRAINT fk_categories_vendor 
+FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE CASCADE;
+
+-- ============================================================
 -- Indexes for Performance
 -- ============================================================
 
@@ -772,8 +783,8 @@ CREATE INDEX idx_categories_isActive_sortOrder ON categories(is_active, sort_ord
 CREATE INDEX idx_vendors_userId ON vendors(user_id);
 CREATE INDEX idx_vendors_slug ON vendors(slug);
 CREATE INDEX idx_vendors_status ON vendors(status);
-CREATE INDEX idx_vendors_locationCityId ON vendors(city_id);
-CREATE INDEX idx_vendors_locationSubLocationId ON vendors(sub_location_id);
+CREATE INDEX idx_vendors_locationCityId ON vendors(location_city_id);
+CREATE INDEX idx_vendors_locationSubLocationId ON vendors(location_sub_location_id);
 
 -- Products
 CREATE INDEX idx_products_vendorId ON products(vendor_id);
@@ -843,7 +854,7 @@ CREATE INDEX idx_addresses_userId ON addresses(user_id);
 CREATE INDEX idx_addresses_isDefault ON addresses(is_default);
 
 -- HSN Codes
-CREATE INDEX idx_hsnCodes_code ON "hsnCodes"(code);
+CREATE INDEX idx_hsn_codes_code ON hsn_codes(code);
 
 -- Settings
 CREATE INDEX idx_settings_key ON settings(key);
@@ -868,7 +879,7 @@ CREATE INDEX idx_vendor_blog_posts_vendorId ON vendor_blog_posts(vendor_id);
 CREATE INDEX idx_vendor_blog_posts_isPublished ON vendor_blog_posts(is_published);
 
 -- HSN Codes Category Index
-CREATE INDEX idx_hsnCodes_category ON "hsnCodes"(category);
+CREATE INDEX idx_hsn_codes_category ON hsn_codes(category);
 
 -- ============================================================
 -- Database Initialization Complete
