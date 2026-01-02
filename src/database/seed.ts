@@ -28,6 +28,8 @@ export async function seedData(dataSource: DataSource) {
     firstName: 'Demo',
     lastName: 'Vendor',
     role: UserRole.VENDOR_ADMIN,
+    emailVerifiedAt: new Date(), // Pre-verified for testing
+    status: 'active',
   });
 
   // Create vendor
