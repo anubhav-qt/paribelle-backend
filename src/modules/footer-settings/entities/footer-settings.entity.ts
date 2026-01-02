@@ -29,22 +29,22 @@ export class FooterSettings {
   @Column({ type: 'varchar', length: 255, name: 'about_text' })
   aboutText: string;
 
-  @Column({ type: 'jsonb', default: '[]' })
+  @Column({ type: 'jsonb', default: '[]', name: 'social_links' })
   socialLinks: SocialLink[];
 
-  @Column({ type: 'jsonb', default: '[]' })
+  @Column({ type: 'jsonb', default: '[]', name: 'custom_sections' })
   customSections: FooterSection[];
 
-  @Column({ type: 'jsonb' })
+  @Column({ type: 'jsonb', name: 'contact_info' })
   contactInfo: ContactInfo;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, name: 'copyright_text' })
   copyrightText: string;
 
-  @Column({ type: 'boolean', default: true })
+  @Column({ type: 'boolean', default: true, name: 'show_categories' })
   showCategories: boolean;
 
-  @Column({ type: 'int', default: 6 })
+  @Column({ type: 'int', default: 6, name: 'max_categories_display' })
   maxCategoriesDisplay: number;
 
   @CreateDateColumn()

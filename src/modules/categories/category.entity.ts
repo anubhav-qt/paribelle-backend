@@ -36,10 +36,10 @@ export class Category {
   @Column({ nullable: true })
   image: string;
 
-  @Column({ default: true })
+  @Column({ default: true, name: 'is_active' })
   isActive: boolean;
 
-  @Column({ type: 'int', default: 0 })
+  @Column({ type: 'int', default: 0, name: 'sort_order' })
   sortOrder: number;
 
   // Vendor-specific category (null means global category)
@@ -47,18 +47,18 @@ export class Category {
   @JoinColumn({ name: 'vendor_id' })
   vendor: Vendor | null;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'uuid', nullable: true, name: 'vendor_id' })
   vendorId: string | null;
 
   // SEO
-  @Column({ nullable: true })
+  @Column({ nullable: true, name: 'meta_title' })
   metaTitle: string;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, name: 'meta_description' })
   metaDescription: string;
 
   // Filter configuration (JSON field)
-  @Column({ type: 'jsonb', nullable: true })
+  @Column({ type: 'jsonb', nullable: true, name: 'filter_config' })
   filterConfig: {
     filters: Array<{
       id: string;

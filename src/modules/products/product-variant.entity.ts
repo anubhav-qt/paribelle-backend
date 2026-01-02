@@ -17,7 +17,7 @@ export class ProductVariant {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'uuid', name: 'product_id' })
   productId: string;
 
   @ManyToOne(() => Product, { onDelete: 'CASCADE' })
@@ -27,22 +27,22 @@ export class ProductVariant {
   @Column({ unique: true })
   sku: string;
 
-  @Column({ type: 'jsonb' })
+  @Column({ type: 'jsonb', name: 'variant_attributes' })
   variantAttributes: Record<string, string>; // e.g., { size: 'M', color: 'Red' }
 
   @Column({ type: 'decimal', precision: 10, scale: 2 })
   price: number;
 
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, name: 'compare_at_price' })
   compareAtPrice: number;
 
-  @Column({ type: 'int', default: 0 })
+  @Column({ type: 'int', default: 0, name: 'stock_quantity' })
   stockQuantity: number;
 
   @Column('text', { array: true, nullable: true })
   images: string[];
 
-  @Column({ default: true })
+  @Column({ default: true, name: 'is_active' })
   isActive: boolean;
 
   @CreateDateColumn()

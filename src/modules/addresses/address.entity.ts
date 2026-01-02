@@ -12,16 +12,16 @@ export class Address {
   @ManyToOne(() => User)
   user: User;
 
-  @Column()
+  @Column({ name: 'full_name' })
   fullName: string;
 
   @Column()
   phone: string;
 
-  @Column()
+  @Column({ name: 'address_line_1' })
   addressLine1: string;
 
-  @Column({ nullable: true })
+  @Column({ nullable: true, name: 'address_line_2' })
   addressLine2: string;
 
   @Column()
@@ -30,13 +30,13 @@ export class Address {
   @Column()
   state: string;
 
-  @Column()
+  @Column({ name: 'postal_code' })
   postalCode: string;
 
   @Column({ default: 'India' })
   country: string;
 
-  @Column({ default: false })
+  @Column({ default: false, name: 'is_default' })
   isDefault: boolean;
 
   @CreateDateColumn()

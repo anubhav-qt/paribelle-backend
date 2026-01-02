@@ -38,10 +38,10 @@ export class User {
   @Column()
   password: string;
 
-  @Column()
+  @Column({ name: 'first_name' })
   firstName: string;
 
-  @Column()
+  @Column({ name: 'last_name' })
   lastName: string;
 
   @Column({
@@ -51,7 +51,7 @@ export class User {
   })
   role: UserRole;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'uuid', nullable: true, name: 'vendor_id' })
   vendorId: string;
 
   @Column({
@@ -64,19 +64,19 @@ export class User {
   @Column({ nullable: true })
   avatar: string;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamp', nullable: true, name: 'email_verified_at' })
   emailVerifiedAt: Date;
 
-  @Column({ type: 'varchar', nullable: true })
+  @Column({ type: 'varchar', nullable: true, name: 'email_verification_token' })
   emailVerificationToken: string | null;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamp', nullable: true, name: 'email_verification_token_expiry' })
   emailVerificationTokenExpiry: Date | null;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamp', nullable: true, name: 'phone_verified_at' })
   phoneVerifiedAt: Date;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamp', nullable: true, name: 'last_login_at' })
   lastLoginAt: Date;
 
   @OneToOne(() => Vendor, (vendor) => vendor.user)
