@@ -1,4 +1,5 @@
-console.log('🟢 main.ts file loading...');
+// Force output immediately
+process.stdout.write('🟢 main.ts file loading...\n');
 
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
@@ -11,15 +12,29 @@ import { join } from 'path';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { MonitoringService } from './modules/monitoring/monitoring.service';
 
-console.log('🟢 All imports loaded successfully');
+// Force output immediately
+process.stdout.write('🟢 All imports loaded successfully\n');
+
+// Global error handlers
+process.on('uncaughtException', (error) => {
+  process.stderr.write(`❌ UNCAUGHT EXCEPTION: ${error.message}\n`);
+  process.stderr.write(`Stack: ${error.stack}\n`);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  process.stderr.write(`❌ UNHANDLED REJECTION at ${promise}\n`);
+  process.stderr.write(`Reason: ${reason}\n`);
+  process.exit(1);
+});
 
 async function bootstrap() {
-  console.log('🔵 Starting bootstrap...');
+  process.stdout.write('🔵 Starting bootstrap...\n');
   
   try {
-    console.log('🔵 Creating NestJS application...');
+    process.stdout.write('🔵 Creating NestJS application...\n');
     const app = await NestFactory.create<NestExpressApplication>(AppModule);
-    console.log('✅ NestJS application created');
+    process.stdout.write('✅ NestJS application created\n');
 
   // Get MonitoringService for the logging interceptor
   const monitoringService = app.get(MonitoringService);
@@ -132,17 +147,22 @@ async function bootstrap() {
   SwaggerModule.setup('api/docs', app, document);
 
   const port = process.env.PORT || 3001;
-  console.log(`🔵 Attempting to listen on port ${port}...`);
+  process.stdout.write(`🔵 Attempting to listen on port ${port}...\n`);
   await app.listen(port, '0.0.0.0');
 
-  console.log(`🚀 Application is running on: http://0.0.0.0:${port}`);
-  console.log(`📚 Swagger docs available at: http://0.0.0.0:${port}/api/docs`);
+  process.stdout.write(`🚀 Application is running on: http://0.0.0.0:${port}\n`);
+  process.stdout.write(`📚 Swagger docs available at: http://0.0.0.0:${port}/api/docs\n`);
   } catch (error) {
-    console.error('❌ FATAL ERROR during bootstrap:');
-    console.error('Error message:', error.message);
-    console.error('Error stack:', error.stack);
+    process.stderr.write('❌ FATAL ERROR during bootstrap:\n');
+    process.stderr.write(`Error message: ${error.message}\n`);
+    process.stderr.write(`Error stack: ${error.stack}\n`);
     process.exit(1);
   }
 }
 
-bootstrap();
+process.stdout.write('🔵 Calling bootstrap()...\n');
+bootstrap().catch((error) => {
+  process.stderr.write(`❌ BOOTSTRAP FAILED: ${error.message}\n`);
+  process.stderr.write(`Stack: ${error.stack}\n`);
+  process.exit(1);
+});
