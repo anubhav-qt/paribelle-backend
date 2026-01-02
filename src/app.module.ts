@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule, TypeOrmModuleOptions } from '@nestjs/typeorm';
+import { SnakeNamingStrategy } from 'typeorm-naming-strategies';
 
 // Common
 import { CommonModule } from './common/common.module';
@@ -59,6 +60,7 @@ import { InvoicesModule } from './modules/invoices/invoices.module';
             synchronize: false, // Disabled to prevent auto-sync issues - use migrations instead
             logging: configService.get('NODE_ENV') !== 'production',
             dropSchema: false,
+            namingStrategy: new SnakeNamingStrategy(),
             extra: {
               ssl: {
                 rejectUnauthorized: false,
@@ -83,6 +85,7 @@ import { InvoicesModule } from './modules/invoices/invoices.module';
           synchronize: false, // Disabled to prevent auto-sync issues - use migrations instead
           logging: configService.get('NODE_ENV') !== 'production',
           dropSchema: false,
+          namingStrategy: new SnakeNamingStrategy(),
           extra: {
             max: 20,
             min: 5,

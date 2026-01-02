@@ -72,6 +72,7 @@
     "rimraf": "^6.1.2",
     "rxjs": "^7.8.1",
     "typeorm": "^0.3.19",
+    "typeorm-naming-strategies": "^4.1.0",
     "typescript": "^5.3.3",
     "xlsx": "^0.18.5"
   },
