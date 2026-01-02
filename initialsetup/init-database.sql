@@ -813,13 +813,10 @@ CREATE TABLE sub_locations (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     city_id UUID NOT NULL REFERENCES cities(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
-    slug VARCHAR(255) NOT NULL,
-    postal_codes TEXT[],
+    zip_code VARCHAR(10),
     is_user_created BOOLEAN DEFAULT FALSE,
-    is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(city_id, slug)
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ============================================================
