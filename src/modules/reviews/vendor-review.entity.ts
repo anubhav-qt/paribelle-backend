@@ -22,10 +22,10 @@ export class VendorReview {
   @Column({ type: 'text' })
   comment: string;
 
-  @Column({ default: false })
+  @Column({ default: false, name: 'is_verified_purchase' })
   isVerifiedPurchase: boolean;
 
-  @Column({ default: true })
+  @Column({ default: true, name: 'is_approved' })
   isApproved: boolean;
 
   // Specific ratings
@@ -39,10 +39,10 @@ export class VendorReview {
   customerServiceRating: number;
 
   // Vendor response
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, name: 'vendor_response' })
   vendorResponse: string;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamp', nullable: true, name: 'vendor_response_date' })
   vendorResponseDate: Date;
 
   // Relations
@@ -61,10 +61,10 @@ export class VendorReview {
   vendorId: string;
 
   @ManyToOne(() => Order, { nullable: true })
-  @JoinColumn()
+  @JoinColumn({ name: 'order_id' })
   order: Order;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'uuid', nullable: true, name: 'order_id' })
   orderId: string;
 
   @CreateDateColumn()

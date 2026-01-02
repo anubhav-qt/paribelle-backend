@@ -31,7 +31,7 @@ export class VendorPage {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column()
+  @Column({ name: 'vendor_id' })
   @Index()
   vendorId: string;
 
@@ -61,20 +61,20 @@ export class VendorPage {
   @Column({ type: 'text', nullable: true })
   excerpt: string;
 
-  @Column({ nullable: true })
+  @Column({ nullable: true, name: 'featured_image' })
   featuredImage: string;
 
   @Column('text', { array: true, nullable: true })
   images: string[];
 
   // SEO
-  @Column({ nullable: true })
+  @Column({ nullable: true, name: 'meta_title' })
   metaTitle: string;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, name: 'meta_description' })
   metaDescription: string;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, name: 'meta_keywords' })
   metaKeywords: string;
 
   // Publishing
@@ -89,10 +89,10 @@ export class VendorPage {
   @Column({ type: 'int', default: 0 })
   order: number;
 
-  @Column({ default: true })
+  @Column({ default: true, name: 'show_in_navigation' })
   showInNavigation: boolean;
 
-  @Column({ default: false })
+  @Column({ default: false, name: 'is_home_page' })
   isHomePage: boolean;
 
   @CreateDateColumn()

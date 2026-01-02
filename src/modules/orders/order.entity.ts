@@ -36,7 +36,7 @@ export class Order {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ unique: true })
+  @Column({ unique: true, name: 'order_number' })
   orderNumber: string;
 
   // Order amounts
@@ -49,21 +49,21 @@ export class Order {
   @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
   tax: number;
 
-  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0, name: 'shipping_cost' })
   shippingCost: number;
 
   @Column({ type: 'decimal', precision: 10, scale: 2 })
   total: number;
 
   // Commission for marketplace
-  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0, name: 'commission_amount' })
   commissionAmount: number;
 
-  @Column({ type: 'decimal', precision: 5, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 5, scale: 2, default: 0, name: 'commission_rate' })
   commissionRate: number;
 
   // Vendor payout
-  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0, name: 'vendor_payout' })
   vendorPayout: number;
 
   @Column({
@@ -77,78 +77,79 @@ export class Order {
     type: 'enum',
     enum: PaymentStatus,
     default: PaymentStatus.PENDING,
+    name: 'payment_status',
   })
   paymentStatus: PaymentStatus;
 
   // Shipping address
-  @Column()
+  @Column({ name: 'shipping_name' })
   shippingName: string;
 
-  @Column()
+  @Column({ name: 'shipping_email' })
   shippingEmail: string;
 
-  @Column()
+  @Column({ name: 'shipping_phone' })
   shippingPhone: string;
 
-  @Column({ type: 'text' })
+  @Column({ type: 'text', name: 'shipping_address' })
   shippingAddress: string;
 
-  @Column()
+  @Column({ name: 'shipping_city' })
   shippingCity: string;
 
-  @Column()
+  @Column({ name: 'shipping_state' })
   shippingState: string;
 
-  @Column()
+  @Column({ name: 'shipping_country' })
   shippingCountry: string;
 
-  @Column()
+  @Column({ name: 'shipping_postal_code' })
   shippingPostalCode: string;
 
   // Billing address
-  @Column({ default: true })
+  @Column({ default: true, name: 'billing_address_same_as_shipping' })
   billingAddressSameAsShipping: boolean;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, name: 'billing_address' })
   billingAddress: string;
 
-  @Column({ nullable: true })
+  @Column({ nullable: true, name: 'billing_city' })
   billingCity: string;
 
-  @Column({ nullable: true })
+  @Column({ nullable: true, name: 'billing_state' })
   billingState: string;
 
-  @Column({ nullable: true })
+  @Column({ nullable: true, name: 'billing_country' })
   billingCountry: string;
 
-  @Column({ nullable: true })
+  @Column({ nullable: true, name: 'billing_postal_code' })
   billingPostalCode: string;
 
   // Tracking
-  @Column({ nullable: true })
+  @Column({ nullable: true, name: 'tracking_number' })
   trackingNumber: string;
 
   @Column({ nullable: true })
   carrier: string;
 
   // Notes
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, name: 'customer_notes' })
   customerNotes: string;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, name: 'admin_notes' })
   adminNotes: string;
 
   // Timestamps
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamp', nullable: true, name: 'confirmed_at' })
   confirmedAt: Date;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamp', nullable: true, name: 'shipped_at' })
   shippedAt: Date;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamp', nullable: true, name: 'delivered_at' })
   deliveredAt: Date;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamp', nullable: true, name: 'cancelled_at' })
   cancelledAt: Date;
 
   // Relations

@@ -47,50 +47,50 @@ export class Product {
   @Column({ type: 'text' })
   description: string;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, name: 'short_description' })
   shortDescription: string;
 
   @Column({ type: 'decimal', precision: 10, scale: 2 })
   price: number;
 
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, name: 'compare_at_price' })
   compareAtPrice: number;
 
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, name: 'cost_per_item' })
   costPerItem: number;
 
   // GST and Tax fields
-  @Column({ nullable: true })
+  @Column({ nullable: true, name: 'hsn_code' })
   hsnCode: string;
 
-  @Column({ nullable: true })
+  @Column({ nullable: true, name: 'sac_code' })
   sacCode: string;
 
-  @Column({ type: 'decimal', precision: 5, scale: 2, default: 18.00 })
+  @Column({ type: 'decimal', precision: 5, scale: 2, default: 18.00, name: 'gst_rate' })
   gstRate: number;
 
-  @Column({ default: 'selling_price_without_gst' })
+  @Column({ default: 'selling_price_without_gst', name: 'price_type' })
   priceType: string; // 'mrp_with_gst' | 'selling_price_without_gst'
 
   @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
   mrp: number;
 
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, name: 'base_price' })
   basePrice: number;
 
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, name: 'gst_amount' })
   gstAmount: number;
 
   @Column()
   sku: string;
 
-  @Column({ type: 'int', default: 0 })
+  @Column({ type: 'int', default: 0, name: 'stock_quantity' })
   stockQuantity: number;
 
-  @Column({ type: 'int', nullable: true })
+  @Column({ type: 'int', nullable: true, name: 'low_stock_threshold' })
   lowStockThreshold: number;
 
-  @Column({ default: true })
+  @Column({ default: true, name: 'track_inventory' })
   trackInventory: boolean;
 
   @Column({
@@ -104,6 +104,7 @@ export class Product {
     type: 'enum',
     enum: ProductType,
     default: ProductType.PHYSICAL,
+    name: 'product_type',
   })
   productType: ProductType;
 
@@ -111,17 +112,17 @@ export class Product {
   @Column('text', { array: true, nullable: true, default: [] })
   images: string[];
 
-  @Column({ nullable: true })
+  @Column({ nullable: true, name: 'featured_image' })
   featuredImage: string;
 
   // SEO
-  @Column({ nullable: true })
+  @Column({ nullable: true, name: 'meta_title' })
   metaTitle: string;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, name: 'meta_description' })
   metaDescription: string;
 
-  @Column('simple-array', { nullable: true })
+  @Column('simple-array', { nullable: true, name: 'meta_keywords' })
   metaKeywords: string[];
 
   // Product variants support
@@ -133,20 +134,20 @@ export class Product {
   attributes: Record<string, any>;
 
   // Enhanced Variants Support
-  @Column({ default: false })
+  @Column({ default: false, name: 'has_variants' })
   hasVariants: boolean;
 
-  @Column({ type: 'jsonb', nullable: true })
+  @Column({ type: 'jsonb', nullable: true, name: 'variant_options' })
   variantOptions: Record<string, string[]>; // e.g., { size: ['S', 'M', 'L'], color: ['Red', 'Blue'] }
 
   @OneToMany(() => ProductVariant, (variant) => variant.product)
   productVariants: ProductVariant[];
 
   // Product Variations Support (legacy)
-  @Column({ default: false })
+  @Column({ default: false, name: 'is_parent' })
   isParent: boolean;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'uuid', nullable: true, name: 'parent_product_id' })
   parentProductId: string;
 
   @ManyToOne(() => Product, (product) => product.variations, { nullable: true })
@@ -157,18 +158,18 @@ export class Product {
   variations: Product[];
 
   // Variation themes for parent products (e.g., ['color', 'size'])
-  @Column('text', { array: true, nullable: true })
+  @Column('text', { array: true, nullable: true, name: 'variation_themes' })
   variationThemes: string[];
 
   // Specific attributes for this variation (e.g., {color: 'red', size: 'M'})
-  @Column({ type: 'jsonb', nullable: true })
+  @Column({ type: 'jsonb', nullable: true, name: 'variation_attributes' })
   variationAttributes: Record<string, string>;
 
   // Shipping
   @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
   weight: number;
 
-  @Column({ nullable: true })
+  @Column({ nullable: true, name: 'weight_unit' })
   weightUnit: string;
 
   @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })

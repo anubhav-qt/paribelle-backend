@@ -39,7 +39,7 @@ export class VendorBlogPost {
   @Column({ type: 'text', nullable: true })
   excerpt: string;
 
-  @Column({ nullable: true })
+  @Column({ nullable: true, name: 'featured_image' })
   featuredImage: string;
 
   @Column('simple-array', { nullable: true })
@@ -53,17 +53,17 @@ export class VendorBlogPost {
   @Index()
   status: PageStatus;
 
-  @Column({ nullable: true })
+  @Column({ nullable: true, name: 'author_name' })
   authorName: string;
 
-  @Column({ type: 'int', default: 0 })
+  @Column({ type: 'int', default: 0, name: 'view_count' })
   viewCount: number;
 
   // SEO
-  @Column({ nullable: true })
+  @Column({ nullable: true, name: 'meta_title' })
   metaTitle: string;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, name: 'meta_description' })
   metaDescription: string;
 
   @CreateDateColumn()
@@ -72,6 +72,6 @@ export class VendorBlogPost {
   @UpdateDateColumn()
   updatedAt: Date;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamp', nullable: true, name: 'published_at' })
   publishedAt: Date;
 }

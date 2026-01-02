@@ -31,21 +31,21 @@ export class OrderItem {
   total: number;
 
   // Product snapshot at time of purchase
-  @Column()
+  @Column({ name: 'product_name' })
   productName: string;
 
-  @Column()
+  @Column({ name: 'product_sku' })
   productSku: string;
 
-  @Column({ nullable: true })
+  @Column({ nullable: true, name: 'product_image' })
   productImage: string;
 
   // Variant details if applicable
-  @Column({ type: 'json', nullable: true })
+  @Column({ type: 'json', nullable: true, name: 'variant_details' })
   variantDetails: any;
 
   // Booking details (for booking type products)
-  @Column({ type: 'json', nullable: true })
+  @Column({ type: 'json', nullable: true, name: 'booking_details' })
   bookingDetails: {
     bookingDate?: string;
     startTime?: string;

@@ -48,20 +48,20 @@ export class MarketplacePage {
   @Column({ type: 'text', nullable: true })
   excerpt: string;
 
-  @Column({ nullable: true })
+  @Column({ nullable: true, name: 'featured_image' })
   featuredImage: string;
 
   @Column('text', { array: true, nullable: true })
   images: string[];
 
   // SEO
-  @Column({ nullable: true })
+  @Column({ nullable: true, name: 'meta_title' })
   metaTitle: string;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, name: 'meta_description' })
   metaDescription: string;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, name: 'meta_keywords' })
   metaKeywords: string;
 
   // Publishing

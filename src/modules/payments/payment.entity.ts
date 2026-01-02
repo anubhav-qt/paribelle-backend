@@ -32,7 +32,7 @@ export class Payment {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ unique: true })
+  @Column({ unique: true, name: 'transaction_id' })
   transactionId: string;
 
   @Column({ type: 'decimal', precision: 10, scale: 2 })
@@ -55,37 +55,37 @@ export class Payment {
   status: PaymentStatus;
 
   // Gateway details
-  @Column({ type: 'varchar', nullable: true })
+  @Column({ type: 'varchar', nullable: true, name: 'gateway_order_id' })
   gatewayOrderId: string;
 
-  @Column({ type: 'varchar', nullable: true })
+  @Column({ type: 'varchar', nullable: true, name: 'gateway_payment_id' })
   gatewayPaymentId: string;
 
-  @Column({ nullable: true })
+  @Column({ nullable: true, name: 'gateway_signature' })
   gatewaySignature: string;
 
   // Refund details
-  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0, name: 'refunded_amount' })
   refundedAmount: number;
 
-  @Column({ type: 'varchar', nullable: true })
+  @Column({ type: 'varchar', nullable: true, name: 'refund_transaction_id' })
   refundTransactionId: string;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamp', nullable: true, name: 'refunded_at' })
   refundedAt: Date;
 
   // Payment metadata
   @Column({ type: 'json', nullable: true })
   metadata: any;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, name: 'failure_reason' })
   failureReason: string;
 
   // Timestamps
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamp', nullable: true, name: 'authorized_at' })
   authorizedAt: Date;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamp', nullable: true, name: 'captured_at' })
   capturedAt: Date;
 
   // Relations

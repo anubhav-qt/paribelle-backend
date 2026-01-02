@@ -22,20 +22,20 @@ export class Review {
   @Column({ type: 'text' })
   comment: string;
 
-  @Column({ default: false })
+  @Column({ default: false, name: 'is_verified_purchase' })
   isVerifiedPurchase: boolean;
 
-  @Column({ default: true })
+  @Column({ default: true, name: 'is_approved' })
   isApproved: boolean;
 
   @Column('simple-array', { nullable: true })
   images: string[];
 
   // Vendor response
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, name: 'vendor_response' })
   vendorResponse: string;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamp', nullable: true, name: 'vendor_response_date' })
   vendorResponseDate: Date;
 
   // Relations
@@ -54,10 +54,10 @@ export class Review {
   productId: string;
 
   @ManyToOne(() => OrderItem, { nullable: true })
-  @JoinColumn()
+  @JoinColumn({ name: 'order_item_id' })
   orderItem: OrderItem;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'uuid', nullable: true, name: 'order_item_id' })
   orderItemId: string;
 
   @CreateDateColumn()

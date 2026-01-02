@@ -24,22 +24,22 @@ export class Booking {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ type: 'date' })
+  @Column({ type: 'date', name: 'booking_date' })
   bookingDate: Date;
 
-  @Column({ nullable: true })
+  @Column({ nullable: true, name: 'start_time' })
   startTime: string; // HH:mm format (null for daily bookings)
 
-  @Column({ nullable: true })
+  @Column({ nullable: true, name: 'end_time' })
   endTime: string; // HH:mm format (null for daily bookings)
 
-  @Column({ type: 'int', nullable: true })
+  @Column({ type: 'int', nullable: true, name: 'number_of_guests' })
   numberOfGuests: number;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, name: 'special_requests' })
   specialRequests: string;
 
-  @Column({ type: 'decimal', precision: 10, scale: 2 })
+  @Column({ type: 'decimal', precision: 10, scale: 2, name: 'total_price' })
   totalPrice: number;
 
   @Column({
@@ -50,11 +50,11 @@ export class Booking {
   status: BookingStatus;
 
   // Payment reference
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'uuid', nullable: true, name: 'payment_id' })
   paymentId: string;
 
   @ManyToOne(() => Payment, { nullable: true })
-  @JoinColumn()
+  @JoinColumn({ name: 'payment_id' })
   payment: Payment;
 
   // Relations
