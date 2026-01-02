@@ -266,6 +266,8 @@ async function createDatabase() {
     print('🎉 Setup complete! Your marketplace is ready to launch!', 'green');
     console.log('');
     
+    await client.end();
+    process.exit(0);
   } catch (error) {
     print('❌ Database initialization failed!', 'red');
     print(`   Error: ${error.message}`, 'red');
