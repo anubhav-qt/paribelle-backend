@@ -51,7 +51,7 @@ export class User {
   })
   role: UserRole;
 
-  @Column({ nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   vendorId: string;
 
   @Column({

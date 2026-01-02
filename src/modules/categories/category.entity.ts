@@ -44,10 +44,10 @@ export class Category {
 
   // Vendor-specific category (null means global category)
   @ManyToOne(() => Vendor, { nullable: true })
-  @JoinColumn({ name: 'vendorId' })
+  @JoinColumn({ name: 'vendor_id' })
   vendor: Vendor | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   vendorId: string | null;
 
   // SEO

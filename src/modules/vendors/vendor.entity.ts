@@ -103,7 +103,7 @@ export class Vendor {
   @Column({ nullable: true })
   businessName: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   taxId: string;
 
   @Column({ nullable: true })
@@ -131,24 +131,24 @@ export class Vendor {
   address: string;
 
   @ManyToOne(() => City, { nullable: true, eager: true })
-  @JoinColumn({ name: 'cityId' })
+  @JoinColumn({ name: 'city_id' })
   locationCity: City | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   cityId: string;
 
   @ManyToOne(() => SubLocation, { nullable: true, eager: true })
-  @JoinColumn({ name: 'subLocationId' })
+  @JoinColumn({ name: 'sub_location_id' })
   locationSubLocation: SubLocation | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   subLocationId: string;
 
   @Column({ nullable: true })
   pincode: string;
 
   // Google location data
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   googlePlaceId: string;
 
   @Column({ type: 'decimal', precision: 10, scale: 8, nullable: true })

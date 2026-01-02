@@ -55,10 +55,10 @@ export class Payment {
   status: PaymentStatus;
 
   // Gateway details
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   gatewayOrderId: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   gatewayPaymentId: string;
 
   @Column({ nullable: true })
@@ -68,7 +68,7 @@ export class Payment {
   @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
   refundedAmount: number;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   refundTransactionId: string;
 
   @Column({ type: 'timestamp', nullable: true })

@@ -146,7 +146,7 @@ export class Product {
   @Column({ default: false })
   isParent: boolean;
 
-  @Column({ nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   parentProductId: string;
 
   @ManyToOne(() => Product, (product) => product.variations, { nullable: true })

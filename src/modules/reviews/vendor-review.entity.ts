@@ -64,7 +64,7 @@ export class VendorReview {
   @JoinColumn()
   order: Order;
 
-  @Column({ nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   orderId: string;
 
   @CreateDateColumn()

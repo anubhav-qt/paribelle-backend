@@ -38,7 +38,7 @@ export class VendorNavigation {
   @Column({ type: 'int', default: 0 })
   order: number;
 
-  @Column({ nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   parentId: string;
 
   @Column({ default: true })

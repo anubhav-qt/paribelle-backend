@@ -50,7 +50,7 @@ export class Booking {
   status: BookingStatus;
 
   // Payment reference
-  @Column({ nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   paymentId: string;
 
   @ManyToOne(() => Payment, { nullable: true })
