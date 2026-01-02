@@ -95,6 +95,12 @@ async function bootstrap() {
                 return callback(null, true);
             }
             
+            // Allow all Vercel preview and production deployments
+            const vercelPattern = /^https:\/\/[\w-]+\.vercel\.app$/;
+            if (vercelPattern.test(origin)) {
+                return callback(null, true);
+            }
+            
             // If ALLOWED_ORIGINS is not set, allow all
             if (allowedOrigins.length === 0) {
                 return callback(null, true);
