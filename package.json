@@ -11,7 +11,7 @@
     "dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
-    "start:prod:init": "node initialsetup/init-database.js --create-database --force && node test-node.js && node dist/main",
+    "start:prod:init": "node initialsetup/init-database.js --create-database --force && node dist/main",
     "test:node": "node test-node.js",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "test": "jest",
