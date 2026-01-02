@@ -120,111 +120,119 @@ CREATE TABLE addresses (
 -- ============================================================
 
 -- Vendors Table
+-- Schema synchronized with src/modules/vendors/vendor.entity.ts
 CREATE TABLE vendors (
+    -- Primary Key
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    store_name VARCHAR(255) NOT NULL,
-    slug VARCHAR(255) UNIQUE NOT NULL,
-    contact_email VARCHAR(255) NOT NULL,
-    contact_phone VARCHAR(20),
-    description TEXT,
-    logo TEXT,
-    banner TEXT,
-    vendor_type VARCHAR(50) DEFAULT 'individual',
-    status VARCHAR(50) NOT NULL DEFAULT 'pending',
-    commission_rate DECIMAL(5, 2) DEFAULT 10.00,
     
-    -- Shipping Settings
+    -- Basic Information
+    store_name VARCHAR(255) UNIQUE NOT NULL,
+    slug VARCHAR(255) UNIQUE NOT NULL,
+    description TEXT,
+    logo VARCHAR(255),
+    banner VARCHAR(255),
+    
+    -- Vendor Type & Status (enums)
+    vendor_type VARCHAR(50) DEFAULT 'individual' CHECK (vendor_type IN ('individual', 'business')),
+    status VARCHAR(50) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'suspended', 'rejected')),
+    
+    -- Commission & Shipping Settings
+    commission_rate DECIMAL(5, 2) DEFAULT 10.00,
     free_shipping_threshold DECIMAL(10, 2),
     shipping_cost DECIMAL(10, 2) DEFAULT 50.00,
     
-    -- Business Information
+    -- Business Details
     business_name VARCHAR(255),
-    business_registration_number VARCHAR(100),
-    gst_number VARCHAR(50),
     tax_id VARCHAR(255),
-    pan_number VARCHAR(50),
+    gst_number VARCHAR(255),
     
-    -- Bank Details
+    -- Bank Details for Payouts
     bank_account_number VARCHAR(255),
-    bank_ifsc_code VARCHAR(50),
+    bank_ifsc_code VARCHAR(255),
     bank_account_name VARCHAR(255),
+    
+    -- Contact Details
+    contact_email VARCHAR(255),
+    contact_phone VARCHAR(255),
     
     -- Address
     address TEXT,
     city_id UUID,
     sub_location_id UUID,
-    pincode VARCHAR(20),
+    pincode VARCHAR(255),
+    
+    -- Google Location Data
     google_place_id VARCHAR(255),
     latitude DECIMAL(10, 8),
     longitude DECIMAL(11, 8),
-    address_line1 TEXT,
-    address_line2 TEXT,
-    city VARCHAR(100),
-    state VARCHAR(100),
-    postal_code VARCHAR(20),
-    country VARCHAR(100) DEFAULT 'India',
+    city VARCHAR(255),
+    state VARCHAR(255),
+    country VARCHAR(255),
+    postal_code VARCHAR(255),
     
-    -- Settings
-    primary_color VARCHAR(20) DEFAULT '#3B82F6',
-    secondary_color VARCHAR(20) DEFAULT '#10B981',
-    font_family VARCHAR(100) DEFAULT 'Inter',
-    
-    -- Social Media
-    facebook_url TEXT,
-    instagram_url TEXT,
-    twitter_url TEXT,
-    linkedin_url TEXT,
-    
-    -- Additional Settings
-    min_order_amount DECIMAL(10, 2) DEFAULT 0,
-    category_display_mode VARCHAR(50) DEFAULT 'grid',
-    
-    -- Policies
-    shipping_policy TEXT,
-    return_policy TEXT,
-    privacy_policy TEXT,
-    terms_of_service TEXT,
-    
-    -- KYC
+    -- KYC Verification (Legacy Fields)
     is_kyc_verified BOOLEAN DEFAULT FALSE,
-    kyc_document_type VARCHAR(100),
-    kyc_document_url TEXT,
-    kyc_status VARCHAR(50) DEFAULT 'pending',
-    kyc_documents JSONB,
+    kyc_document_type VARCHAR(255),
+    kyc_document_url VARCHAR(255),
     kyc_verified_at TIMESTAMP,
+    
+    -- Comprehensive KYC Fields
+    kyc_status VARCHAR(50) DEFAULT 'pending' CHECK (kyc_status IN ('pending', 'submitted', 'under_review', 'approved', 'rejected')),
+    kyc_documents JSONB,
     kyc_submitted_at TIMESTAMP,
     kyc_approved_at TIMESTAMP,
     kyc_approved_by UUID,
     kyc_rejected_reason TEXT,
-    gst_registration_type VARCHAR(50) DEFAULT 'unregistered',
-    gst_state VARCHAR(100),
+    pan_number VARCHAR(255),
+    
+    -- GST Registration
+    gst_registration_type VARCHAR(50) DEFAULT 'unregistered' CHECK (gst_registration_type IN ('unregistered', 'regular', 'composition')),
+    gst_state VARCHAR(255),
+    
+    -- Invoice Frequency
     invoice_frequency VARCHAR(50) DEFAULT 'per_order',
     
-    -- Subdomain/Custom Domain
+    -- Subdomain/Custom Domain Support
     subdomain VARCHAR(255) UNIQUE,
     custom_domain VARCHAR(255) UNIQUE,
     
-    -- Theme & Branding
+    -- Hero Banners Configuration (JSONB)
     hero_banners JSONB,
+    
+    -- Theme & Branding Configuration (JSONB)
     theme_config JSONB,
+    
+    -- Category Display Mode
+    category_display_mode VARCHAR(10) DEFAULT 'sidebar',
+    
+    -- About & Content
     about_content TEXT,
     about_images JSONB,
+    
+    -- SEO Configuration
     meta_title VARCHAR(255),
     meta_description TEXT,
     meta_keywords TEXT,
+    
+    -- Store Features
     show_reviews BOOLEAN DEFAULT TRUE,
     show_related_products BOOLEAN DEFAULT TRUE,
     enable_blog BOOLEAN DEFAULT FALSE,
     enable_custom_pages BOOLEAN DEFAULT FALSE,
-    total_sales DECIMAL(15, 2) DEFAULT 0,
+    
+    -- Metrics
+    total_sales DECIMAL(10, 2) DEFAULT 0,
     total_orders INTEGER DEFAULT 0,
     rating DECIMAL(3, 2) DEFAULT 0,
     
-    -- Hero Banners (removed duplicate as it's now in KYC section)
+    -- Return & Cancellation Policies (JSONB)
+    return_policy JSONB,
+    cancellation_policy JSONB,
     
-    -- Location (removed duplicate - already in Address section)
+    -- Relations
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     
+    -- Timestamps
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -827,8 +835,8 @@ CREATE INDEX idx_categories_isActive_sortOrder ON categories(is_active, sort_ord
 CREATE INDEX idx_vendors_userId ON vendors(user_id);
 CREATE INDEX idx_vendors_slug ON vendors(slug);
 CREATE INDEX idx_vendors_status ON vendors(status);
-CREATE INDEX idx_vendors_locationCityId ON vendors(location_city_id);
-CREATE INDEX idx_vendors_locationSubLocationId ON vendors(location_sub_location_id);
+CREATE INDEX idx_vendors_cityId ON vendors(city_id);
+CREATE INDEX idx_vendors_subLocationId ON vendors(sub_location_id);
 
 -- Products
 CREATE INDEX idx_products_vendorId ON products(vendor_id);
@@ -924,6 +932,14 @@ CREATE INDEX idx_vendor_blog_posts_isPublished ON vendor_blog_posts(is_published
 
 -- HSN Codes Category Index
 CREATE INDEX idx_hsn_codes_category ON hsn_codes(category);
+
+-- ============================================================
+-- Foreign Key Constraints (Added After Table Creation)
+-- ============================================================
+
+-- Add foreign keys for vendors table location references
+ALTER TABLE vendors ADD CONSTRAINT fk_vendors_city FOREIGN KEY (city_id) REFERENCES cities(id) ON DELETE SET NULL;
+ALTER TABLE vendors ADD CONSTRAINT fk_vendors_sub_location FOREIGN KEY (sub_location_id) REFERENCES sub_locations(id) ON DELETE SET NULL;
 
 -- ============================================================
 -- Database Initialization Complete
