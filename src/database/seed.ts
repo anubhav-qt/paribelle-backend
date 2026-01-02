@@ -526,9 +526,16 @@ export async function seedData(dataSource: DataSource) {
     },
   ];
 
+  console.log(`📦 Inserting ${products.length} products...`);
+  let count = 0;
   for (const productData of products) {
     await productRepository.save(productData);
+    count++;
+    if (count % 5 === 0) {
+      console.log(`   - ${count}/${products.length} products inserted...`);
+    }
   }
+  console.log(`   - ${count}/${products.length} products inserted`);
 
   console.log('✅ Seed data created successfully!');
   console.log(`   - ${products.length} products created`);
