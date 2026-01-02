@@ -22,11 +22,23 @@ export class SettingsService {
   async updateSetting(key: string, value: any, description?: string): Promise<SiteSetting> {
     let setting = await this.settingsRepository.findOne({ where: { key } });
     
+    // If the incoming value is a string that looks like it's already JSON-encoded
+    // (starts and ends with quotes), parse it first to avoid double-encoding
+    let processedValue = value;
+    if (typeof value === 'string' && value.startsWith('"') && value.endsWith('"') && value.length > 2) {
+      try {
+        processedValue = JSON.parse(value);
+      } catch (e) {
+        // If parsing fails, use original value
+        processedValue = value;
+      }
+    }
+    
     if (setting) {
-      setting.value = value;
+      setting.value = processedValue;
       if (description) setting.description = description;
     } else {
-      setting = this.settingsRepository.create({ key, value, description });
+      setting = this.settingsRepository.create({ key, value: processedValue, description });
     }
     
     return this.settingsRepository.save(setting);
