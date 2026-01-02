@@ -7,6 +7,7 @@ import { User, UserRole, UserStatus } from '../users/user.entity';
 import { LocationsService } from '../locations/locations.service';
 import { City } from '../locations/entities/city.entity';
 import { SubLocation } from '../locations/entities/sub-location.entity';
+import { FileCleanupService } from '../../common/services/file-cleanup.service';
 
 @Injectable()
 export class VendorsService {
@@ -16,6 +17,7 @@ export class VendorsService {
     @InjectRepository(User)
     private usersRepository: Repository<User>,
     private locationsService: LocationsService,
+    private fileCleanupService: FileCleanupService,
   ) {}
 
   async findAll(): Promise<Vendor[]> {
@@ -210,6 +212,26 @@ export class VendorsService {
   }
 
   async remove(id: string): Promise<void> {
+    // Get vendor to delete associated images
+    const vendor = await this.vendorsRepository.findOne({ where: { id } });
+
+    if (vendor) {
+      // Delete vendor images (logo, banner, about images, gallery)
+      await this.fileCleanupService.deleteEntityImages(vendor, [
+        'logo',
+        'banner',
+        'aboutImages',
+      ]);
+
+      // Delete gallery images if exists
+      if (vendor.gallery && Array.isArray(vendor.gallery)) {
+        const galleryImages = vendor.gallery
+          .map(item => item.imageUrl)
+          .filter(Boolean);
+        await this.fileCleanupService.deleteFiles(galleryImages);
+      }
+    }
+
     await this.vendorsRepository.delete(id);
   }
 }

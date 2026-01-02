@@ -4,12 +4,14 @@ import { Repository } from 'typeorm';
 import { VendorPage, PageStatus } from './entities/vendor-page.entity';
 import { CreateVendorPageDto } from './dto/create-vendor-page.dto';
 import { UpdateVendorPageDto } from './dto/update-vendor-page.dto';
+import { FileCleanupService } from '../../common/services/file-cleanup.service';
 
 @Injectable()
 export class VendorPagesService {
   constructor(
     @InjectRepository(VendorPage)
     private readonly vendorPageRepository: Repository<VendorPage>,
+    private fileCleanupService: FileCleanupService,
   ) {}
 
   async findAll(vendorId: string, includeUnpublished = false): Promise<VendorPage[]> {
@@ -100,6 +102,13 @@ export class VendorPagesService {
 
   async remove(id: string, vendorId: string): Promise<void> {
     const page = await this.findOne(id, vendorId);
+    
+    // Delete page images
+    await this.fileCleanupService.deleteEntityImages(page, [
+      'featuredImage',
+      'images',
+    ]);
+    
     await this.vendorPageRepository.remove(page);
   }
 

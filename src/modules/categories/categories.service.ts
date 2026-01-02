@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
 import { Category } from './category.entity';
 import { Product } from '../products/product.entity';
+import { FileCleanupService } from '../../common/services/file-cleanup.service';
 
 @Injectable()
 export class CategoriesService {
@@ -11,6 +12,7 @@ export class CategoriesService {
     private categoriesRepository: Repository<Category>,
     @InjectRepository(Product)
     private productsRepository: Repository<Product>,
+    private fileCleanupService: FileCleanupService,
   ) {}
 
   async findAll(): Promise<Category[]> {
@@ -295,6 +297,11 @@ export class CategoriesService {
     
     // Get all descendants
     const descendants = await manager.getTreeRepository(Category).findDescendants(category);
+    
+    // Delete images from all categories (parent + descendants)
+    for (const cat of descendants) {
+      await this.fileCleanupService.deleteEntityImages(cat, ['image']);
+    }
     
     // Delete all descendants first (in reverse order to avoid FK issues)
     const descendantIds = descendants.map(d => d.id).filter(dId => dId !== id);

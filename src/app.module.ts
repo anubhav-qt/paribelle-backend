@@ -2,6 +2,9 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule, TypeOrmModuleOptions } from '@nestjs/typeorm';
 
+// Common
+import { CommonModule } from './common/common.module';
+
 // Modules
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
@@ -37,6 +40,9 @@ import { InvoicesModule } from './modules/invoices/invoices.module';
       isGlobal: true,
       envFilePath: '.env',
     }),
+
+    // Common services (global)
+    CommonModule,
 
     // Database
     TypeOrmModule.forRootAsync({

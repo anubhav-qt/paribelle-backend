@@ -8,12 +8,14 @@ import { Repository } from 'typeorm';
 import { MarketplacePage, PageStatus } from './entities/marketplace-page.entity';
 import { CreateMarketplacePageDto } from './dto/create-marketplace-page.dto';
 import { UpdateMarketplacePageDto } from './dto/update-marketplace-page.dto';
+import { FileCleanupService } from '../../common/services/file-cleanup.service';
 
 @Injectable()
 export class MarketplacePagesService {
   constructor(
     @InjectRepository(MarketplacePage)
     private readonly marketplacePageRepository: Repository<MarketplacePage>,
+    private fileCleanupService: FileCleanupService,
   ) {}
 
   async findAll(includeUnpublished = false): Promise<MarketplacePage[]> {
@@ -105,6 +107,13 @@ export class MarketplacePagesService {
 
   async remove(id: string): Promise<void> {
     const page = await this.findOne(id);
+    
+    // Delete page images
+    await this.fileCleanupService.deleteEntityImages(page, [
+      'featuredImage',
+      'images',
+    ]);
+    
     await this.marketplacePageRepository.remove(page);
   }
 }

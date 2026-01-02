@@ -5,6 +5,7 @@ import { Product, ProductStatus } from './product.entity';
 import { ProductVariant } from './product-variant.entity';
 import { Category } from '../categories/category.entity';
 import { CategoriesService } from '../categories/categories.service';
+import { FileCleanupService } from '../../common/services/file-cleanup.service';
 
 @Injectable()
 export class ProductsService {
@@ -16,6 +17,7 @@ export class ProductsService {
     @InjectRepository(Category)
     private categoriesRepository: Repository<Category>,
     private categoriesService: CategoriesService,
+    private fileCleanupService: FileCleanupService,
   ) {}
 
   async findAll(
@@ -504,6 +506,28 @@ export class ProductsService {
   }
 
   async remove(id: string): Promise<void> {
+    // Get product with variants to delete associated images
+    const product = await this.productsRepository.findOne({
+      where: { id },
+      relations: ['variants'],
+    });
+
+    if (product) {
+      // Delete product images
+      await this.fileCleanupService.deleteEntityImages(product, [
+        'images',
+        'featuredImage',
+      ]);
+
+      // Delete variant images
+      if (product.variants && product.variants.length > 0) {
+        for (const variant of product.variants) {
+          await this.fileCleanupService.deleteEntityImages(variant, ['images']);
+        }
+      }
+    }
+
+    // Delete product from database (cascades to variants)
     await this.productsRepository.delete(id);
   }
 }
