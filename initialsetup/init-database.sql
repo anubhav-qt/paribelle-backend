@@ -728,17 +728,16 @@ CREATE TABLE homepage_settings (
 );
 
 -- Footer Settings Table
+-- Schema synchronized with src/modules/footer-settings/entities/footer-settings.entity.ts
 CREATE TABLE footer_settings (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    logo TEXT,
-    description TEXT,
-    copyright_text VARCHAR(255),
-    social_links JSONB,
-    link_columns JSONB,
-    contact_info JSONB,
-    newsletter_enabled BOOLEAN DEFAULT TRUE,
-    newsletter_title VARCHAR(255),
-    newsletter_description TEXT,
+    about_text VARCHAR(255) DEFAULT 'Your marketplace description goes here. We connect buyers and sellers in a trusted, secure platform.',
+    social_links JSONB DEFAULT '[]'::jsonb,
+    custom_sections JSONB DEFAULT '[]'::jsonb,
+    contact_info JSONB DEFAULT '{"phone":"","email":"","address":""}'::jsonb,
+    copyright_text TEXT,
+    show_categories BOOLEAN DEFAULT TRUE,
+    max_categories_display INTEGER DEFAULT 6,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
