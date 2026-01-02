@@ -18,13 +18,13 @@ async function bootstrap() {
   } catch (error) {
     console.error('❌ Seeding failed:', error);
     console.error('Error details:', error.message);
+    await app.close();
     process.exit(1);
-  } finally {
-    // Force close without waiting
-    setImmediate(() => {
-      process.exit(0);
-    });
   }
+
+  // Close the application context properly
+  await app.close();
+  process.exit(0);
 }
 
 bootstrap().catch((error) => {
