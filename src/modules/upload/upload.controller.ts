@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import type { Multer } from 'multer';
 
 @Controller('upload')
 export class UploadController {
@@ -22,7 +23,7 @@ export class UploadController {
 
   @Post('image')
   @UseInterceptors(FileInterceptor('file'))
-  uploadImage(@UploadedFile() file: Express.Multer.File) {
+  uploadImage(@UploadedFile() file: Multer.File) {
     if (!file) {
       throw new BadRequestException('No file uploaded');
     }
@@ -39,7 +40,7 @@ export class UploadController {
 
   @Post('images')
   @UseInterceptors(FilesInterceptor('files', 10))
-  uploadImages(@UploadedFiles() files: Express.Multer.File[]) {
+  uploadImages(@UploadedFiles() files: Multer.File[]) {
     if (!files || files.length === 0) {
       throw new BadRequestException('No files uploaded');
     }
@@ -60,7 +61,7 @@ export class UploadController {
   @Post('kyc-documents')
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(FileInterceptor('file'))
-  uploadKYCDocument(@UploadedFile() file: Express.Multer.File) {
+  uploadKYCDocument(@UploadedFile() file: Multer.File) {
     if (!file) {
       throw new BadRequestException('No file uploaded');
     }
