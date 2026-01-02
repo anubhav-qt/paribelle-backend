@@ -10,22 +10,33 @@ async function bootstrap() {
   try {
     await seedData(dataSource);
     console.log('✅ Seeding completed');
+    
+    // Explicitly close database connections
+    if (dataSource.isInitialized) {
+      await dataSource.destroy();
+    }
+    
     await app.close();
     
-    // Force exit after 2 seconds if still hanging
-    setTimeout(() => {
-      console.log('⚠️  Forcing exit...');
-      process.exit(0);
-    }, 2000);
+    // Exit immediately after cleanup
+    process.exit(0);
   } catch (error) {
     console.error('❌ Seeding failed:', error);
+    console.error('Error details:', error.message);
+    
+    // Explicitly close database connections
+    if (dataSource.isInitialized) {
+      await dataSource.destroy();
+    }
+    
     await app.close();
     
-    // Force exit after 2 seconds
-    setTimeout(() => {
-      process.exit(1);
-    }, 2000);
+    // Exit immediately
+    process.exit(1);
   }
 }
 
-bootstrap();
+bootstrap().catch((error) => {
+  console.error('Fatal error during seeding:', error);
+  process.exit(1);
+});
