@@ -10,7 +10,7 @@ export class SubLocation {
   name: string;
 
   @ManyToOne(() => City, (city) => city.subLocations)
-  @JoinColumn({ name: 'cityId' })
+  @JoinColumn({ name: 'city_id' })
   city: City;
 
   @Column({ nullable: true })

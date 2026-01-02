@@ -64,6 +64,15 @@ CREATE TABLE categories (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Categories closure table for tree structure (required by TypeORM @Tree)
+CREATE TABLE categories_closure (
+    id_ancestor UUID NOT NULL,
+    id_descendant UUID NOT NULL,
+    PRIMARY KEY (id_ancestor, id_descendant),
+    FOREIGN KEY (id_ancestor) REFERENCES categories(id) ON DELETE CASCADE,
+    FOREIGN KEY (id_descendant) REFERENCES categories(id) ON DELETE CASCADE
+);
+
 -- HSN Codes Table
 CREATE TABLE hsn_codes (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -349,6 +358,13 @@ CREATE TABLE products (
     -- Timestamps
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Product Categories Junction Table (many-to-many)
+CREATE TABLE product_categories (
+    product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    category_id UUID NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+    PRIMARY KEY (product_id, category_id)
 );
 
 -- Product Variants Table
@@ -927,8 +943,6 @@ CREATE INDEX idx_cities_isActive ON cities(is_active);
 
 -- Sub Locations
 CREATE INDEX idx_sub_locations_cityId ON sub_locations(city_id);
-CREATE INDEX idx_sub_locations_slug ON sub_locations(slug);
-CREATE INDEX idx_sub_locations_isActive ON sub_locations(is_active);
 
 -- Vendor Pages
 CREATE UNIQUE INDEX idx_vendor_pages_vendorId_slug ON vendor_pages(vendor_id, slug);

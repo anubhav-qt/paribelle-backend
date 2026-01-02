@@ -150,7 +150,7 @@ export class Product {
   parentProductId: string;
 
   @ManyToOne(() => Product, (product) => product.variations, { nullable: true })
-  @JoinColumn({ name: 'parentProductId' })
+  @JoinColumn({ name: 'parent_product_id' })
   parentProduct: Product;
 
   @OneToMany(() => Product, (product) => product.parentProduct)
@@ -207,8 +207,8 @@ export class Product {
   @ManyToMany(() => Category, (category) => category.products)
   @JoinTable({
     name: 'product_categories',
-    joinColumn: { name: 'productId', referencedColumnName: 'id' },
-    inverseJoinColumn: { name: 'categoryId', referencedColumnName: 'id' },
+    joinColumn: { name: 'product_id', referencedColumnName: 'id' },
+    inverseJoinColumn: { name: 'category_id', referencedColumnName: 'id' },
   })
   categories: Category[];
 
