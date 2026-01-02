@@ -32,7 +32,7 @@ DROP TABLE IF EXISTS vendor_navigation CASCADE;
 DROP TABLE IF EXISTS vendors CASCADE;
 DROP TABLE IF EXISTS addresses CASCADE;
 DROP TABLE IF EXISTS categories CASCADE;
-DROP TABLE IF EXISTS hsn_codes CASCADE;
+DROP TABLE IF EXISTS hsnCodes CASCADE;
 DROP TABLE IF EXISTS users CASCADE;
 DROP TABLE IF EXISTS settings CASCADE;
 DROP TABLE IF EXISTS homepage_settings CASCADE;
@@ -51,20 +51,20 @@ CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     email VARCHAR(255) UNIQUE NOT NULL,
     password VARCHAR(255) NOT NULL,
-    first_name VARCHAR(100),
-    last_name VARCHAR(100),
+    firstName VARCHAR(100),
+    lastName VARCHAR(100),
     phone VARCHAR(20),
     role VARCHAR(50) NOT NULL DEFAULT 'customer',
-    email_verified BOOLEAN DEFAULT FALSE,
-    phone_verified BOOLEAN DEFAULT FALSE,
-    verification_token VARCHAR(255),
-    verification_token_expires TIMESTAMP,
-    reset_password_token VARCHAR(255),
-    reset_password_expires TIMESTAMP,
-    google_id VARCHAR(255),
-    profile_picture TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    emailVerified BOOLEAN DEFAULT FALSE,
+    phoneVerified BOOLEAN DEFAULT FALSE,
+    verificationToken VARCHAR(255),
+    verificationTokenExpires TIMESTAMP,
+    resetPasswordToken VARCHAR(255),
+    resetPasswordExpires TIMESTAMP,
+    googleId VARCHAR(255),
+    profilePicture TEXT,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Categories Table
@@ -74,42 +74,42 @@ CREATE TABLE categories (
     slug VARCHAR(255) UNIQUE NOT NULL,
     description TEXT,
     image TEXT,
-    parent_id UUID REFERENCES categories(id) ON DELETE CASCADE,
-    sort_order INTEGER DEFAULT 0,
-    is_active BOOLEAN DEFAULT TRUE,
-    meta_title VARCHAR(255),
-    meta_description TEXT,
-    meta_keywords TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    parentId UUID REFERENCES categories(id) ON DELETE CASCADE,
+    sortOrder INTEGER DEFAULT 0,
+    isActive BOOLEAN DEFAULT TRUE,
+    metaTitle VARCHAR(255),
+    metaDescription TEXT,
+    metaKeywords TEXT,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- HSN Codes Table
-CREATE TABLE hsn_codes (
+CREATE TABLE hsnCodes (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     code VARCHAR(20) UNIQUE NOT NULL,
     description TEXT NOT NULL,
-    gst_rate DECIMAL(5, 2) DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    gstRate DECIMAL(5, 2) DEFAULT 0,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Addresses Table
 CREATE TABLE addresses (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    full_name VARCHAR(255) NOT NULL,
+    userId UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    fullName VARCHAR(255) NOT NULL,
     phone VARCHAR(20) NOT NULL,
-    address_line1 TEXT NOT NULL,
-    address_line2 TEXT,
+    addressLine1 TEXT NOT NULL,
+    addressLine2 TEXT,
     city VARCHAR(100) NOT NULL,
     state VARCHAR(100) NOT NULL,
-    postal_code VARCHAR(20) NOT NULL,
+    postalCode VARCHAR(20) NOT NULL,
     country VARCHAR(100) NOT NULL DEFAULT 'India',
-    is_default BOOLEAN DEFAULT FALSE,
+    isDefault BOOLEAN DEFAULT FALSE,
     type VARCHAR(50) DEFAULT 'shipping',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ============================================================
@@ -119,116 +119,116 @@ CREATE TABLE addresses (
 -- Vendors Table
 CREATE TABLE vendors (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    store_name VARCHAR(255) NOT NULL,
+    userId UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    storeName VARCHAR(255) NOT NULL,
     slug VARCHAR(255) UNIQUE NOT NULL,
-    contact_email VARCHAR(255) NOT NULL,
-    contact_phone VARCHAR(20),
+    contactEmail VARCHAR(255) NOT NULL,
+    contactPhone VARCHAR(20),
     description TEXT,
     logo TEXT,
     banner TEXT,
     status VARCHAR(50) NOT NULL DEFAULT 'pending',
-    commission_rate DECIMAL(5, 2) DEFAULT 10.00,
+    commissionRate DECIMAL(5, 2) DEFAULT 10.00,
     
     -- Business Information
-    business_name VARCHAR(255),
-    business_registration_number VARCHAR(100),
-    gst_number VARCHAR(50),
-    pan_number VARCHAR(50),
+    businessName VARCHAR(255),
+    businessRegistrationNumber VARCHAR(100),
+    gstNumber VARCHAR(50),
+    panNumber VARCHAR(50),
     
     -- Address
-    address_line1 TEXT,
-    address_line2 TEXT,
+    addressLine1 TEXT,
+    addressLine2 TEXT,
     city VARCHAR(100),
     state VARCHAR(100),
-    postal_code VARCHAR(20),
+    postalCode VARCHAR(20),
     country VARCHAR(100) DEFAULT 'India',
     
     -- Settings
-    primary_color VARCHAR(20) DEFAULT '#3B82F6',
-    secondary_color VARCHAR(20) DEFAULT '#10B981',
-    font_family VARCHAR(100) DEFAULT 'Inter',
+    primaryColor VARCHAR(20) DEFAULT '#3B82F6',
+    secondaryColor VARCHAR(20) DEFAULT '#10B981',
+    fontFamily VARCHAR(100) DEFAULT 'Inter',
     
     -- Social Media
-    facebook_url TEXT,
-    instagram_url TEXT,
-    twitter_url TEXT,
-    linkedin_url TEXT,
+    facebookUrl TEXT,
+    instagramUrl TEXT,
+    twitterUrl TEXT,
+    linkedinUrl TEXT,
     
     -- Additional Settings
-    min_order_amount DECIMAL(10, 2) DEFAULT 0,
-    free_shipping_threshold DECIMAL(10, 2),
-    category_display_mode VARCHAR(50) DEFAULT 'grid',
+    minOrderAmount DECIMAL(10, 2) DEFAULT 0,
+    freeShippingThreshold DECIMAL(10, 2),
+    categoryDisplayMode VARCHAR(50) DEFAULT 'grid',
     
     -- Policies
-    shipping_policy TEXT,
-    return_policy TEXT,
-    privacy_policy TEXT,
-    terms_of_service TEXT,
+    shippingPolicy TEXT,
+    returnPolicy TEXT,
+    privacyPolicy TEXT,
+    termsOfService TEXT,
     
     -- KYC
-    kyc_status VARCHAR(50) DEFAULT 'pending',
-    kyc_documents JSONB,
-    kyc_verified_at TIMESTAMP,
+    kycStatus VARCHAR(50) DEFAULT 'pending',
+    kycDocuments JSONB,
+    kycVerifiedAt TIMESTAMP,
     
     -- Hero Banners
-    hero_banners JSONB,
+    heroBanners JSONB,
     
     -- Location
-    location_city_id UUID,
-    location_sub_location_id UUID,
+    locationCityId UUID,
+    locationSubLocationId UUID,
     
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Vendor Pages Table
 CREATE TABLE vendor_pages (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    vendor_id UUID NOT NULL REFERENCES vendors(id) ON DELETE CASCADE,
+    vendorId UUID NOT NULL REFERENCES vendors(id) ON DELETE CASCADE,
     title VARCHAR(255) NOT NULL,
     slug VARCHAR(255) NOT NULL,
     content TEXT,
-    is_published BOOLEAN DEFAULT FALSE,
-    meta_title VARCHAR(255),
-    meta_description TEXT,
-    published_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(vendor_id, slug)
+    isPublished BOOLEAN DEFAULT FALSE,
+    metaTitle VARCHAR(255),
+    metaDescription TEXT,
+    publishedAt TIMESTAMP,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(vendorId, slug)
 );
 
 -- Vendor Blog Posts Table
 CREATE TABLE vendor_blog_posts (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    vendor_id UUID NOT NULL REFERENCES vendors(id) ON DELETE CASCADE,
+    vendorId UUID NOT NULL REFERENCES vendors(id) ON DELETE CASCADE,
     title VARCHAR(255) NOT NULL,
     slug VARCHAR(255) NOT NULL,
     excerpt TEXT,
     content TEXT,
-    featured_image TEXT,
-    is_published BOOLEAN DEFAULT FALSE,
-    meta_title VARCHAR(255),
-    meta_description TEXT,
+    featuredImage TEXT,
+    isPublished BOOLEAN DEFAULT FALSE,
+    metaTitle VARCHAR(255),
+    metaDescription TEXT,
     tags TEXT[],
-    published_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(vendor_id, slug)
+    publishedAt TIMESTAMP,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(vendorId, slug)
 );
 
 -- Vendor Navigation Table
 CREATE TABLE vendor_navigation (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    vendor_id UUID NOT NULL REFERENCES vendors(id) ON DELETE CASCADE,
+    vendorId UUID NOT NULL REFERENCES vendors(id) ON DELETE CASCADE,
     label VARCHAR(100) NOT NULL,
     url TEXT NOT NULL,
     type VARCHAR(50) NOT NULL,
-    parent_id UUID REFERENCES vendor_navigation(id) ON DELETE CASCADE,
-    sort_order INTEGER DEFAULT 0,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    parentId UUID REFERENCES vendor_navigation(id) ON DELETE CASCADE,
+    sortOrder INTEGER DEFAULT 0,
+    isActive BOOLEAN DEFAULT TRUE,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ============================================================
@@ -238,72 +238,72 @@ CREATE TABLE vendor_navigation (
 -- Products Table
 CREATE TABLE products (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    vendor_id UUID NOT NULL REFERENCES vendors(id) ON DELETE CASCADE,
-    category_id UUID NOT NULL REFERENCES categories(id) ON DELETE RESTRICT,
+    vendorId UUID NOT NULL REFERENCES vendors(id) ON DELETE CASCADE,
+    categoryId UUID NOT NULL REFERENCES categories(id) ON DELETE RESTRICT,
     name VARCHAR(255) NOT NULL,
     slug VARCHAR(255) NOT NULL,
     description TEXT,
-    short_description TEXT,
+    shortDescription TEXT,
     price DECIMAL(10, 2) NOT NULL,
-    compare_at_price DECIMAL(10, 2),
-    cost_price DECIMAL(10, 2),
+    compareAtPrice DECIMAL(10, 2),
+    costPrice DECIMAL(10, 2),
     sku VARCHAR(100),
     barcode VARCHAR(100),
     stock INTEGER DEFAULT 0,
-    low_stock_threshold INTEGER DEFAULT 10,
+    lowStockThreshold INTEGER DEFAULT 10,
     weight DECIMAL(10, 2),
-    weight_unit VARCHAR(20) DEFAULT 'kg',
+    weightUnit VARCHAR(20) DEFAULT 'kg',
     dimensions JSONB,
     images TEXT[],
     status VARCHAR(50) NOT NULL DEFAULT 'draft',
-    is_featured BOOLEAN DEFAULT FALSE,
-    is_taxable BOOLEAN DEFAULT TRUE,
-    tax_rate DECIMAL(5, 2) DEFAULT 0,
-    hsn_code VARCHAR(20),
-    hsn_code_id UUID REFERENCES hsn_codes(id) ON DELETE SET NULL,
-    meta_title VARCHAR(255),
-    meta_description TEXT,
-    meta_keywords TEXT,
+    isFeatured BOOLEAN DEFAULT FALSE,
+    isTaxable BOOLEAN DEFAULT TRUE,
+    taxRate DECIMAL(5, 2) DEFAULT 0,
+    hsnCode VARCHAR(20),
+    hsnCodeId UUID REFERENCES hsnCodes(id) ON DELETE SET NULL,
+    metaTitle VARCHAR(255),
+    metaDescription TEXT,
+    metaKeywords TEXT,
     tags TEXT[],
     
     -- Product Variations
-    has_variations BOOLEAN DEFAULT FALSE,
-    variation_options JSONB,
+    hasVariations BOOLEAN DEFAULT FALSE,
+    variationOptions JSONB,
     
     -- Product Attributes
     attributes JSONB,
     
     -- SEO & Tracking
-    views_count INTEGER DEFAULT 0,
-    sales_count INTEGER DEFAULT 0,
+    viewsCount INTEGER DEFAULT 0,
+    salesCount INTEGER DEFAULT 0,
     
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(vendor_id, slug)
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(vendorId, slug)
 );
 
 -- Product Variants Table
 CREATE TABLE product_variants (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    productId UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
     sku VARCHAR(100),
     barcode VARCHAR(100),
     price DECIMAL(10, 2) NOT NULL,
-    compare_at_price DECIMAL(10, 2),
-    cost_price DECIMAL(10, 2),
+    compareAtPrice DECIMAL(10, 2),
+    costPrice DECIMAL(10, 2),
     stock INTEGER DEFAULT 0,
     weight DECIMAL(10, 2),
     dimensions JSONB,
     image TEXT,
-    option1_name VARCHAR(100),
-    option1_value VARCHAR(100),
-    option2_name VARCHAR(100),
-    option2_value VARCHAR(100),
-    option3_name VARCHAR(100),
-    option3_value VARCHAR(100),
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    option1Name VARCHAR(100),
+    option1Value VARCHAR(100),
+    option2Name VARCHAR(100),
+    option2Value VARCHAR(100),
+    option3Name VARCHAR(100),
+    option3Value VARCHAR(100),
+    isActive BOOLEAN DEFAULT TRUE,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ============================================================
@@ -313,74 +313,74 @@ CREATE TABLE product_variants (
 -- Orders Table
 CREATE TABLE orders (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    order_number VARCHAR(50) UNIQUE NOT NULL,
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
-    vendor_id UUID REFERENCES vendors(id) ON DELETE RESTRICT,
+    orderNumber VARCHAR(50) UNIQUE NOT NULL,
+    userId UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    vendorId UUID REFERENCES vendors(id) ON DELETE RESTRICT,
     status VARCHAR(50) NOT NULL DEFAULT 'pending',
-    payment_status VARCHAR(50) NOT NULL DEFAULT 'pending',
-    fulfillment_status VARCHAR(50) DEFAULT 'unfulfilled',
+    paymentStatus VARCHAR(50) NOT NULL DEFAULT 'pending',
+    fulfillmentStatus VARCHAR(50) DEFAULT 'unfulfilled',
     
     -- Amounts
     subtotal DECIMAL(10, 2) NOT NULL,
     tax DECIMAL(10, 2) DEFAULT 0,
-    shipping_cost DECIMAL(10, 2) DEFAULT 0,
+    shippingCost DECIMAL(10, 2) DEFAULT 0,
     discount DECIMAL(10, 2) DEFAULT 0,
     total DECIMAL(10, 2) NOT NULL,
     
     -- Shipping Information
-    shipping_name VARCHAR(255),
-    shipping_email VARCHAR(255),
-    shipping_phone VARCHAR(20),
-    shipping_address_line1 TEXT,
-    shipping_address_line2 TEXT,
-    shipping_city VARCHAR(100),
-    shipping_state VARCHAR(100),
-    shipping_postal_code VARCHAR(20),
-    shipping_country VARCHAR(100),
+    shippingName VARCHAR(255),
+    shippingEmail VARCHAR(255),
+    shippingPhone VARCHAR(20),
+    shippingaddressLine1 TEXT,
+    shippingaddressLine2 TEXT,
+    shippingCity VARCHAR(100),
+    shippingState VARCHAR(100),
+    shippingPostalCode VARCHAR(20),
+    shippingCountry VARCHAR(100),
     
     -- Billing Information
-    billing_name VARCHAR(255),
-    billing_email VARCHAR(255),
-    billing_phone VARCHAR(20),
-    billing_address_line1 TEXT,
-    billing_address_line2 TEXT,
-    billing_city VARCHAR(100),
-    billing_state VARCHAR(100),
-    billing_postal_code VARCHAR(20),
-    billing_country VARCHAR(100),
+    billingName VARCHAR(255),
+    billingEmail VARCHAR(255),
+    billingPhone VARCHAR(20),
+    billingaddressLine1 TEXT,
+    billingaddressLine2 TEXT,
+    billingCity VARCHAR(100),
+    billingState VARCHAR(100),
+    billingPostalCode VARCHAR(20),
+    billingCountry VARCHAR(100),
     
     -- Additional Info
-    customer_notes TEXT,
-    admin_notes TEXT,
-    tracking_number VARCHAR(255),
-    tracking_url TEXT,
+    customerNotes TEXT,
+    adminNotes TEXT,
+    trackingNumber VARCHAR(255),
+    trackingUrl TEXT,
     
     -- Payment
-    payment_method VARCHAR(50),
-    payment_id VARCHAR(255),
+    paymentMethod VARCHAR(50),
+    paymentId VARCHAR(255),
     
     -- Dates
-    paid_at TIMESTAMP,
-    fulfilled_at TIMESTAMP,
-    shipped_at TIMESTAMP,
-    delivered_at TIMESTAMP,
-    cancelled_at TIMESTAMP,
+    paidAt TIMESTAMP,
+    fulfilledAt TIMESTAMP,
+    shippedAt TIMESTAMP,
+    deliveredAt TIMESTAMP,
+    cancelledAt TIMESTAMP,
     
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Order Items Table
 CREATE TABLE order_items (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-    product_id UUID REFERENCES products(id) ON DELETE SET NULL,
-    variant_id UUID REFERENCES product_variants(id) ON DELETE SET NULL,
+    orderId UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    productId UUID REFERENCES products(id) ON DELETE SET NULL,
+    variantId UUID REFERENCES product_variants(id) ON DELETE SET NULL,
     
     -- Product snapshot at time of order
-    product_name VARCHAR(255) NOT NULL,
-    product_sku VARCHAR(100),
-    product_image TEXT,
+    productName VARCHAR(255) NOT NULL,
+    productSku VARCHAR(100),
+    productImage TEXT,
     variant_options JSONB,
     
     -- Pricing
@@ -392,14 +392,14 @@ CREATE TABLE order_items (
     total DECIMAL(10, 2) NOT NULL,
     
     -- Tax details
-    hsn_code VARCHAR(20),
-    gst_rate DECIMAL(5, 2),
-    cgst_amount DECIMAL(10, 2),
-    sgst_amount DECIMAL(10, 2),
-    igst_amount DECIMAL(10, 2),
+    hsnCode VARCHAR(20),
+    gstRate DECIMAL(5, 2),
+    cgstAmount DECIMAL(10, 2),
+    sgstAmount DECIMAL(10, 2),
+    igstAmount DECIMAL(10, 2),
     
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ============================================================
@@ -409,30 +409,30 @@ CREATE TABLE order_items (
 -- Payments Table
 CREATE TABLE payments (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    orderId UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    userId UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     amount DECIMAL(10, 2) NOT NULL,
     currency VARCHAR(10) DEFAULT 'INR',
     status VARCHAR(50) NOT NULL DEFAULT 'pending',
-    payment_method VARCHAR(50) NOT NULL,
+    paymentMethod VARCHAR(50) NOT NULL,
     
     -- Payment Gateway Details
     gateway VARCHAR(50),
-    gateway_payment_id VARCHAR(255),
-    gateway_order_id VARCHAR(255),
-    gateway_signature VARCHAR(255),
-    gateway_response JSONB,
+    gatewayPaymentId VARCHAR(255),
+    gatewayOrderId VARCHAR(255),
+    gatewaySignature VARCHAR(255),
+    gatewayResponse JSONB,
     
     -- Additional Info
-    failure_reason TEXT,
+    failureReason TEXT,
     notes TEXT,
     
     -- Dates
-    paid_at TIMESTAMP,
-    refunded_at TIMESTAMP,
+    paidAt TIMESTAMP,
+    refundedAt TIMESTAMP,
     
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ============================================================
@@ -442,38 +442,38 @@ CREATE TABLE payments (
 -- Bookings Table
 CREATE TABLE bookings (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
-    vendor_id UUID NOT NULL REFERENCES vendors(id) ON DELETE RESTRICT,
+    productId UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    userId UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    vendorId UUID NOT NULL REFERENCES vendors(id) ON DELETE RESTRICT,
     
-    booking_date DATE NOT NULL,
-    booking_time TIME,
-    duration_minutes INTEGER,
+    bookingDate DATE NOT NULL,
+    bookingTime TIME,
+    durationMinutes INTEGER,
     
     status VARCHAR(50) NOT NULL DEFAULT 'pending',
     
     -- Customer Details
-    customer_name VARCHAR(255) NOT NULL,
-    customer_email VARCHAR(255) NOT NULL,
-    customer_phone VARCHAR(20) NOT NULL,
+    customerName VARCHAR(255) NOT NULL,
+    customerEmail VARCHAR(255) NOT NULL,
+    customerPhone VARCHAR(20) NOT NULL,
     
     -- Pricing
     price DECIMAL(10, 2) NOT NULL,
-    deposit_amount DECIMAL(10, 2),
-    total_amount DECIMAL(10, 2) NOT NULL,
+    depositAmount DECIMAL(10, 2),
+    totalAmount DECIMAL(10, 2) NOT NULL,
     
     -- Additional Info
     notes TEXT,
-    admin_notes TEXT,
-    cancellation_reason TEXT,
+    adminNotes TEXT,
+    cancellationReason TEXT,
     
     -- Dates
-    confirmed_at TIMESTAMP,
-    completed_at TIMESTAMP,
-    cancelled_at TIMESTAMP,
+    confirmedAt TIMESTAMP,
+    completedAt TIMESTAMP,
+    cancelledAt TIMESTAMP,
     
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ============================================================
@@ -483,70 +483,70 @@ CREATE TABLE bookings (
 -- Invoices Table
 CREATE TABLE invoices (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    invoice_number VARCHAR(255) UNIQUE NOT NULL,
+    invoiceNumber VARCHAR(255) UNIQUE NOT NULL,
     type VARCHAR(50) NOT NULL DEFAULT 'customer',
     status VARCHAR(50) NOT NULL DEFAULT 'draft',
     
     -- Dates
-    invoice_date DATE NOT NULL,
-    due_date DATE NOT NULL,
+    invoiceDate DATE NOT NULL,
+    dueDate DATE NOT NULL,
     
     -- Amounts
     subtotal DECIMAL(10, 2) NOT NULL,
     tax DECIMAL(10, 2) DEFAULT 0,
     discount DECIMAL(10, 2) DEFAULT 0,
-    shipping_cost DECIMAL(10, 2) DEFAULT 0,
+    shippingCost DECIMAL(10, 2) DEFAULT 0,
     total DECIMAL(10, 2) NOT NULL,
     
     -- Commission details (for vendor invoices)
-    commission_amount DECIMAL(10, 2),
-    commission_rate DECIMAL(5, 2),
-    payout_amount DECIMAL(10, 2),
+    commissionAmount DECIMAL(10, 2),
+    commissionRate DECIMAL(5, 2),
+    payoutAmount DECIMAL(10, 2),
     
     -- Billing information
-    billing_name TEXT,
-    billing_email TEXT,
-    billing_phone TEXT,
-    billing_address TEXT,
-    billing_city VARCHAR(255),
-    billing_state VARCHAR(255),
-    billing_postal_code VARCHAR(20),
-    billing_country VARCHAR(100),
+    billingName TEXT,
+    billingEmail TEXT,
+    billingPhone TEXT,
+    billingAddress TEXT,
+    billingCity VARCHAR(255),
+    billingState VARCHAR(255),
+    billingPostalCode VARCHAR(20),
+    billingCountry VARCHAR(100),
     
     -- Tax details
-    gst_number VARCHAR(50),
-    pan_number VARCHAR(50),
+    gstNumber VARCHAR(50),
+    panNumber VARCHAR(50),
     
     -- PDF file
-    pdf_url TEXT,
+    pdfUrl TEXT,
     
     -- Notes
     notes TEXT,
     terms TEXT,
     
     -- Email tracking
-    email_sent BOOLEAN DEFAULT FALSE,
-    email_sent_at TIMESTAMP,
+    emailSent BOOLEAN DEFAULT FALSE,
+    emailSentAt TIMESTAMP,
     
     -- Relations
-    order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-    vendor_id UUID REFERENCES vendors(id) ON DELETE SET NULL,
+    orderId UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    userId UUID REFERENCES users(id) ON DELETE SET NULL,
+    vendorId UUID REFERENCES vendors(id) ON DELETE SET NULL,
     
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Invoice Items Table
 CREATE TABLE invoice_items (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    invoice_id UUID NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+    invoiceId UUID NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
     
     -- Item details
     description TEXT NOT NULL,
-    hsn_code VARCHAR(20),
+    hsnCode VARCHAR(20),
     quantity DECIMAL(10, 2) NOT NULL,
-    unit_price DECIMAL(10, 2) NOT NULL,
+    unitPrice DECIMAL(10, 2) NOT NULL,
     
     -- Amounts
     subtotal DECIMAL(10, 2) NOT NULL,
@@ -554,23 +554,23 @@ CREATE TABLE invoice_items (
     taxable_amount DECIMAL(10, 2) NOT NULL,
     
     -- GST breakdown
-    gst_rate DECIMAL(5, 2) DEFAULT 0,
-    cgst_rate DECIMAL(5, 2) DEFAULT 0,
-    sgst_rate DECIMAL(5, 2) DEFAULT 0,
-    igst_rate DECIMAL(5, 2) DEFAULT 0,
-    cgst_amount DECIMAL(10, 2) DEFAULT 0,
-    sgst_amount DECIMAL(10, 2) DEFAULT 0,
-    igst_amount DECIMAL(10, 2) DEFAULT 0,
+    gstRate DECIMAL(5, 2) DEFAULT 0,
+    cgstRate DECIMAL(5, 2) DEFAULT 0,
+    sgstRate DECIMAL(5, 2) DEFAULT 0,
+    igstRate DECIMAL(5, 2) DEFAULT 0,
+    cgstAmount DECIMAL(10, 2) DEFAULT 0,
+    sgstAmount DECIMAL(10, 2) DEFAULT 0,
+    igstAmount DECIMAL(10, 2) DEFAULT 0,
     total_gst DECIMAL(10, 2) DEFAULT 0,
     
     -- Total
     total DECIMAL(10, 2) NOT NULL,
     
     -- Reference
-    order_item_id UUID REFERENCES order_items(id) ON DELETE SET NULL,
+    orderItemId UUID REFERENCES order_items(id) ON DELETE SET NULL,
     
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ============================================================
@@ -580,33 +580,33 @@ CREATE TABLE invoice_items (
 -- Reviews Table (Product Reviews)
 CREATE TABLE reviews (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    order_id UUID REFERENCES orders(id) ON DELETE SET NULL,
+    productId UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    userId UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    orderId UUID REFERENCES orders(id) ON DELETE SET NULL,
     rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
     title VARCHAR(255),
     comment TEXT,
-    is_verified BOOLEAN DEFAULT FALSE,
-    is_approved BOOLEAN DEFAULT FALSE,
-    helpful_count INTEGER DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    isVerified BOOLEAN DEFAULT FALSE,
+    isApproved BOOLEAN DEFAULT FALSE,
+    helpfulCount INTEGER DEFAULT 0,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Vendor Reviews Table
 CREATE TABLE vendor_reviews (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    vendor_id UUID NOT NULL REFERENCES vendors(id) ON DELETE CASCADE,
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    order_id UUID REFERENCES orders(id) ON DELETE SET NULL,
+    vendorId UUID NOT NULL REFERENCES vendors(id) ON DELETE CASCADE,
+    userId UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    orderId UUID REFERENCES orders(id) ON DELETE SET NULL,
     rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
     title VARCHAR(255),
     comment TEXT,
-    is_verified BOOLEAN DEFAULT FALSE,
-    is_approved BOOLEAN DEFAULT FALSE,
-    helpful_count INTEGER DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    isVerified BOOLEAN DEFAULT FALSE,
+    isApproved BOOLEAN DEFAULT FALSE,
+    helpfulCount INTEGER DEFAULT 0,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ============================================================
@@ -620,26 +620,26 @@ CREATE TABLE settings (
     value TEXT,
     type VARCHAR(50) DEFAULT 'string',
     description TEXT,
-    is_public BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    isPublic BOOLEAN DEFAULT FALSE,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Homepage Settings Table
 CREATE TABLE homepage_settings (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    hero_title VARCHAR(255),
-    hero_subtitle TEXT,
-    hero_image TEXT,
-    hero_cta_text VARCHAR(100),
-    hero_cta_link TEXT,
-    featured_categories UUID[],
-    featured_products UUID[],
-    featured_vendors UUID[],
+    heroTitle VARCHAR(255),
+    heroSubtitle TEXT,
+    heroImage TEXT,
+    heroCtaText VARCHAR(100),
+    heroCtaLink TEXT,
+    featuredCategories UUID[],
+    featuredProducts UUID[],
+    featuredVendors UUID[],
     banners JSONB,
     sections JSONB,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Footer Settings Table
@@ -647,65 +647,65 @@ CREATE TABLE footer_settings (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     logo TEXT,
     description TEXT,
-    copyright_text VARCHAR(255),
-    social_links JSONB,
-    link_columns JSONB,
-    contact_info JSONB,
-    newsletter_enabled BOOLEAN DEFAULT TRUE,
-    newsletter_title VARCHAR(255),
-    newsletter_description TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    copyrightText VARCHAR(255),
+    socialLinks JSONB,
+    linkColumns JSONB,
+    contactInfo JSONB,
+    newsletterEnabled BOOLEAN DEFAULT TRUE,
+    newsletterTitle VARCHAR(255),
+    newsletterDescription TEXT,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Platform Settings Table
 CREATE TABLE platform_settings (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    site_name VARCHAR(255),
-    site_description TEXT,
-    site_logo TEXT,
-    site_favicon TEXT,
-    contact_email VARCHAR(255),
-    contact_phone VARCHAR(20),
-    contact_address TEXT,
+    siteName VARCHAR(255),
+    siteDescription TEXT,
+    siteLogo TEXT,
+    siteFavicon TEXT,
+    contactEmail VARCHAR(255),
+    contactPhone VARCHAR(20),
+    contactAddress TEXT,
     currency VARCHAR(10) DEFAULT 'INR',
-    currency_symbol VARCHAR(10) DEFAULT '₹',
+    currencySymbol VARCHAR(10) DEFAULT '₹',
     timezone VARCHAR(100) DEFAULT 'Asia/Kolkata',
     language VARCHAR(10) DEFAULT 'en',
     
     -- Business Settings
-    commission_rate DECIMAL(5, 2) DEFAULT 10.00,
-    tax_rate DECIMAL(5, 2) DEFAULT 18.00,
+    commissionRate DECIMAL(5, 2) DEFAULT 10.00,
+    taxRate DECIMAL(5, 2) DEFAULT 18.00,
     
     -- Email Settings
-    smtp_host VARCHAR(255),
-    smtp_port INTEGER,
-    smtp_user VARCHAR(255),
-    smtp_password VARCHAR(255),
-    from_email VARCHAR(255),
-    from_name VARCHAR(255),
+    smtpHost VARCHAR(255),
+    smtpPort INTEGER,
+    smtpUser VARCHAR(255),
+    smtpPassword VARCHAR(255),
+    fromEmail VARCHAR(255),
+    fromName VARCHAR(255),
     
     -- Payment Gateway Settings
-    razorpay_key_id VARCHAR(255),
-    razorpay_key_secret VARCHAR(255),
-    razorpay_enabled BOOLEAN DEFAULT FALSE,
+    razorpayKeyId VARCHAR(255),
+    razorpayKeySecret VARCHAR(255),
+    razorpayEnabled BOOLEAN DEFAULT FALSE,
     
     -- Storage Settings
-    storage_provider VARCHAR(50) DEFAULT 'local',
-    aws_access_key VARCHAR(255),
-    aws_secret_key VARCHAR(255),
-    aws_region VARCHAR(50),
-    aws_bucket VARCHAR(255),
+    storageProvider VARCHAR(50) DEFAULT 'local',
+    awsAccessKey VARCHAR(255),
+    awsSecretKey VARCHAR(255),
+    awsRegion VARCHAR(50),
+    awsBucket VARCHAR(255),
     
     -- Policies
-    terms_of_service TEXT,
-    privacy_policy TEXT,
-    cookie_policy TEXT,
-    return_policy TEXT,
-    shipping_policy TEXT,
+    termsOfService TEXT,
+    privacyPolicy TEXT,
+    cookiePolicy TEXT,
+    returnPolicy TEXT,
+    shippingPolicy TEXT,
     
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Marketplace Pages Table
@@ -714,12 +714,12 @@ CREATE TABLE marketplace_pages (
     title VARCHAR(255) NOT NULL,
     slug VARCHAR(255) UNIQUE NOT NULL,
     content TEXT,
-    is_published BOOLEAN DEFAULT FALSE,
-    meta_title VARCHAR(255),
-    meta_description TEXT,
-    published_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    isPublished BOOLEAN DEFAULT FALSE,
+    metaTitle VARCHAR(255),
+    metaDescription TEXT,
+    publishedAt TIMESTAMP,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ============================================================
@@ -733,22 +733,22 @@ CREATE TABLE cities (
     slug VARCHAR(255) UNIQUE NOT NULL,
     state VARCHAR(100),
     country VARCHAR(100) DEFAULT 'India',
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    isActive BOOLEAN DEFAULT TRUE,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Sub Locations Table (Areas within cities)
 CREATE TABLE sub_locations (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    city_id UUID NOT NULL REFERENCES cities(id) ON DELETE CASCADE,
+    cityId UUID NOT NULL REFERENCES cities(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
     slug VARCHAR(255) NOT NULL,
-    postal_codes TEXT[],
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(city_id, slug)
+    postalCodes TEXT[],
+    isActive BOOLEAN DEFAULT TRUE,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(cityId, slug)
 );
 
 -- ============================================================
@@ -758,98 +758,98 @@ CREATE TABLE sub_locations (
 -- Users
 CREATE INDEX idx_users_email ON users(email);
 CREATE INDEX idx_users_role ON users(role);
-CREATE INDEX idx_users_email_verified ON users(email_verified);
+CREATE INDEX idx_users_emailVerified ON users(emailVerified);
 
 -- Categories
 CREATE INDEX idx_categories_slug ON categories(slug);
-CREATE INDEX idx_categories_parent_id ON categories(parent_id);
-CREATE INDEX idx_categories_is_active ON categories(is_active);
+CREATE INDEX idx_categories_parentId ON categories(parentId);
+CREATE INDEX idx_categories_isActive ON categories(isActive);
 
 -- Vendors
-CREATE INDEX idx_vendors_user_id ON vendors(user_id);
+CREATE INDEX idx_vendors_userId ON vendors(userId);
 CREATE INDEX idx_vendors_slug ON vendors(slug);
 CREATE INDEX idx_vendors_status ON vendors(status);
-CREATE INDEX idx_vendors_location_city_id ON vendors(location_city_id);
-CREATE INDEX idx_vendors_location_sub_location_id ON vendors(location_sub_location_id);
+CREATE INDEX idx_vendors_locationCityId ON vendors(locationCityId);
+CREATE INDEX idx_vendors_locationSubLocationId ON vendors(locationSubLocationId);
 
 -- Products
-CREATE INDEX idx_products_vendor_id ON products(vendor_id);
-CREATE INDEX idx_products_category_id ON products(category_id);
+CREATE INDEX idx_products_vendorId ON products(vendorId);
+CREATE INDEX idx_products_categoryId ON products(categoryId);
 CREATE INDEX idx_products_slug ON products(slug);
 CREATE INDEX idx_products_status ON products(status);
-CREATE INDEX idx_products_is_featured ON products(is_featured);
-CREATE INDEX idx_products_hsn_code_id ON products(hsn_code_id);
-CREATE INDEX idx_products_created_at ON products(created_at DESC);
+CREATE INDEX idx_products_isFeatured ON products(isFeatured);
+CREATE INDEX idx_products_hsnCodeId ON products(hsnCodeId);
+CREATE INDEX idx_products_createdAt ON products(createdAt DESC);
 
 -- Product Variants
-CREATE INDEX idx_product_variants_product_id ON product_variants(product_id);
+CREATE INDEX idx_product_variants_productId ON product_variants(productId);
 CREATE INDEX idx_product_variants_sku ON product_variants(sku);
 
 -- Orders
-CREATE INDEX idx_orders_user_id ON orders(user_id);
-CREATE INDEX idx_orders_vendor_id ON orders(vendor_id);
-CREATE INDEX idx_orders_order_number ON orders(order_number);
+CREATE INDEX idx_orders_userId ON orders(userId);
+CREATE INDEX idx_orders_vendorId ON orders(vendorId);
+CREATE INDEX idx_orders_orderNumber ON orders(orderNumber);
 CREATE INDEX idx_orders_status ON orders(status);
-CREATE INDEX idx_orders_payment_status ON orders(payment_status);
-CREATE INDEX idx_orders_created_at ON orders(created_at DESC);
+CREATE INDEX idx_orders_paymentStatus ON orders(paymentStatus);
+CREATE INDEX idx_orders_createdAt ON orders(createdAt DESC);
 
 -- Order Items
-CREATE INDEX idx_order_items_order_id ON order_items(order_id);
-CREATE INDEX idx_order_items_product_id ON order_items(product_id);
+CREATE INDEX idx_order_items_orderId ON order_items(orderId);
+CREATE INDEX idx_order_items_productId ON order_items(productId);
 
 -- Payments
-CREATE INDEX idx_payments_order_id ON payments(order_id);
-CREATE INDEX idx_payments_user_id ON payments(user_id);
+CREATE INDEX idx_payments_orderId ON payments(orderId);
+CREATE INDEX idx_payments_userId ON payments(userId);
 CREATE INDEX idx_payments_status ON payments(status);
-CREATE INDEX idx_payments_gateway_payment_id ON payments(gateway_payment_id);
+CREATE INDEX idx_payments_gatewayPaymentId ON payments(gatewayPaymentId);
 
 -- Bookings
-CREATE INDEX idx_bookings_product_id ON bookings(product_id);
-CREATE INDEX idx_bookings_user_id ON bookings(user_id);
-CREATE INDEX idx_bookings_vendor_id ON bookings(vendor_id);
-CREATE INDEX idx_bookings_booking_date ON bookings(booking_date);
+CREATE INDEX idx_bookings_productId ON bookings(productId);
+CREATE INDEX idx_bookings_userId ON bookings(userId);
+CREATE INDEX idx_bookings_vendorId ON bookings(vendorId);
+CREATE INDEX idx_bookings_bookingDate ON bookings(bookingDate);
 CREATE INDEX idx_bookings_status ON bookings(status);
 
 -- Invoices
-CREATE INDEX idx_invoices_invoice_number ON invoices(invoice_number);
-CREATE INDEX idx_invoices_order_id ON invoices(order_id);
-CREATE INDEX idx_invoices_user_id ON invoices(user_id);
-CREATE INDEX idx_invoices_vendor_id ON invoices(vendor_id);
+CREATE INDEX idx_invoices_invoiceNumber ON invoices(invoiceNumber);
+CREATE INDEX idx_invoices_orderId ON invoices(orderId);
+CREATE INDEX idx_invoices_userId ON invoices(userId);
+CREATE INDEX idx_invoices_vendorId ON invoices(vendorId);
 CREATE INDEX idx_invoices_type ON invoices(type);
 CREATE INDEX idx_invoices_status ON invoices(status);
 
 -- Invoice Items
-CREATE INDEX idx_invoice_items_invoice_id ON invoice_items(invoice_id);
-CREATE INDEX idx_invoice_items_order_item_id ON invoice_items(order_item_id);
+CREATE INDEX idx_invoice_items_invoiceId ON invoice_items(invoiceId);
+CREATE INDEX idx_invoice_items_orderItemId ON invoice_items(orderItemId);
 
 -- Reviews
-CREATE INDEX idx_reviews_product_id ON reviews(product_id);
-CREATE INDEX idx_reviews_user_id ON reviews(user_id);
-CREATE INDEX idx_reviews_is_approved ON reviews(is_approved);
+CREATE INDEX idx_reviews_productId ON reviews(productId);
+CREATE INDEX idx_reviews_userId ON reviews(userId);
+CREATE INDEX idx_reviews_isApproved ON reviews(isApproved);
 
 -- Vendor Reviews
-CREATE INDEX idx_vendor_reviews_vendor_id ON vendor_reviews(vendor_id);
-CREATE INDEX idx_vendor_reviews_user_id ON vendor_reviews(user_id);
-CREATE INDEX idx_vendor_reviews_is_approved ON vendor_reviews(is_approved);
+CREATE INDEX idx_vendor_reviews_vendorId ON vendor_reviews(vendorId);
+CREATE INDEX idx_vendor_reviews_userId ON vendor_reviews(userId);
+CREATE INDEX idx_vendor_reviews_isApproved ON vendor_reviews(isApproved);
 
 -- Addresses
-CREATE INDEX idx_addresses_user_id ON addresses(user_id);
-CREATE INDEX idx_addresses_is_default ON addresses(is_default);
+CREATE INDEX idx_addresses_userId ON addresses(userId);
+CREATE INDEX idx_addresses_isDefault ON addresses(isDefault);
 
 -- HSN Codes
-CREATE INDEX idx_hsn_codes_code ON hsn_codes(code);
+CREATE INDEX idx_hsnCodes_code ON hsnCodes(code);
 
 -- Settings
 CREATE INDEX idx_settings_key ON settings(key);
 
 -- Cities
 CREATE INDEX idx_cities_slug ON cities(slug);
-CREATE INDEX idx_cities_is_active ON cities(is_active);
+CREATE INDEX idx_cities_isActive ON cities(isActive);
 
 -- Sub Locations
-CREATE INDEX idx_sub_locations_city_id ON sub_locations(city_id);
+CREATE INDEX idx_sub_locations_cityId ON sub_locations(cityId);
 CREATE INDEX idx_sub_locations_slug ON sub_locations(slug);
-CREATE INDEX idx_sub_locations_is_active ON sub_locations(is_active);
+CREATE INDEX idx_sub_locations_isActive ON sub_locations(isActive);
 
 -- ============================================================
 -- Database Initialization Complete
@@ -867,3 +867,7 @@ BEGIN
     RAISE NOTICE '   2. Run seed data (optional): npm run seed';
     RAISE NOTICE '   3. Start the backend: npm run dev';
 END $$;
+
+
+
+
