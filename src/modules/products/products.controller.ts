@@ -6,6 +6,19 @@ import { ProductsService } from './products.service';
 import { ProductsExcelService } from './products-excel.service';
 import { Product } from './product.entity';
 
+// Define Multer File type to avoid Express namespace issues
+interface MulterFile {
+  fieldname: string;
+  originalname: string;
+  encoding: string;
+  mimetype: string;
+  size: number;
+  buffer: Buffer;
+  destination?: string;
+  filename?: string;
+  path?: string;
+}
+
 @ApiTags('products')
 @Controller('products')
 export class ProductsController {
@@ -147,7 +160,7 @@ export class ProductsController {
   ]))
   async importProducts(
     @Param('vendorId') vendorId: string,
-    @UploadedFiles() files: { file?: Express.Multer.File[], images?: Express.Multer.File[] },
+    @UploadedFiles() files: { file?: MulterFile[], images?: MulterFile[] },
   ) {
     if (!files.file || files.file.length === 0) {
       throw new BadRequestException('No Excel file uploaded');
@@ -176,7 +189,7 @@ export class ProductsController {
   @UseInterceptors(FileInterceptor('file'))
   async importProductsZip(
     @Param('vendorId') vendorId: string,
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFile() file: MulterFile,
   ) {
     if (!file) {
       throw new BadRequestException('No ZIP file uploaded');
