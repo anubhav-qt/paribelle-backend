@@ -335,10 +335,10 @@ export class Vendor {
 
   // Relations
   @OneToOne(() => User, (user) => user.vendor)
-  @JoinColumn()
+  @JoinColumn({ name: 'user_id' })
   user: User;
 
-  @Column()
+  @Column({ name: 'user_id' })
   userId: string;
 
   @OneToMany(() => Product, (product) => product.vendor)

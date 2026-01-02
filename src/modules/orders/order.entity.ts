@@ -153,17 +153,17 @@ export class Order {
 
   // Relations
   @ManyToOne(() => User, (user) => user.orders)
-  @JoinColumn()
+  @JoinColumn({ name: 'user_id' })
   user: User;
 
-  @Column()
+  @Column({ name: 'user_id' })
   userId: string;
 
   @ManyToOne(() => Vendor, (vendor) => vendor.orders)
-  @JoinColumn()
+  @JoinColumn({ name: 'vendor_id' })
   vendor: Vendor;
 
-  @Column()
+  @Column({ name: 'vendor_id' })
   vendorId: string;
 
   @OneToMany(() => OrderItem, (orderItem) => orderItem.order, { cascade: true })

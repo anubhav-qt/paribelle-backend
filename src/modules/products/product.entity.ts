@@ -198,10 +198,10 @@ export class Product {
 
   // Relations
   @ManyToOne(() => Vendor, (vendor) => vendor.products)
-  @JoinColumn()
+  @JoinColumn({ name: 'vendor_id' })
   vendor: Vendor;
 
-  @Column()
+  @Column({ name: 'vendor_id' })
   vendorId: string;
 
   @ManyToMany(() => Category, (category) => category.products)

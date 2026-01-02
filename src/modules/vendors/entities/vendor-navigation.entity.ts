@@ -26,7 +26,7 @@ export class VendorNavigation {
   @ManyToOne(() => Vendor, (vendor) => vendor.navigationItems, {
     onDelete: 'CASCADE',
   })
-  @JoinColumn({ name: 'vendorId' })
+  @JoinColumn({ name: 'vendor_id' })
   vendor: Vendor;
 
   @Column()

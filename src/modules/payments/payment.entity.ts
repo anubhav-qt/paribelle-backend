@@ -90,10 +90,10 @@ export class Payment {
 
   // Relations
   @ManyToOne(() => Order, (order) => order.payments)
-  @JoinColumn()
+  @JoinColumn({ name: 'order_id' })
   order: Order;
 
-  @Column()
+  @Column({ name: 'order_id' })
   orderId: string;
 
   @CreateDateColumn()

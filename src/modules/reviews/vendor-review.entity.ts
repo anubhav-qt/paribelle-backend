@@ -47,17 +47,17 @@ export class VendorReview {
 
   // Relations
   @ManyToOne(() => User, (user) => user.vendorReviews)
-  @JoinColumn()
+  @JoinColumn({ name: 'user_id' })
   user: User;
 
-  @Column()
+  @Column({ name: 'user_id' })
   userId: string;
 
   @ManyToOne(() => Vendor, (vendor) => vendor.reviews)
-  @JoinColumn()
+  @JoinColumn({ name: 'vendor_id' })
   vendor: Vendor;
 
-  @Column()
+  @Column({ name: 'vendor_id' })
   vendorId: string;
 
   @ManyToOne(() => Order, { nullable: true })

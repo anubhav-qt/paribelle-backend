@@ -38,7 +38,7 @@ export class VendorPage {
   @ManyToOne(() => Vendor, (vendor) => vendor.customPages, {
     onDelete: 'CASCADE',
   })
-  @JoinColumn({ name: 'vendorId' })
+  @JoinColumn({ name: 'vendor_id' })
   vendor: Vendor;
 
   @Column()

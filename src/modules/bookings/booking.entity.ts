@@ -59,24 +59,24 @@ export class Booking {
 
   // Relations
   @ManyToOne(() => Product)
-  @JoinColumn()
+  @JoinColumn({ name: 'product_id' })
   product: Product;
 
-  @Column()
+  @Column({ name: 'product_id' })
   productId: string;
 
   @ManyToOne(() => User)
-  @JoinColumn()
+  @JoinColumn({ name: 'user_id' })
   user: User;
 
-  @Column()
+  @Column({ name: 'user_id' })
   userId: string;
 
   @ManyToOne(() => Vendor)
-  @JoinColumn()
+  @JoinColumn({ name: 'vendor_id' })
   vendor: Vendor;
 
-  @Column()
+  @Column({ name: 'vendor_id' })
   vendorId: string;
 
   @CreateDateColumn()

@@ -56,17 +56,17 @@ export class OrderItem {
 
   // Relations
   @ManyToOne(() => Order, (order) => order.items, { onDelete: 'CASCADE' })
-  @JoinColumn()
+  @JoinColumn({ name: 'order_id' })
   order: Order;
 
-  @Column()
+  @Column({ name: 'order_id' })
   orderId: string;
 
   @ManyToOne(() => Product, (product) => product.orderItems)
-  @JoinColumn()
+  @JoinColumn({ name: 'product_id' })
   product: Product;
 
-  @Column()
+  @Column({ name: 'product_id' })
   productId: string;
 
   @CreateDateColumn()

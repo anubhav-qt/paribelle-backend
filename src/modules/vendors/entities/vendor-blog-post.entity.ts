@@ -24,7 +24,7 @@ export class VendorBlogPost {
   @ManyToOne(() => Vendor, (vendor) => vendor.blogPosts, {
     onDelete: 'CASCADE',
   })
-  @JoinColumn({ name: 'vendorId' })
+  @JoinColumn({ name: 'vendor_id' })
   vendor: Vendor;
 
   @Column()

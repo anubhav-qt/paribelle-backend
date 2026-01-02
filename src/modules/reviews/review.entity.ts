@@ -40,17 +40,17 @@ export class Review {
 
   // Relations
   @ManyToOne(() => User, (user) => user.reviews)
-  @JoinColumn()
+  @JoinColumn({ name: 'user_id' })
   user: User;
 
-  @Column()
+  @Column({ name: 'user_id' })
   userId: string;
 
   @ManyToOne(() => Product, (product) => product.reviews)
-  @JoinColumn()
+  @JoinColumn({ name: 'product_id' })
   product: Product;
 
-  @Column()
+  @Column({ name: 'product_id' })
   productId: string;
 
   @ManyToOne(() => OrderItem, { nullable: true })
