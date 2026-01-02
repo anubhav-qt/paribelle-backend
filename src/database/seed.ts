@@ -20,6 +20,22 @@ export async function seedData(dataSource: DataSource) {
 
   console.log('🌱 Seeding database...');
 
+  // Create superadmin user
+  let superAdminUser = await userRepository.findOne({ where: { email: 'admin@marketplace.com' } });
+  if (!superAdminUser) {
+    const hashedPassword = await bcrypt.hash('admin123', 10);
+    superAdminUser = await userRepository.save({
+      email: 'admin@marketplace.com',
+      password: hashedPassword,
+      firstName: 'Super',
+      lastName: 'Admin',
+      role: UserRole.SUPER_ADMIN,
+      emailVerifiedAt: new Date(), // Pre-verified for testing
+      status: UserStatus.ACTIVE,
+    } as User) as User;
+    console.log('✅ Created superadmin user: admin@marketplace.com');
+  }
+
   // Create a vendor user
   let vendorUser = await userRepository.findOne({ where: { email: 'vendor@marketplace.com' } });
   if (!vendorUser) {
@@ -33,6 +49,7 @@ export async function seedData(dataSource: DataSource) {
       emailVerifiedAt: new Date(), // Pre-verified for testing
       status: UserStatus.ACTIVE,
     } as User) as User;
+    console.log('✅ Created vendor user: vendor@marketplace.com');
   }
 
   // Create vendor (check if exists first)
