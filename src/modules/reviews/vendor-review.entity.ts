@@ -29,13 +29,13 @@ export class VendorReview {
   isApproved: boolean;
 
   // Specific ratings
-  @Column({ type: 'int', nullable: true })
+  @Column({ type: 'int', nullable: true, name: 'product_quality_rating' })
   productQualityRating: number;
 
-  @Column({ type: 'int', nullable: true })
+  @Column({ type: 'int', nullable: true, name: 'shipping_speed_rating' })
   shippingSpeedRating: number;
 
-  @Column({ type: 'int', nullable: true })
+  @Column({ type: 'int', nullable: true, name: 'customer_service_rating' })
   customerServiceRating: number;
 
   // Vendor response

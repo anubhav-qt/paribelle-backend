@@ -26,7 +26,7 @@ export class FooterSettings {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ type: 'varchar', length: 255 })
+  @Column({ type: 'varchar', length: 255, name: 'about_text' })
   aboutText: string;
 
   @Column({ type: 'jsonb', default: '[]' })

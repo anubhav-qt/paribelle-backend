@@ -38,6 +38,7 @@ export class MarketplacePage {
     type: 'enum',
     enum: PageType,
     default: PageType.CUSTOM,
+    name: 'page_type',
   })
   pageType: PageType;
 
