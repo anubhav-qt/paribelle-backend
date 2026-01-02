@@ -35,17 +35,20 @@ export async function seedData(dataSource: DataSource) {
     } as User) as User;
   }
 
-  // Create vendor
-  const vendor = await vendorRepository.save({
-    userId: vendorUser.id,
-    user: vendorUser,
-    storeName: 'Demo Store',
-    slug: 'demo-store',
-    contactEmail: 'vendor@marketplace.com',
-    contactPhone: '+1234567890',
-    description: 'Your trusted marketplace vendor',
-    status: VendorStatus.ACTIVE,
-  }) as Vendor;
+  // Create vendor (check if exists first)
+  let vendor = await vendorRepository.findOne({ where: { slug: 'demo-store' } });
+  if (!vendor) {
+    vendor = await vendorRepository.save({
+      userId: vendorUser.id,
+      user: vendorUser,
+      storeName: 'Demo Store',
+      slug: 'demo-store',
+      contactEmail: 'vendor@marketplace.com',
+      contactPhone: '+1234567890',
+      description: 'Your trusted marketplace vendor',
+      status: VendorStatus.ACTIVE,
+    }) as Vendor;
+  }
 
   // Create categories
   const electronics = await categoryRepository.save({

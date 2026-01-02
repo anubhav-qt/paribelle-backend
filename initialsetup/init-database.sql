@@ -12,35 +12,14 @@
 -- CREATE DATABASE marketplace OWNER admin;
 -- \c marketplace;
 
--- Enable UUID extension
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+-- Drop schema and recreate (cleanest way to start fresh)
+DROP SCHEMA IF EXISTS public CASCADE;
+CREATE SCHEMA public;
+GRANT ALL ON SCHEMA public TO postgres;
+GRANT ALL ON SCHEMA public TO public;
 
--- Drop existing tables (if any) in correct order to respect foreign keys
-DROP TABLE IF EXISTS invoice_items CASCADE;
-DROP TABLE IF EXISTS invoices CASCADE;
-DROP TABLE IF EXISTS vendor_reviews CASCADE;
-DROP TABLE IF EXISTS reviews CASCADE;
-DROP TABLE IF EXISTS bookings CASCADE;
-DROP TABLE IF EXISTS order_items CASCADE;
-DROP TABLE IF EXISTS orders CASCADE;
-DROP TABLE IF EXISTS payments CASCADE;
-DROP TABLE IF EXISTS product_variants CASCADE;
-DROP TABLE IF EXISTS products CASCADE;
-DROP TABLE IF EXISTS vendor_blog_posts CASCADE;
-DROP TABLE IF EXISTS vendor_pages CASCADE;
-DROP TABLE IF EXISTS vendor_navigation CASCADE;
-DROP TABLE IF EXISTS vendors CASCADE;
-DROP TABLE IF EXISTS addresses CASCADE;
-DROP TABLE IF EXISTS categories CASCADE;
-DROP TABLE IF EXISTS hsn_codes CASCADE;
-DROP TABLE IF EXISTS users CASCADE;
-DROP TABLE IF EXISTS settings CASCADE;
-DROP TABLE IF EXISTS homepage_settings CASCADE;
-DROP TABLE IF EXISTS footer_settings CASCADE;
-DROP TABLE IF EXISTS marketplace_pages CASCADE;
-DROP TABLE IF EXISTS platform_settings CASCADE;
-DROP TABLE IF EXISTS cities CASCADE;
-DROP TABLE IF EXISTS sub_locations CASCADE;
+-- Enable UUID extension
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp" SCHEMA public;
 
 -- ============================================================
 -- Core Tables
@@ -292,49 +271,84 @@ CREATE TABLE vendor_navigation (
 
 -- Products Table
 CREATE TABLE products (
+    -- Primary Key
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    vendor_id UUID NOT NULL REFERENCES vendors(id) ON DELETE CASCADE,
-    category_id UUID NOT NULL REFERENCES categories(id) ON DELETE RESTRICT,
+    
+    -- Basic Information
     name VARCHAR(255) NOT NULL,
-    slug VARCHAR(255) NOT NULL,
-    description TEXT,
+    slug VARCHAR(255) UNIQUE NOT NULL,
+    description TEXT NOT NULL,
     short_description TEXT,
+    
+    -- Pricing
     price DECIMAL(10, 2) NOT NULL,
     compare_at_price DECIMAL(10, 2),
-    cost_price DECIMAL(10, 2),
-    sku VARCHAR(100),
-    barcode VARCHAR(100),
-    stock INTEGER DEFAULT 0,
-    low_stock_threshold INTEGER DEFAULT 10,
-    weight DECIMAL(10, 2),
-    weight_unit VARCHAR(20) DEFAULT 'kg',
-    dimensions JSONB,
+    cost_per_item DECIMAL(10, 2),
+    
+    -- GST and Tax Fields
+    hsn_code VARCHAR(255),
+    sac_code VARCHAR(255),
+    gst_rate DECIMAL(5, 2) DEFAULT 18.00,
+    price_type VARCHAR(50) DEFAULT 'selling_price_without_gst',
+    mrp DECIMAL(10, 2),
+    base_price DECIMAL(10, 2),
+    gst_amount DECIMAL(10, 2),
+    
+    -- Inventory
+    sku VARCHAR(255) NOT NULL,
+    stock_quantity INTEGER DEFAULT 0,
+    low_stock_threshold INTEGER,
+    track_inventory BOOLEAN DEFAULT TRUE,
+    
+    -- Status & Type
+    status VARCHAR(50) DEFAULT 'draft' CHECK (status IN ('draft', 'active', 'inactive', 'out_of_stock')),
+    product_type VARCHAR(50) DEFAULT 'physical' CHECK (product_type IN ('physical', 'booking')),
+    
+    -- Images
     images TEXT[],
-    status VARCHAR(50) NOT NULL DEFAULT 'draft',
-    is_featured BOOLEAN DEFAULT FALSE,
-    is_taxable BOOLEAN DEFAULT TRUE,
-    tax_rate DECIMAL(5, 2) DEFAULT 0,
-    hsn_code VARCHAR(20),
-    hsn_code_id UUID REFERENCES hsn_codes(id) ON DELETE SET NULL,
+    featured_image VARCHAR(255),
+    
+    -- SEO
     meta_title VARCHAR(255),
     meta_description TEXT,
     meta_keywords TEXT,
-    tags TEXT[],
     
-    -- Product Variations
-    has_variations BOOLEAN DEFAULT FALSE,
-    variation_options JSONB,
+    -- Product Variants Support (JSON)
+    variants JSONB,
     
-    -- Product Attributes
+    -- Product Attributes/Metadata for Filtering
     attributes JSONB,
     
-    -- SEO & Tracking
-    views_count INTEGER DEFAULT 0,
-    sales_count INTEGER DEFAULT 0,
+    -- Enhanced Variants Support
+    has_variants BOOLEAN DEFAULT FALSE,
+    variant_options JSONB,
     
+    -- Product Variations Support (Legacy)
+    is_parent BOOLEAN DEFAULT FALSE,
+    parent_product_id UUID REFERENCES products(id) ON DELETE SET NULL,
+    variation_themes TEXT[],
+    variation_attributes JSONB,
+    
+    -- Shipping Dimensions
+    weight DECIMAL(10, 2),
+    weight_unit VARCHAR(255),
+    length DECIMAL(10, 2),
+    width DECIMAL(10, 2),
+    height DECIMAL(10, 2),
+    dimension_unit VARCHAR(255),
+    
+    -- Statistics
+    view_count INTEGER DEFAULT 0,
+    sales_count INTEGER DEFAULT 0,
+    average_rating DECIMAL(3, 2) DEFAULT 0,
+    review_count INTEGER DEFAULT 0,
+    
+    -- Relations
+    vendor_id UUID NOT NULL REFERENCES vendors(id) ON DELETE CASCADE,
+    
+    -- Timestamps
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(vendor_id, slug)
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Product Variants Table
@@ -840,11 +854,8 @@ CREATE INDEX idx_vendors_subLocationId ON vendors(sub_location_id);
 
 -- Products
 CREATE INDEX idx_products_vendorId ON products(vendor_id);
-CREATE INDEX idx_products_categoryId ON products(category_id);
 CREATE INDEX idx_products_slug ON products(slug);
 CREATE INDEX idx_products_status ON products(status);
-CREATE INDEX idx_products_isFeatured ON products(is_featured);
-CREATE INDEX idx_products_hsnCodeId ON products(hsn_code_id);
 CREATE INDEX idx_products_createdAt ON products(created_at DESC);
 CREATE INDEX idx_products_vendorId_status ON products(vendor_id, status);
 CREATE INDEX idx_products_status_createdAt ON products(status, created_at DESC);
