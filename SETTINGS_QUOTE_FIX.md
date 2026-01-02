@@ -21,11 +21,13 @@ The issue was caused by PostgreSQL's JSONB column type behavior:
 
 ### Backend Changes
 
-Modified [settings.controller.ts](src/modules/admin/settings.controller.ts) to automatically detect and parse JSON-encoded strings in all three GET endpoints:
+**1. Modified [settings.service.ts](src/modules/admin/settings.service.ts)** - Added logic in the `updateSetting` method to detect and parse JSON-encoded strings BEFORE saving them to the database. This prevents double-encoding when a value that's already quoted is saved again.
 
-1. **`GET /settings`** - Public settings endpoint
-2. **`GET /settings/admin/all`** - Admin settings with metadata
-3. **`GET /settings/:key`** - Individual setting by key
+**2. Modified [settings.controller.ts](src/modules/admin/settings.controller.ts)** - Added parsing logic to automatically detect and parse JSON-encoded strings in all three GET endpoints:
+
+- **`GET /settings`** - Public settings endpoint
+- **`GET /settings/admin/all`** - Admin settings with metadata
+- **`GET /settings/:key`** - Individual setting by key
 
 Each endpoint now includes logic to:
 - Check if the value is a string that starts and ends with quotes
@@ -62,7 +64,8 @@ After applying the fix:
 
 ## Files Modified
 
-- `src/modules/admin/settings.controller.ts` - Added quote parsing logic to GET endpoints
+- `src/modules/admin/settings.service.ts` - Added quote parsing logic to SAVE operation (prevents double-encoding)
+- `src/modules/admin/settings.controller.ts` - Added quote parsing logic to GET endpoints (fixes retrieval)
 - `fix-quoted-settings.js` - New migration script to fix existing data
 
 ## Prevention
