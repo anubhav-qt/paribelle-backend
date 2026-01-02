@@ -2,7 +2,7 @@ import { DataSource } from 'typeorm';
 import { Category } from '../modules/categories/category.entity';
 import { Product, ProductStatus } from '../modules/products/product.entity';
 import { Vendor, VendorStatus } from '../modules/vendors/vendor.entity';
-import { User, UserRole } from '../modules/users/user.entity';
+import { User, UserRole, UserStatus } from '../modules/users/user.entity';
 import * as bcrypt from 'bcrypt';
 
 export async function seedData(dataSource: DataSource) {
@@ -21,16 +21,19 @@ export async function seedData(dataSource: DataSource) {
   console.log('🌱 Seeding database...');
 
   // Create a vendor user
-  const hashedPassword = await bcrypt.hash('vendor123', 10);
-  const vendorUser = await userRepository.save({
-    email: 'vendor@marketplace.com',
-    password: hashedPassword,
-    firstName: 'Demo',
-    lastName: 'Vendor',
-    role: UserRole.VENDOR_ADMIN,
-    emailVerifiedAt: new Date(), // Pre-verified for testing
-    status: 'active',
-  });
+  let vendorUser = await userRepository.findOne({ where: { email: 'vendor@marketplace.com' } });
+  if (!vendorUser) {
+    const hashedPassword = await bcrypt.hash('vendor123', 10);
+    vendorUser = await userRepository.save({
+      email: 'vendor@marketplace.com',
+      password: hashedPassword,
+      firstName: 'Demo',
+      lastName: 'Vendor',
+      role: UserRole.VENDOR_ADMIN,
+      emailVerifiedAt: new Date(), // Pre-verified for testing
+      status: UserStatus.ACTIVE,
+    } as User) as User;
+  }
 
   // Create vendor
   const vendor = await vendorRepository.save({

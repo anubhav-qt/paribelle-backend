@@ -130,6 +130,7 @@ CREATE TABLE vendors (
     description TEXT,
     logo TEXT,
     banner TEXT,
+    vendor_type VARCHAR(50) DEFAULT 'individual',
     status VARCHAR(50) NOT NULL DEFAULT 'pending',
     commission_rate DECIMAL(5, 2) DEFAULT 10.00,
     
