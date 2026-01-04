@@ -9,7 +9,46 @@ import { Logger } from '@nestjs/common';
 
 @WebSocketGateway({
   cors: {
-    origin: ['http://localhost:3000', 'http://localhost:3001'],
+    origin: (origin, callback) => {
+      const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || [];
+      
+      // Allow requests with no origin (like mobile apps or curl requests)
+      if (!origin) {
+        return callback(null, true);
+      }
+      
+      // Check if origin matches any allowed origin exactly
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      
+      // Check if origin matches subdomain pattern (*.localhost:3000)
+      const subdomainPattern = /^http:\/\/[\w-]+\.localhost:3000$/;
+      if (subdomainPattern.test(origin)) {
+        return callback(null, true);
+      }
+      
+      // Check for production subdomain pattern if needed
+      const prodPattern = process.env.PRODUCTION_DOMAIN 
+        ? new RegExp(`^https?://[\\w-]+\\.${process.env.PRODUCTION_DOMAIN.replace('.', '\\.')}$`)
+        : null;
+      if (prodPattern && prodPattern.test(origin)) {
+        return callback(null, true);
+      }
+      
+      // Allow all Vercel preview and production deployments
+      const vercelPattern = /^https:\/\/[\w-]+\.vercel\.app$/;
+      if (vercelPattern.test(origin)) {
+        return callback(null, true);
+      }
+      
+      // If ALLOWED_ORIGINS is not set, allow all
+      if (allowedOrigins.length === 0) {
+        return callback(null, true);
+      }
+      
+      callback(new Error('Not allowed by CORS'));
+    },
     credentials: true,
   },
 })
