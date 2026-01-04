@@ -73,6 +73,12 @@ export class User {
   @Column({ type: 'timestamp', nullable: true, name: 'email_verification_token_expiry' })
   emailVerificationTokenExpiry: Date | null;
 
+  @Column({ type: 'varchar', nullable: true, name: 'password_reset_token' })
+  passwordResetToken: string | null;
+
+  @Column({ type: 'timestamp', nullable: true, name: 'password_reset_token_expiry' })
+  passwordResetTokenExpiry: Date | null;
+
   @Column({ type: 'timestamp', nullable: true, name: 'phone_verified_at' })
   phoneVerifiedAt: Date;
 

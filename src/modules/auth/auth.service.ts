@@ -295,4 +295,58 @@ export class AuthService {
       message: 'Verification email sent successfully. Please check your inbox.',
     };
   }
+
+  async forgotPassword(email: string) {
+    const user = await this.usersService.findByEmail(email);
+
+    // Don't reveal if user exists or not (security best practice)
+    if (!user) {
+      return {
+        message: 'If an account exists with that email, a password reset link has been sent.',
+      };
+    }
+
+    // Generate password reset token
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const resetTokenExpiry = new Date();
+    resetTokenExpiry.setHours(resetTokenExpiry.getHours() + 1); // 1 hour expiry
+
+    user.passwordResetToken = resetToken;
+    user.passwordResetTokenExpiry = resetTokenExpiry;
+    await this.usersRepository.save(user);
+
+    // Send password reset email
+    await this.emailService.sendPasswordResetEmail(user.email, resetToken, user.firstName);
+
+    return {
+      message: 'If an account exists with that email, a password reset link has been sent.',
+    };
+  }
+
+  async resetPassword(token: string, newPassword: string) {
+    const user = await this.usersRepository.findOne({
+      where: { passwordResetToken: token },
+    });
+
+    if (!user) {
+      throw new BadRequestException('Invalid or expired reset token');
+    }
+
+    if (!user.passwordResetTokenExpiry || user.passwordResetTokenExpiry < new Date()) {
+      throw new BadRequestException('Reset token has expired');
+    }
+
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // Update password and clear reset token
+    user.password = hashedPassword;
+    user.passwordResetToken = null;
+    user.passwordResetTokenExpiry = null;
+    await this.usersRepository.save(user);
+
+    return {
+      message: 'Password has been reset successfully.',
+    };
+  }
 }

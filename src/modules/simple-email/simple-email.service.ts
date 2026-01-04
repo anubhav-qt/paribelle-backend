@@ -9,12 +9,12 @@ export class SimpleEmailService {
 
   constructor(private configService: ConfigService) {
     this.transporter = nodemailer.createTransport({
-      host: this.configService.get('MAIL_HOST') || 'smtp.gmail.com',
-      port: parseInt(this.configService.get('MAIL_PORT') || '587'),
+      host: this.configService.get('SMTP_HOST') || 'smtp.gmail.com',
+      port: parseInt(this.configService.get('SMTP_PORT') || '587'),
       secure: false, // true for 465, false for other ports
       auth: {
-        user: this.configService.get('MAIL_USER'),
-        pass: this.configService.get('MAIL_PASSWORD'),
+        user: this.configService.get('SMTP_USER'),
+        pass: this.configService.get('SMTP_PASSWORD'),
       },
     });
   }
@@ -26,7 +26,7 @@ export class SimpleEmailService {
 
     try {
       await this.transporter.sendMail({
-        from: this.configService.get('MAIL_FROM') || this.configService.get('MAIL_USER'),
+        from: this.configService.get('SMTP_FROM') || this.configService.get('SMTP_USER'),
         to: email,
         subject: `Verify Your Email - ${appName}`,
         html: `
@@ -620,5 +620,127 @@ Thank you for shopping with us!
       style: 'currency',
       currency: 'INR',
     }).format(amount);
+  }
+
+  async sendPasswordResetEmail(email: string, token: string, firstName: string) {
+    const appName = this.configService.get('APP_NAME') || 'GaliCart';
+    const appUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
+    const resetLink = `${appUrl}/reset-password?token=${token}`;
+
+    try {
+      await this.transporter.sendMail({
+        from: this.configService.get('MAIL_FROM') || this.configService.get('MAIL_USER'),
+        to: email,
+        subject: `Reset Your Password - ${appName}`,
+        html: `
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <meta charset="utf-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <style>
+                body {
+                  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+                  line-height: 1.6;
+                  color: #333;
+                  margin: 0;
+                  padding: 0;
+                  background-color: #f4f4f4;
+                }
+                .container {
+                  max-width: 600px;
+                  margin: 40px auto;
+                  background: white;
+                  border-radius: 8px;
+                  overflow: hidden;
+                  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                }
+                .header {
+                  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                  padding: 40px 20px;
+                  text-align: center;
+                  color: white;
+                }
+                .header h1 {
+                  margin: 0;
+                  font-size: 28px;
+                  font-weight: 600;
+                }
+                .content {
+                  padding: 40px 30px;
+                }
+                .content h2 {
+                  margin-top: 0;
+                  color: #333;
+                  font-size: 24px;
+                }
+                .content p {
+                  margin: 16px 0;
+                  color: #666;
+                  font-size: 16px;
+                }
+                .button {
+                  display: inline-block;
+                  padding: 14px 32px;
+                  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                  color: white !important;
+                  text-decoration: none;
+                  border-radius: 6px;
+                  font-weight: 600;
+                  font-size: 16px;
+                  margin: 24px 0;
+                }
+                .warning-box {
+                  background: #fff3cd;
+                  border-left: 4px solid #ffc107;
+                  padding: 16px;
+                  margin: 24px 0;
+                  border-radius: 4px;
+                }
+                .footer {
+                  padding: 30px;
+                  text-align: center;
+                  background: #f8f9fa;
+                  color: #666;
+                  font-size: 14px;
+                  border-top: 1px solid #e9ecef;
+                }
+              </style>
+            </head>
+            <body>
+              <div class="container">
+                <div class="header">
+                  <h1>${appName}</h1>
+                </div>
+                <div class="content">
+                  <h2>Reset Your Password</h2>
+                  <p>Hi ${firstName},</p>
+                  <p>We received a request to reset your password for your ${appName} account.</p>
+                  <p>Click the button below to reset your password. This link will expire in 1 hour.</p>
+                  <center>
+                    <a href="${resetLink}" class="button">Reset Password</a>
+                  </center>
+                  <div class="warning-box">
+                    <strong>⚠️ Security Notice:</strong><br>
+                    If you didn't request this password reset, you can safely ignore this email. Your password will remain unchanged.
+                  </div>
+                  <p>If the button doesn't work, copy and paste this link into your browser:</p>
+                  <p style="color: #667eea; word-break: break-all;">${resetLink}</p>
+                </div>
+                <div class="footer">
+                  <p>This is an automated email from ${appName}. Please do not reply to this email.</p>
+                  <p>&copy; ${new Date().getFullYear()} ${appName}. All rights reserved.</p>
+                </div>
+              </div>
+            </body>
+          </html>
+        `,
+      });
+
+      this.logger.log(`Password reset email sent to ${email}`);
+    } catch (error) {
+      this.logger.error(`Failed to send password reset email to ${email}:`, error);
+      throw new Error('Failed to send password reset email');
+    }
   }
 }

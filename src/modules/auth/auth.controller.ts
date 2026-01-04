@@ -115,4 +115,24 @@ export class AuthController {
       message: 'Verification email sent. Please check your inbox.',
     };
   }
+
+  @Post('forgot-password')
+  @ApiOperation({ summary: 'Request password reset' })
+  async forgotPassword(@Body('email') email: string) {
+    await this.authService.forgotPassword(email);
+    return {
+      message: 'If an account exists with that email, a password reset link has been sent.',
+    };
+  }
+
+  @Post('reset-password')
+  @ApiOperation({ summary: 'Reset password with token' })
+  async resetPassword(
+    @Body() body: { token: string; newPassword: string }
+  ) {
+    await this.authService.resetPassword(body.token, body.newPassword);
+    return {
+      message: 'Password has been reset successfully. You can now login with your new password.',
+    };
+  }
 }
