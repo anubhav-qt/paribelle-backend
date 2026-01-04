@@ -8,6 +8,7 @@ import { Product } from '../products/product.entity';
 import { Vendor } from '../vendors/vendor.entity';
 import { ReviewsController } from './reviews.controller';
 import { ReviewsService } from './reviews.service';
+import { StockModule } from '../stock/stock.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { ReviewsService } from './reviews.service';
       Product,
       Vendor,
     ]),
+    StockModule,
   ],
   controllers: [ReviewsController],
   providers: [ReviewsService],

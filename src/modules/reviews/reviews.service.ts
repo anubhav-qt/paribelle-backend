@@ -10,6 +10,7 @@ import { Product } from '../products/product.entity';
 import { Vendor } from '../vendors/vendor.entity';
 import { Cache } from 'cache-manager';
 import { CACHE_KEYS, CACHE_TTL } from '../cache/cache.constants';
+import { MarketplaceGateway } from '../stock/stock.gateway';
 
 @Injectable()
 export class ReviewsService {
@@ -28,6 +29,7 @@ export class ReviewsService {
     private vendorRepository: Repository<Vendor>,
     @Inject(CACHE_MANAGER)
     private cacheManager: Cache,
+    private marketplaceGateway: MarketplaceGateway,
   ) {}
 
   // Product Reviews
@@ -488,6 +490,13 @@ export class ReviewsService {
       averageRating: Math.round(averageRating * 10) / 10,
       reviewCount,
     });
+    
+    // Emit rating update via WebSocket
+    this.marketplaceGateway.emitProductRatingUpdate(
+      productId,
+      Math.round(averageRating * 10) / 10,
+      reviewCount
+    );
   }
 
   private async getProductAverageRating(productId: string): Promise<number> {

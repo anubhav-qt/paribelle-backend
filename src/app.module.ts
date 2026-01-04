@@ -33,6 +33,7 @@ import { FooterSettingsModule } from './modules/footer-settings/footer-settings.
 import { PlatformModule } from './modules/platform/platform.module';
 import { HsnCodesModule } from './modules/hsn-codes/hsn-codes.module';
 import { InvoicesModule } from './modules/invoices/invoices.module';
+import { StockModule } from './modules/stock/stock.module';
 
 @Module({
   imports: [
@@ -124,6 +125,7 @@ import { InvoicesModule } from './modules/invoices/invoices.module';
     PlatformModule,
     HsnCodesModule,
     InvoicesModule,
+    StockModule,
   ],
 })
 export class AppModule {}

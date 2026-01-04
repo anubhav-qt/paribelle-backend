@@ -5,6 +5,7 @@ import { Order, OrderStatus, PaymentStatus } from './order.entity';
 import { OrderItem } from './order-item.entity';
 import { Product } from '../products/product.entity';
 import { SimpleEmailService } from '../simple-email/simple-email.service';
+import { MarketplaceGateway } from '../stock/stock.gateway';
 
 @Injectable()
 export class OrdersService {
@@ -16,6 +17,7 @@ export class OrdersService {
     @InjectRepository(Product)
     private productRepository: Repository<Product>,
     private simpleEmailService: SimpleEmailService,
+    private marketplaceGateway: MarketplaceGateway,
   ) {}
 
   async create(userId: string, createOrderDto: any) {
@@ -41,6 +43,42 @@ export class OrdersService {
 
     if (products.length !== items.length) {
       throw new NotFoundException('One or more products not found');
+    }
+
+    // Validate stock availability and reserve stock
+    const stockUpdates: Array<{ productId: string; stockQuantity: number }> = [];
+    
+    for (const item of items) {
+      const product = products.find(p => p.id === item.productId);
+      if (!product) {
+        throw new NotFoundException(`Product ${item.productId} not found`);
+      }
+
+      // Check if product has enough stock
+      if (product.stockQuantity < item.quantity) {
+        throw new BadRequestException(
+          `Insufficient stock for "${product.name}". Available: ${product.stockQuantity}, Requested: ${item.quantity}`
+        );
+      }
+
+      // Decrement stock immediately to prevent overselling
+      await this.productRepository.decrement(
+        { id: product.id },
+        'stockQuantity',
+        item.quantity
+      );
+
+      // Track the new stock quantity for WebSocket broadcast
+      const newStockQuantity = product.stockQuantity - item.quantity;
+      stockUpdates.push({ 
+        productId: product.id, 
+        stockQuantity: newStockQuantity 
+      });
+    }
+
+    // Emit stock updates via WebSocket
+    if (stockUpdates.length > 0) {
+      this.marketplaceGateway.emitBulkStockUpdate(stockUpdates);
     }
 
     // Group items by vendorId
@@ -142,6 +180,15 @@ export class OrdersService {
 
       await this.orderItemRepository.save(orderItems);
       createdOrders.push(savedOrder);
+      
+      // Emit new order event for vendor
+      this.marketplaceGateway.emitNewOrderForVendor(vendorId, {
+        id: savedOrder.id,
+        orderNumber: savedOrder.orderNumber,
+        total: vendorTotal,
+        itemCount: vendorItems.length,
+        status: savedOrder.status,
+      });
     }
 
     console.log(`Created ${createdOrders.length} order(s)`);
@@ -276,7 +323,12 @@ export class OrdersService {
       order.cancelledAt = new Date();
     }
 
-    return this.orderRepository.save(order);
+    const savedOrder = await this.orderRepository.save(order);
+    
+    // Emit order status update via WebSocket
+    this.marketplaceGateway.emitOrderStatusUpdate(order.id, status, order.userId);
+    
+    return savedOrder;
   }
 
   async cancel(id: string, userId: string, reason?: string) {

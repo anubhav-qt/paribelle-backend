@@ -6,6 +6,7 @@ import { ProductVariant } from './product-variant.entity';
 import { Category } from '../categories/category.entity';
 import { CategoriesService } from '../categories/categories.service';
 import { FileCleanupService } from '../../common/services/file-cleanup.service';
+import { MarketplaceGateway } from '../stock/stock.gateway';
 
 @Injectable()
 export class ProductsService {
@@ -18,6 +19,7 @@ export class ProductsService {
     private categoriesRepository: Repository<Category>,
     private categoriesService: CategoriesService,
     private fileCleanupService: FileCleanupService,
+    private marketplaceGateway: MarketplaceGateway,
   ) {}
 
   async findAll(

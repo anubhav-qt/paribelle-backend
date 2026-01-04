@@ -91,8 +91,8 @@ CREATE TABLE addresses (
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     full_name VARCHAR(255) NOT NULL,
     phone VARCHAR(20) NOT NULL,
-    address_line1 TEXT NOT NULL,
-    address_line2 TEXT,
+    address_line_1 TEXT NOT NULL,
+    address_line_2 TEXT,
     city VARCHAR(100) NOT NULL,
     state VARCHAR(100) NOT NULL,
     postal_code VARCHAR(20) NOT NULL,
@@ -412,23 +412,24 @@ CREATE TABLE orders (
     discount DECIMAL(10, 2) DEFAULT 0,
     total DECIMAL(10, 2) NOT NULL,
     
+    -- Commission & Payout
+    commission_amount DECIMAL(10, 2) DEFAULT 0,
+    commission_rate DECIMAL(5, 2) DEFAULT 0,
+    vendor_payout DECIMAL(10, 2) DEFAULT 0,
+    
     -- Shipping Information
     shipping_name VARCHAR(255),
     shipping_email VARCHAR(255),
     shipping_phone VARCHAR(20),
-    shippingaddressLine1 TEXT,
-    shippingaddressLine2 TEXT,
+    shipping_address TEXT,
     shipping_city VARCHAR(100),
     shipping_state VARCHAR(100),
     shipping_postal_code VARCHAR(20),
     shipping_country VARCHAR(100),
     
     -- Billing Information
-    billing_name VARCHAR(255),
-    billing_email VARCHAR(255),
-    billing_phone VARCHAR(20),
-    billingaddressLine1 TEXT,
-    billingaddressLine2 TEXT,
+    billing_address_same_as_shipping BOOLEAN DEFAULT TRUE,
+    billing_address TEXT,
     billing_city VARCHAR(100),
     billing_state VARCHAR(100),
     billing_postal_code VARCHAR(20),
@@ -438,15 +439,14 @@ CREATE TABLE orders (
     customer_notes TEXT,
     admin_notes TEXT,
     tracking_number VARCHAR(255),
-    tracking_url TEXT,
+    carrier VARCHAR(100),
     
     -- Payment
     payment_method VARCHAR(50),
     payment_id VARCHAR(255),
     
     -- Dates
-    paid_at TIMESTAMP,
-    fulfilled_at TIMESTAMP,
+    confirmed_at TIMESTAMP,
     shipped_at TIMESTAMP,
     delivered_at TIMESTAMP,
     cancelled_at TIMESTAMP,
@@ -467,6 +467,8 @@ CREATE TABLE order_items (
     product_sku VARCHAR(100),
     product_image TEXT,
     variant_options JSONB,
+    variant_details JSONB,
+    booking_details JSONB,
     
     -- Pricing
     price DECIMAL(10, 2) NOT NULL,
@@ -859,6 +861,7 @@ VALUES
     ('category_display_mode', 'top', 'Display categories at the top toolbar or in the left sidebar tree. Values: "top" or "sidebar"', true, NOW(), NOW()),
     ('location_filter_enabled', 'false', 'Enable/disable location-based product filtering across the marketplace', true, NOW(), NOW()),
     ('currency', 'INR', 'Default currency for the marketplace', true, NOW(), NOW()),
+    ('platform_commission_rate', '10', 'Default marketplace commission rate percentage for all vendors', true, NOW(), NOW()),
     ('thumbnailLayout', 'vertical', 'Product image thumbnail layout orientation. Values: "vertical" (Amazon-style left sidebar) or "horizontal" (bottom strip)', true, NOW(), NOW()),
     ('marketplace_name', 'GaliCart', 'Marketplace name displayed in header', true, NOW(), NOW()),
     ('marketplace_logo', '', 'Marketplace logo URL', true, NOW(), NOW()),
