@@ -251,6 +251,40 @@ async function createDatabase() {
     }
     console.log('');
     
+    // Add default marketplace pages (Privacy, Terms, Cookie Policy)
+    print('🔧 Creating default marketplace pages...', 'yellow');
+    await client.query(`
+      INSERT INTO marketplace_pages (title, slug, page_type, content, status, show_in_navigation)
+      VALUES 
+        (
+          'Privacy Policy',
+          'privacy-policy',
+          'privacy',
+          E'# Privacy Policy\\n\\n**Last Updated:** ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}\\n\\n## 1. Introduction\\n\\nWelcome to our marketplace. We are committed to protecting your personal information and your right to privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you visit our website and use our services.\\n\\n## 2. Information We Collect\\n\\nWe collect information that you provide directly to us, including:\\n\\n- Name, email address, and contact information\\n- Billing and shipping addresses\\n- Payment information (processed securely)\\n- Account credentials and profile information\\n- Communications with customer support\\n- Reviews, ratings, and feedback\\n\\n## 3. How We Use Your Information\\n\\nWe use the information we collect to:\\n\\n- Process and fulfill your orders\\n- Provide customer service and support\\n- Send order confirmations and updates\\n- Personalize your shopping experience\\n- Improve our products and services\\n- Detect and prevent fraud\\n\\n## 4. Contact Us\\n\\nIf you have questions about this Privacy Policy, please contact us.',
+          'published',
+          true
+        ),
+        (
+          'Terms of Service',
+          'terms-of-service',
+          'terms',
+          E'# Terms of Service\\n\\n**Last Updated:** ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}\\n\\n## 1. Acceptance of Terms\\n\\nBy accessing and using this marketplace platform, you accept and agree to be bound by the terms and provisions of this agreement. If you do not agree to these Terms of Service, please do not use our services.\\n\\n## 2. Use of the Platform\\n\\n### 2.1 Eligibility\\n\\nYou must be at least 18 years old to use our services. By using our platform, you represent and warrant that you meet this age requirement.\\n\\n### 2.2 Account Registration\\n\\nTo access certain features, you may be required to create an account. You agree to:\\n\\n- Provide accurate, current, and complete information\\n- Maintain the security of your password\\n- Accept responsibility for all activities under your account\\n- Notify us immediately of any unauthorized access\\n\\n## 3. Purchases and Payments\\n\\nWhen you place an order through our marketplace, you agree to pay all charges at the prices then in effect. All payments are processed securely through our payment providers.\\n\\n## 4. Contact Us\\n\\nIf you have questions about these Terms of Service, please contact us.',
+          'published',
+          true
+        ),
+        (
+          'Cookie Policy',
+          'cookie-policy',
+          'cookie',
+          E'# Cookie Policy\\n\\n**Last Updated:** ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}\\n\\n## 1. What Are Cookies?\\n\\nCookies are small text files that are placed on your device when you visit a website. They are widely used to make websites work more efficiently and provide information to website owners. Cookies help us understand how you use our marketplace and improve your experience.\\n\\n## 2. How We Use Cookies\\n\\nWe use cookies for the following purposes:\\n\\n- **Essential Functionality:** To enable core features like shopping cart and checkout\\n- **Authentication:** To keep you logged in during your session\\n- **Preferences:** To remember your settings and choices\\n- **Security:** To detect and prevent fraudulent activity\\n- **Analytics:** To understand how visitors use our website\\n- **Marketing:** To deliver relevant advertisements\\n\\n## 3. Types of Cookies We Use\\n\\n### 3.1 Strictly Necessary Cookies\\n\\nThese cookies are essential for the website to function properly and cannot be disabled.\\n\\n### 3.2 Performance Cookies\\n\\nThese cookies help us understand how visitors interact with our website by collecting anonymous information.\\n\\n### 3.3 Functionality Cookies\\n\\nThese cookies enable enhanced functionality and personalization.\\n\\n## 4. Managing Cookies\\n\\nYou can control and manage cookies through your browser settings. Please note that removing or blocking cookies may impact your user experience.\\n\\n## 5. Contact Us\\n\\nIf you have questions about our Cookie Policy, please contact us.',
+          'published',
+          true
+        )
+      ON CONFLICT (slug) DO NOTHING;
+    `);
+    print('✅ Default marketplace pages created', 'green');
+    console.log('');
+    
     print('========================================', 'green');
     print('✅ Database Initialization Complete!', 'green');
     print('========================================', 'green');

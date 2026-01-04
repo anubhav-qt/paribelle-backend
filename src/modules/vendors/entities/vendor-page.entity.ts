@@ -17,6 +17,7 @@ export enum PageType {
   FAQ = 'faq',
   TERMS = 'terms',
   PRIVACY = 'privacy',
+  COOKIE = 'cookie',
 }
 
 export enum PageStatus {
