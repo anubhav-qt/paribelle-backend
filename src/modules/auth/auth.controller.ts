@@ -1,4 +1,4 @@
-import { Controller, Post, Body, UseGuards, Request, Get, Query } from '@nestjs/common';
+import { Controller, Post, Body, UseGuards, Request, Get, Query, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { LocalAuthGuard } from './guards/local-auth.guard';
@@ -117,6 +117,7 @@ export class AuthController {
   }
 
   @Post('forgot-password')
+  @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Request password reset' })
   async forgotPassword(@Body('email') email: string) {
     await this.authService.forgotPassword(email);

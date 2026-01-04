@@ -8,10 +8,13 @@ export class SimpleEmailService {
   private transporter: nodemailer.Transporter;
 
   constructor(private configService: ConfigService) {
+    const port = parseInt(this.configService.get('SMTP_PORT') || '587');
+    const secure = this.configService.get('SMTP_SECURE') === 'true' || port === 465;
+    
     this.transporter = nodemailer.createTransport({
       host: this.configService.get('SMTP_HOST') || 'smtp.gmail.com',
-      port: parseInt(this.configService.get('SMTP_PORT') || '587'),
-      secure: false, // true for 465, false for other ports
+      port: port,
+      secure: secure, // true for 465, false for other ports
       auth: {
         user: this.configService.get('SMTP_USER'),
         pass: this.configService.get('SMTP_PASSWORD'),
@@ -170,49 +173,6 @@ If you didn't create an account with ${appName}, you can safely ignore this emai
     } catch (error) {
       this.logger.error(`Failed to send verification email to ${email}:`, error);
       throw new Error('Failed to send verification email');
-    }
-  }
-
-  async sendPasswordResetEmail(email: string, token: string) {
-    const appName = this.configService.get('APP_NAME') || 'GaliCart';
-    const appUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
-    const resetLink = `${appUrl}/reset-password?token=${token}`;
-
-    try {
-      await this.transporter.sendMail({
-        from: this.configService.get('MAIL_FROM') || this.configService.get('MAIL_USER'),
-        to: email,
-        subject: `Password Reset Request - ${appName}`,
-        html: `
-          <!DOCTYPE html>
-          <html>
-            <head>
-              <meta charset="utf-8">
-              <style>
-                body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-                .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-                .button { display: inline-block; padding: 12px 24px; background: #667eea; color: white; text-decoration: none; border-radius: 5px; }
-              </style>
-            </head>
-            <body>
-              <div class="container">
-                <h2>Password Reset Request</h2>
-                <p>You requested to reset your password. Click the button below to reset it:</p>
-                <p><a href="${resetLink}" class="button">Reset Password</a></p>
-                <p>Or copy this link: ${resetLink}</p>
-                <p>This link will expire in 1 hour.</p>
-                <p>If you didn't request this, please ignore this email.</p>
-              </div>
-            </body>
-          </html>
-        `,
-      });
-
-      this.logger.log(`Password reset email sent to ${email}`);
-      return true;
-    } catch (error) {
-      this.logger.error(`Failed to send password reset email to ${email}:`, error);
-      throw new Error('Failed to send password reset email');
     }
   }
 
@@ -629,7 +589,7 @@ Thank you for shopping with us!
 
     try {
       await this.transporter.sendMail({
-        from: this.configService.get('MAIL_FROM') || this.configService.get('MAIL_USER'),
+        from: this.configService.get('SMTP_FROM') || this.configService.get('SMTP_USER'),
         to: email,
         subject: `Reset Your Password - ${appName}`,
         html: `

@@ -228,8 +228,28 @@ async function createDatabase() {
   try {
     const sqlScript = fs.readFileSync(scriptPath, 'utf8');
     
-    // Execute the SQL script
+    // Execute the main SQL script
     await client.query(sqlScript);
+    
+    // Add password reset fields migration
+    print('🔧 Adding password reset fields...', 'yellow');
+    const passwordResetPath = path.join(__dirname, '..', 'add-password-reset-fields.sql');
+    if (fs.existsSync(passwordResetPath)) {
+      const passwordResetSql = fs.readFileSync(passwordResetPath, 'utf8');
+      await client.query(passwordResetSql);
+      print('✅ Password reset fields added', 'green');
+    } else {
+      // Fallback: inline SQL
+      await client.query(`
+        ALTER TABLE users 
+        ADD COLUMN IF NOT EXISTS password_reset_token VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS password_reset_token_expiry TIMESTAMP;
+        
+        CREATE INDEX IF NOT EXISTS idx_users_password_reset_token ON users(password_reset_token);
+      `);
+      print('✅ Password reset fields added (inline)', 'green');
+    }
+    console.log('');
     
     print('========================================', 'green');
     print('✅ Database Initialization Complete!', 'green');
