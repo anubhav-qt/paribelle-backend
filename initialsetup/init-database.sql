@@ -850,6 +850,71 @@ ADD CONSTRAINT fk_categories_vendor
 FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE CASCADE;
 
 -- ============================================================
+-- Initial Settings Data
+-- ============================================================
+
+-- Insert default marketplace settings
+INSERT INTO settings (key, value, description, is_public, created_at, updated_at)
+VALUES
+    ('category_display_mode', 'top', 'Display categories at the top toolbar or in the left sidebar tree. Values: "top" or "sidebar"', true, NOW(), NOW()),
+    ('location_filter_enabled', 'false', 'Enable/disable location-based product filtering across the marketplace', true, NOW(), NOW()),
+    ('currency', 'INR', 'Default currency for the marketplace', true, NOW(), NOW()),
+    ('thumbnailLayout', 'vertical', 'Product image thumbnail layout orientation. Values: "vertical" (Amazon-style left sidebar) or "horizontal" (bottom strip)', true, NOW(), NOW()),
+    ('marketplace_name', 'GaliCart', 'Marketplace name displayed in header', true, NOW(), NOW()),
+    ('marketplace_logo', '', 'Marketplace logo URL', true, NOW(), NOW()),
+    ('default-theme', '{
+        "primaryColor": "#FF9900",
+        "secondaryColor": "#232F3E",
+        "accentColor": "#FF9900",
+        "backgroundColor": "#FFFFFF",
+        "textColor": "#0F1111",
+        "fontFamily": "Amazon Ember, Arial, sans-serif",
+        "headingFont": "Amazon Ember, Arial, sans-serif",
+        "layout": "modern",
+        "customCss": "",
+        "showLogo": true,
+        "showSearchBar": true,
+        "footerText": "",
+        "socialLinks": {
+            "facebook": "",
+            "instagram": "",
+            "twitter": "",
+            "youtube": "",
+            "linkedin": ""
+        }
+    }', 'Default marketplace theme configuration (Amazon-style)', true, NOW(), NOW()),
+    ('hero_banners', '[
+        {
+            "id": "banner-1",
+            "imageUrl": "https://images.unsplash.com/photo-1567401893414-76b7b1e5a7a5?w=1920&h=600&fit=crop",
+            "title": "Discover Traditional Rajasthani Fashion",
+            "subtitle": "Explore our curated collection of authentic ethnic wear and handicrafts",
+            "ctaText": "Shop Now",
+            "ctaLink": "/products",
+            "order": 0
+        },
+        {
+            "id": "banner-2",
+            "imageUrl": "https://images.unsplash.com/photo-1602751584552-8ba73aad10e1?w=1920&h=600&fit=crop",
+            "title": "Exclusive Handcrafted Jewelry",
+            "subtitle": "Unique pieces that celebrate Indian artistry and craftsmanship",
+            "ctaText": "Explore Collection",
+            "ctaLink": "/category/jewelry",
+            "order": 1
+        },
+        {
+            "id": "banner-3",
+            "imageUrl": "https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=1920&h=600&fit=crop",
+            "title": "Premium Kurtis & Ethnic Wear",
+            "subtitle": "From everyday elegance to festive glamour - find your perfect style",
+            "ctaText": "Browse Collection",
+            "ctaLink": "/category/fashion",
+            "order": 2
+        }
+    ]', 'Hero carousel banners for homepage', true, NOW(), NOW())
+ON CONFLICT (key) DO NOTHING;
+
+-- ============================================================
 -- Indexes for Performance
 -- ============================================================
 

@@ -15,15 +15,28 @@ export class SettingsController {
     const settingsObj: Record<string, any> = {};
     settings.forEach(setting => {
       let value = setting.value;
-      // If value is a string that looks like a JSON string (starts and ends with quotes),
-      // parse it to remove the extra quotes
-      if (typeof value === 'string' && value.startsWith('"') && value.endsWith('"')) {
-        try {
-          value = JSON.parse(value);
-        } catch (e) {
-          // If parsing fails, use original value
+      
+      // If value is a string, try to parse it as JSON
+      if (typeof value === 'string') {
+        // Check if it starts with quotes (JSON string)
+        if (value.startsWith('"') && value.endsWith('"')) {
+          try {
+            value = JSON.parse(value);
+          } catch (e) {
+            // If parsing fails, use original value
+          }
+        }
+        // Check if it starts with [ or { (JSON array or object)
+        else if ((value.startsWith('[') && value.endsWith(']')) || 
+                 (value.startsWith('{') && value.endsWith('}'))) {
+          try {
+            value = JSON.parse(value);
+          } catch (e) {
+            // If parsing fails, use original value
+          }
         }
       }
+      
       settingsObj[setting.key] = value;
     });
     return settingsObj;
@@ -33,18 +46,31 @@ export class SettingsController {
   @ApiOperation({ summary: 'Get all settings with metadata' })
   async getAllSettings() {
     const settings = await this.settingsService.getSettings();
-    // Parse any string values that look like JSON strings to remove extra quotes
+    // Parse any string values that look like JSON to actual objects/arrays
     return settings.map(setting => {
       let value = setting.value;
-      // If value is a string that looks like a JSON string (starts and ends with quotes),
-      // parse it to remove the extra quotes
-      if (typeof value === 'string' && value.startsWith('"') && value.endsWith('"')) {
-        try {
-          value = JSON.parse(value);
-        } catch (e) {
-          // If parsing fails, use original value
+      
+      // If value is a string, try to parse it as JSON
+      if (typeof value === 'string') {
+        // Check if it starts with quotes (JSON string)
+        if (value.startsWith('"') && value.endsWith('"')) {
+          try {
+            value = JSON.parse(value);
+          } catch (e) {
+            // If parsing fails, use original value
+          }
+        }
+        // Check if it starts with [ or { (JSON array or object)
+        else if ((value.startsWith('[') && value.endsWith(']')) || 
+                 (value.startsWith('{') && value.endsWith('}'))) {
+          try {
+            value = JSON.parse(value);
+          } catch (e) {
+            // If parsing fails, use original value
+          }
         }
       }
+      
       return { ...setting, value };
     });
   }
@@ -53,17 +79,29 @@ export class SettingsController {
   @ApiOperation({ summary: 'Get setting by key' })
   async getSetting(@Param('key') key: string) {
     const value = await this.settingsService.getSetting(key);
-    // If value is a string that looks like a JSON string (starts and ends with quotes),
-    // parse it to remove the extra quotes
     let parsedValue = value;
-    if (typeof value === 'string' && value.startsWith('"') && value.endsWith('"')) {
-      try {
-        parsedValue = JSON.parse(value);
-      } catch (e) {
-        // If parsing fails, use original value
-        parsedValue = value;
+    
+    // If value is a string, try to parse it as JSON
+    if (typeof value === 'string') {
+      // Check if it starts with quotes (JSON string)
+      if (value.startsWith('"') && value.endsWith('"')) {
+        try {
+          parsedValue = JSON.parse(value);
+        } catch (e) {
+          parsedValue = value;
+        }
+      }
+      // Check if it starts with [ or { (JSON array or object)
+      else if ((value.startsWith('[') && value.endsWith(']')) || 
+               (value.startsWith('{') && value.endsWith('}'))) {
+        try {
+          parsedValue = JSON.parse(value);
+        } catch (e) {
+          parsedValue = value;
+        }
       }
     }
+    
     return { key, value: parsedValue };
   }
 
