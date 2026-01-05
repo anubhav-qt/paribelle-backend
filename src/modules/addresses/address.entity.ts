@@ -15,6 +15,9 @@ export class Address {
   @Column({ name: 'full_name' })
   fullName: string;
 
+  @Column({ nullable: true })
+  email: string;
+
   @Column()
   phone: string;
 

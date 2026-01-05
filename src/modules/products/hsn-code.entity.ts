@@ -20,18 +20,18 @@ export class HsnCode {
   @Column({ type: 'text' })
   description: string;
 
-  @Column({ type: 'decimal', precision: 5, scale: 2 })
+  @Column({ type: 'decimal', precision: 5, scale: 2, name: 'recommended_gst_rate' })
   recommendedGstRate: number;
 
   @Column({ nullable: true })
   category: string;
 
-  @Column({ default: true })
+  @Column({ default: true, name: 'is_active' })
   isActive: boolean;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 }

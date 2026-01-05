@@ -34,14 +34,19 @@ export class OrdersController {
     return this.ordersService.findAllForAdmin();
   }
 
-  @Get(':id')
-  findOne(@Param('id') id: string, @Request() req) {
-    return this.ordersService.findOne(id, req.user.id);
-  }
-
   @Patch(':id/cancel')
   cancel(@Param('id') id: string, @Request() req, @Body() body: { reason?: string }) {
     return this.ordersService.cancel(id, req.user.id, body.reason);
+  }
+
+  @Patch(':id/status')
+  updateStatus(@Param('id') id: string, @Body() body: { status: OrderStatus }) {
+    return this.ordersService.updateStatus(id, body.status);
+  }
+
+  @Patch(':id/payment-status')
+  updatePaymentStatus(@Param('id') id: string, @Body() body: { paymentStatus: string }) {
+    return this.ordersService.updatePaymentStatus(id, body.paymentStatus);
   }
 
   @Post(':id/refund')
@@ -52,11 +57,6 @@ export class OrdersController {
   @Post(':id/return')
   requestReturn(@Param('id') id: string, @Request() req, @Body() body: { reason: string; itemIds?: string[] }) {
     return this.ordersService.requestReturn(id, req.user.id, body.reason, body.itemIds);
-  }
-
-  @Patch(':id/status')
-  updateStatus(@Param('id') id: string, @Body() body: { status: OrderStatus }) {
-    return this.ordersService.updateStatus(id, body.status);
   }
 
   @Get(':id/review')
@@ -70,5 +70,10 @@ export class OrdersController {
       items,
       vendorReview,
     };
+  }
+
+  @Get(':id')
+  findOne(@Param('id') id: string, @Request() req) {
+    return this.ordersService.findOne(id, req.user.id);
   }
 }

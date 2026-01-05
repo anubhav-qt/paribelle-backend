@@ -90,6 +90,7 @@ CREATE TABLE addresses (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     full_name VARCHAR(255) NOT NULL,
+    email VARCHAR(255),
     phone VARCHAR(20) NOT NULL,
     address_line_1 TEXT NOT NULL,
     address_line_2 TEXT,

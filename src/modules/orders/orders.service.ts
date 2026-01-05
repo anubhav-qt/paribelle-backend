@@ -331,6 +331,22 @@ export class OrdersService {
     return savedOrder;
   }
 
+  async updatePaymentStatus(id: string, paymentStatus: string) {
+    const order = await this.orderRepository.findOne({ 
+      where: { id },
+      relations: ['user'],
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    order.paymentStatus = paymentStatus as PaymentStatus;
+    const savedOrder = await this.orderRepository.save(order);
+    
+    return savedOrder;
+  }
+
   async cancel(id: string, userId: string, reason?: string) {
     const order = await this.orderRepository.findOne({
       where: { id, userId },

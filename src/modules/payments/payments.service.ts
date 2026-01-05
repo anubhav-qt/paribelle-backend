@@ -1,10 +1,11 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Inject, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Razorpay from 'razorpay';
 import * as crypto from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Payment, PaymentStatus, PaymentMethod } from './payment.entity';
+import { OrdersService } from '../orders/orders.service';
 
 @Injectable()
 export class PaymentsService {
@@ -14,6 +15,8 @@ export class PaymentsService {
     @InjectRepository(Payment)
     private paymentRepository: Repository<Payment>,
     private configService: ConfigService,
+    @Inject(forwardRef(() => OrdersService))
+    private ordersService: OrdersService,
   ) {
     const keyId = this.configService.get<string>('RAZORPAY_KEY_ID');
     const keySecret = this.configService.get<string>('RAZORPAY_KEY_SECRET');
@@ -127,9 +130,15 @@ export class PaymentsService {
       payment.gatewayPaymentId = razorpayPaymentId;
       payment.gatewaySignature = razorpaySignature;
       payment.capturedAt = new Date();
+
+      // Update order payment status to 'paid' when payment is captured
+      await this.ordersService.updatePaymentStatus(payment.orderId, 'paid');
     } else {
       payment.status = PaymentStatus.FAILED;
       payment.failureReason = 'Payment failed';
+
+      // Update order payment status to 'failed' when payment fails
+      await this.ordersService.updatePaymentStatus(payment.orderId, 'failed');
     }
 
     await this.paymentRepository.save(payment);

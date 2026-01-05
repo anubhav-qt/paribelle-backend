@@ -17,18 +17,18 @@ export class HsnCode {
   @Column({ type: 'text' })
   description: string;
 
-  @Column({ type: 'numeric', precision: 5, scale: 2, name: 'recommendedGstRate' })
+  @Column({ type: 'numeric', precision: 5, scale: 2, name: 'recommended_gst_rate' })
   recommendedGstRate: number;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
   category: string;
 
-  @Column({ type: 'boolean', default: true, name: 'isActive' })
+  @Column({ type: 'boolean', default: true, name: 'is_active' })
   isActive: boolean;
 
-  @CreateDateColumn({ name: 'createdAt' })
+  @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
-  @UpdateDateColumn({ name: 'updatedAt' })
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 }

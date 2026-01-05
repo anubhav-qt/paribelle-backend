@@ -147,10 +147,10 @@ export class Invoice {
   vendorId: string;
 
   @ManyToOne(() => User, { nullable: true })
-  @JoinColumn({ name: 'customer_id' })
+  @JoinColumn({ name: 'user_id' })
   customer: User;
 
-  @Column({ name: 'customer_id', nullable: true })
+  @Column({ name: 'user_id', nullable: true })
   customerId: string;
 
   @CreateDateColumn({ name: 'created_at' })
