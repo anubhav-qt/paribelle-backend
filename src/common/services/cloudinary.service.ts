@@ -1,0 +1,261 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { v2 as cloudinary, UploadApiResponse } from 'cloudinary';
+import sharp from 'sharp';
+
+/**
+ * Service for uploading and managing images on Cloudinary
+ * Includes automatic image compression and optimization
+ */
+@Injectable()
+export class CloudinaryService {
+  private readonly logger = new Logger(CloudinaryService.name);
+  private isConfigured = false;
+
+  constructor(private configService: ConfigService) {
+    this.initializeCloudinary();
+  }
+
+  private initializeCloudinary() {
+    const cloudName = this.configService.get<string>('CLOUDINARY_CLOUD_NAME');
+    const apiKey = this.configService.get<string>('CLOUDINARY_API_KEY');
+    const apiSecret = this.configService.get<string>('CLOUDINARY_API_SECRET');
+
+    if (cloudName && apiKey && apiSecret) {
+      cloudinary.config({
+        cloud_name: cloudName,
+        api_key: apiKey,
+        api_secret: apiSecret,
+      });
+      this.isConfigured = true;
+      this.logger.log('Cloudinary configured successfully');
+    } else {
+      this.logger.warn('Cloudinary not configured - missing credentials');
+    }
+  }
+
+  /**
+   * Check if Cloudinary is properly configured
+   */
+  isEnabled(): boolean {
+    return this.isConfigured;
+  }
+
+  /**
+   * Upload a single image with compression
+   * @param buffer - Image buffer
+   * @param folder - Cloudinary folder path
+   * @param options - Additional upload options
+   * @returns Cloudinary upload result with URL
+   */
+  async uploadImage(
+    buffer: Buffer,
+    folder: string = 'marketplace',
+    options: {
+      maxWidth?: number;
+      quality?: number;
+      format?: 'jpeg' | 'png' | 'webp';
+    } = {},
+  ): Promise<UploadApiResponse> {
+    if (!this.isConfigured) {
+      throw new Error('Cloudinary is not configured');
+    }
+
+    try {
+      // Default compression settings
+      const maxWidth = options.maxWidth || 1920;
+      const quality = options.quality || 80;
+      const format = options.format || 'jpeg';
+
+      // Compress image using sharp
+      const compressedBuffer = await this.compressImage(buffer, {
+        maxWidth,
+        quality,
+        format,
+      });
+
+      // Upload to Cloudinary
+      return new Promise((resolve, reject) => {
+        const uploadStream = cloudinary.uploader.upload_stream(
+          {
+            folder,
+            resource_type: 'image',
+            format,
+          },
+          (error, result) => {
+            if (error || !result) {
+              this.logger.error('Cloudinary upload failed:', error);
+              reject(error || new Error('Upload failed'));
+            } else {
+              this.logger.log(`Image uploaded: ${result.public_id}`);
+              resolve(result);
+            }
+          },
+        );
+
+        uploadStream.end(compressedBuffer);
+      });
+    } catch (error) {
+      this.logger.error('Image upload failed:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Upload multiple images with compression
+   * @param buffers - Array of image buffers
+   * @param folder - Cloudinary folder path
+   * @param options - Compression options
+   * @returns Array of Cloudinary URLs
+   */
+  async uploadMultipleImages(
+    buffers: Buffer[],
+    folder: string = 'marketplace',
+    options?: { maxWidth?: number; quality?: number; format?: 'jpeg' | 'png' | 'webp' },
+  ): Promise<UploadApiResponse[]> {
+    if (!this.isConfigured) {
+      throw new Error('Cloudinary is not configured');
+    }
+
+    const uploadPromises = buffers.map(buffer =>
+      this.uploadImage(buffer, folder, options),
+    );
+
+    return Promise.all(uploadPromises);
+  }
+
+  /**
+   * Compress image using sharp
+   * @param buffer - Original image buffer
+   * @param options - Compression settings
+   * @returns Compressed image buffer
+   */
+  private async compressImage(
+    buffer: Buffer,
+    options: {
+      maxWidth: number;
+      quality: number;
+      format: 'jpeg' | 'png' | 'webp';
+    },
+  ): Promise<Buffer> {
+    const { maxWidth, quality, format } = options;
+
+    let sharpInstance = sharp(buffer);
+
+    // Get image metadata
+    const metadata = await sharpInstance.metadata();
+
+    // Resize if image is larger than maxWidth
+    if (metadata.width > maxWidth) {
+      sharpInstance = sharpInstance.resize(maxWidth, null, {
+        fit: 'inside',
+        withoutEnlargement: true,
+      });
+    }
+
+    // Apply format-specific compression
+    switch (format) {
+      case 'jpeg':
+        sharpInstance = sharpInstance.jpeg({ quality, progressive: true });
+        break;
+      case 'png':
+        sharpInstance = sharpInstance.png({ quality, compressionLevel: 9 });
+        break;
+      case 'webp':
+        sharpInstance = sharpInstance.webp({ quality });
+        break;
+    }
+
+    return sharpInstance.toBuffer();
+  }
+
+  /**
+   * Delete image from Cloudinary
+   * @param publicId - Cloudinary public_id or full URL
+   * @returns Deletion result
+   */
+  async deleteImage(publicId: string): Promise<any> {
+    if (!this.isConfigured) {
+      this.logger.warn('Cloudinary not configured - skipping deletion');
+      return;
+    }
+
+    try {
+      // Extract public_id from URL if needed
+      const extractedPublicId = this.extractPublicId(publicId);
+      
+      if (!extractedPublicId) {
+        this.logger.warn(`Invalid public_id: ${publicId}`);
+        return;
+      }
+
+      const result = await cloudinary.uploader.destroy(extractedPublicId);
+      this.logger.log(`Deleted image: ${extractedPublicId}`);
+      return result;
+    } catch (error) {
+      this.logger.error(`Failed to delete image ${publicId}:`, error.message);
+      // Don't throw - we don't want to block operations if deletion fails
+    }
+  }
+
+  /**
+   * Delete multiple images from Cloudinary
+   * @param publicIds - Array of public_ids or URLs
+   */
+  async deleteMultipleImages(publicIds: string[]): Promise<void> {
+    if (!this.isConfigured || !publicIds || publicIds.length === 0) {
+      return;
+    }
+
+    await Promise.all(publicIds.map(id => this.deleteImage(id)));
+    this.logger.log(`Deleted ${publicIds.length} images from Cloudinary`);
+  }
+
+  /**
+   * Extract Cloudinary public_id from URL
+   * Examples:
+   * - https://res.cloudinary.com/demo/image/upload/v1234567890/sample.jpg -> demo/sample
+   * - marketplace/products/abc123.jpg -> marketplace/products/abc123
+   */
+  private extractPublicId(urlOrId: string): string | null {
+    if (!urlOrId) return null;
+
+    // If it's already a public_id (no http/https)
+    if (!urlOrId.startsWith('http')) {
+      // Remove file extension if present
+      return urlOrId.replace(/\.[^/.]+$/, '');
+    }
+
+    try {
+      // Extract from Cloudinary URL
+      const matches = urlOrId.match(/\/upload\/(?:v\d+\/)?(.+?)(?:\.[^.]+)?$/);
+      return matches ? matches[1] : null;
+    } catch (error) {
+      this.logger.error(`Failed to extract public_id from: ${urlOrId}`);
+      return null;
+    }
+  }
+
+  /**
+   * Get optimized image URL with transformations
+   * @param publicId - Cloudinary public_id
+   * @param width - Desired width
+   * @param height - Desired height
+   * @returns Cloudinary URL with transformations
+   */
+  getOptimizedUrl(publicId: string, width?: number, height?: number): string {
+    if (!this.isConfigured) {
+      return publicId;
+    }
+
+    const transformations: any = {
+      quality: 'auto',
+      fetch_format: 'auto',
+    };
+
+    if (width) transformations.width = width;
+    if (height) transformations.height = height;
+
+    return cloudinary.url(publicId, transformations);
+  }
+}

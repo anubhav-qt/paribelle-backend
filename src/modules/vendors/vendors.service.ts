@@ -42,10 +42,12 @@ export class VendorsService {
   }
 
   async getVendorProducts(slug: string): Promise<any> {
-    const vendor = await this.vendorsRepository.findOne({ 
-      where: { slug },
-      relations: ['products'],
-    });
+    const vendor = await this.vendorsRepository
+      .createQueryBuilder('vendor')
+      .leftJoinAndSelect('vendor.products', 'product')
+      .where('vendor.slug = :slug', { slug })
+      .andWhere('vendor.kycStatus = :kycStatus', { kycStatus: 'approved' }) // Only show vendor and products if KYC approved
+      .getOne();
 
     if (!vendor) {
       return { products: [], vendor: null };

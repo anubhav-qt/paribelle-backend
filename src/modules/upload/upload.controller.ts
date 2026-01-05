@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CloudinaryService } from '../../common/services/cloudinary.service';
 
 // Define Multer File type to avoid Express namespace issues
 interface MulterFile {
@@ -33,13 +34,36 @@ export class UploadController {
     'image/png',
   ];
 
+  constructor(private cloudinaryService: CloudinaryService) {}
+
   @Post('image')
   @UseInterceptors(FileInterceptor('file'))
-  uploadImage(@UploadedFile() file: MulterFile) {
+  async uploadImage(@UploadedFile() file: MulterFile) {
     if (!file) {
       throw new BadRequestException('No file uploaded');
     }
 
+    // If Cloudinary is configured, upload there with compression
+    if (this.cloudinaryService.isEnabled()) {
+      const result = await this.cloudinaryService.uploadImage(
+        file.buffer,
+        'marketplace/products',
+        { maxWidth: 1920, quality: 80, format: 'jpeg' }
+      );
+
+      return {
+        url: result.secure_url,
+        publicId: result.public_id,
+        filename: file.originalname,
+        originalName: file.originalname,
+        size: result.bytes,
+        width: result.width,
+        height: result.height,
+        format: result.format,
+      };
+    }
+
+    // Fallback to local storage
     const fileUrl = `/uploads/${file.filename}`;
     return {
       url: fileUrl,
@@ -52,11 +76,36 @@ export class UploadController {
 
   @Post('images')
   @UseInterceptors(FilesInterceptor('files', 10))
-  uploadImages(@UploadedFiles() files: MulterFile[]) {
+  async uploadImages(@UploadedFiles() files: MulterFile[]) {
     if (!files || files.length === 0) {
       throw new BadRequestException('No files uploaded');
     }
 
+    // If Cloudinary is configured, upload there with compression
+    if (this.cloudinaryService.isEnabled()) {
+      const uploadPromises = files.map(file =>
+        this.cloudinaryService.uploadImage(
+          file.buffer,
+          'marketplace/products',
+          { maxWidth: 1920, quality: 80, format: 'jpeg' }
+        )
+      );
+
+      const results = await Promise.all(uploadPromises);
+
+      return results.map((result, index) => ({
+        url: result.secure_url,
+        publicId: result.public_id,
+        filename: files[index].originalname,
+        originalName: files[index].originalname,
+        size: result.bytes,
+        width: result.width,
+        height: result.height,
+        format: result.format,
+      }));
+    }
+
+    // Fallback to local storage
     return files.map((file) => ({
       url: `/uploads/${file.filename}`,
       filename: file.filename,
@@ -73,7 +122,7 @@ export class UploadController {
   @Post('kyc-documents')
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(FileInterceptor('file'))
-  uploadKYCDocument(@UploadedFile() file: MulterFile) {
+  async uploadKYCDocument(@UploadedFile() file: MulterFile) {
     if (!file) {
       throw new BadRequestException('No file uploaded');
     }
@@ -92,8 +141,27 @@ export class UploadController {
       );
     }
 
-    // In production, you would upload to S3 or other cloud storage
-    // For now, storing locally
+    // If Cloudinary is configured, upload there
+    if (this.cloudinaryService.isEnabled() && file.mimetype.startsWith('image/')) {
+      const result = await this.cloudinaryService.uploadImage(
+        file.buffer,
+        'marketplace/kyc',
+        { maxWidth: 2048, quality: 90, format: 'jpeg' }
+      );
+
+      return {
+        success: true,
+        url: result.secure_url,
+        publicId: result.public_id,
+        filename: file.originalname,
+        originalName: file.originalname,
+        size: result.bytes,
+        mimetype: file.mimetype,
+        uploadedAt: new Date().toISOString(),
+      };
+    }
+
+    // Fallback to local storage for PDFs or when Cloudinary is not configured
     const fileUrl = `/uploads/kyc/${file.filename}`;
     
     return {

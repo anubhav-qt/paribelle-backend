@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { Product, ProductStatus } from './product.entity';
@@ -7,6 +7,7 @@ import { Category } from '../categories/category.entity';
 import { CategoriesService } from '../categories/categories.service';
 import { FileCleanupService } from '../../common/services/file-cleanup.service';
 import { MarketplaceGateway } from '../stock/stock.gateway';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class ProductsService {
@@ -20,7 +21,43 @@ export class ProductsService {
     private categoriesService: CategoriesService,
     private fileCleanupService: FileCleanupService,
     private marketplaceGateway: MarketplaceGateway,
+    private configService: ConfigService,
   ) {}
+
+  /**
+   * Validate that image URLs are not from external stock photo services
+   * Only allowed in development/testing environments
+   */
+  private validateImageUrls(imageUrls: string | string[]): void {
+    const isProduction = this.configService.get('NODE_ENV') === 'production';
+    
+    // Skip validation in development
+    if (!isProduction) {
+      return;
+    }
+
+    const urls = Array.isArray(imageUrls) ? imageUrls : [imageUrls];
+    
+    const externalStockSites = [
+      'unsplash.com',
+      'images.unsplash.com',
+      'source.unsplash.com',
+      'picsum.photos',
+      'loremflickr.com',
+    ];
+
+    for (const url of urls) {
+      if (!url) continue;
+      
+      const isExternalStock = externalStockSites.some(site => url.includes(site));
+      
+      if (isExternalStock) {
+        throw new BadRequestException(
+          'Stock photos are not allowed in production. Please upload your own product images using the image upload feature.'
+        );
+      }
+    }
+  }
 
   async findAll(
     page: number = 1,
@@ -32,6 +69,7 @@ export class ProductsService {
     cityId?: string,
     subLocationId?: string,
     productType?: string,
+    includeUnverifiedVendors: boolean = false, // Only show KYC approved vendors by default
   ): Promise<{ products: Product[]; total: number; page: number; limit: number }> {
     const queryBuilder = this.productsRepository
       .createQueryBuilder('product')
@@ -45,12 +83,21 @@ export class ProductsService {
         'vendor.storeName',
         'vendor.businessName',
         'vendor.subdomain',
+        'vendor.kycStatus',
         'city.id',
         'city.name',
         'subLocation.id',
         'subLocation.name',
         'productVariants',
       ]);
+
+    // CRITICAL: Filter out products from unverified vendors for public listings
+    // When vendorId is provided (vendor viewing their own products), skip KYC check
+    // When includeUnverifiedVendors=true (admin panel), skip KYC check
+    // Otherwise, only show KYC approved vendors
+    if (!includeUnverifiedVendors && !vendorId) {
+      queryBuilder.andWhere('vendor.kycStatus = :kycStatus', { kycStatus: 'approved' });
+    }
 
     // Filter for uncategorized products (products with no categories)
     if (uncategorized) {
@@ -143,6 +190,7 @@ export class ProductsService {
         'vendor.storeName',
         'vendor.businessName',
         'vendor.subdomain',
+        'vendor.kycStatus',
         'city.id',
         'city.name',
         'subLocation.id',
@@ -150,6 +198,11 @@ export class ProductsService {
       ])
       .where('category.id IN (:...categoryIds)', { categoryIds })
       .andWhere('product.status = :status', { status: ProductStatus.ACTIVE });
+
+    // CRITICAL: Only show products from KYC approved vendors (unless explicitly filtering for a specific vendor)
+    if (!filters?.vendorId) {
+      queryBuilder.andWhere('vendor.kycStatus = :kycStatus', { kycStatus: 'approved' });
+    }
 
     // Apply vendor filter if provided
     if (filters?.vendorId) {
@@ -258,6 +311,7 @@ export class ProductsService {
         'vendor.storeName',
         'vendor.businessName',
         'vendor.subdomain',
+        'vendor.kycStatus',
         'city.id',
         'city.name',
         'subLocation.id',
@@ -272,6 +326,7 @@ export class ProductsService {
         'parentProduct.slug',
       ])
       .where('product.id = :id', { id })
+      .andWhere('vendor.kycStatus = :kycStatus', { kycStatus: 'approved' }) // Only show products from verified vendors
       .getOne();
     
     // If product has variants, fetch them
@@ -297,11 +352,14 @@ export class ProductsService {
    * Get all variations for a parent product
    */
   async findVariations(parentProductId: string): Promise<Product[]> {
-    return this.productsRepository.find({
-      where: { parentProductId },
-      relations: ['vendor', 'categories'],
-      order: { createdAt: 'ASC' },
-    });
+    return this.productsRepository
+      .createQueryBuilder('product')
+      .leftJoinAndSelect('product.vendor', 'vendor')
+      .leftJoinAndSelect('product.categories', 'categories')
+      .where('product.parentProductId = :parentProductId', { parentProductId })
+      .andWhere('vendor.kycStatus = :kycStatus', { kycStatus: 'approved' }) // Only show variations from verified vendors
+      .orderBy('product.createdAt', 'ASC')
+      .getMany();
   }
 
   /**
@@ -342,6 +400,7 @@ export class ProductsService {
         'vendor.storeName',
         'vendor.businessName',
         'vendor.subdomain',
+        'vendor.kycStatus',
         'city.id',
         'city.name',
         'subLocation.id',
@@ -356,6 +415,7 @@ export class ProductsService {
         'parentProduct.slug',
       ])
       .where('product.slug = :slug', { slug })
+      .andWhere('vendor.kycStatus = :kycStatus', { kycStatus: 'approved' }) // Only show products from verified vendors
       .getOne();
     
     // If product has variants, fetch them
@@ -369,6 +429,14 @@ export class ProductsService {
 
   async create(productData: any): Promise<Product> {
     const { categoryIds, newFilterOptions, categoryId, variations, variants, variantOptions, ...data } = productData;
+    
+    // Validate image URLs in production
+    if (data.images && Array.isArray(data.images)) {
+      this.validateImageUrls(data.images);
+    }
+    if (data.featuredImage) {
+      this.validateImageUrls(data.featuredImage);
+    }
     
     // If categoryIds are provided, fetch the categories first
     let categories: Category[] = [];
@@ -458,6 +526,14 @@ export class ProductsService {
       variantOptions,
       ...data 
     } = productData;
+    
+    // Validate image URLs in production
+    if (data.images && Array.isArray(data.images)) {
+      this.validateImageUrls(data.images);
+    }
+    if (data.featuredImage) {
+      this.validateImageUrls(data.featuredImage);
+    }
     
     // Update basic product data (excluding relation fields)
     if (Object.keys(data).length > 0) {
