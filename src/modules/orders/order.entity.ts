@@ -21,6 +21,8 @@ export enum OrderStatus {
   SHIPPED = 'shipped',
   DELIVERED = 'delivered',
   CANCELLED = 'cancelled',
+  RETURN_REQUESTED = 'return_requested',
+  RETURN_APPROVED = 'return_approved',
   RETURNED = 'returned',
   REFUNDED = 'refunded',
 }
@@ -152,6 +154,12 @@ export class Order {
 
   @Column({ type: 'timestamp', nullable: true, name: 'cancelled_at' })
   cancelledAt: Date;
+
+  @Column({ type: 'timestamp', nullable: true, name: 'returned_at' })
+  returnedAt: Date;
+
+  @Column({ type: 'text', nullable: true, name: 'return_reason' })
+  returnReason: string;
 
   // Relations
   @ManyToOne(() => User, (user) => user.orders)

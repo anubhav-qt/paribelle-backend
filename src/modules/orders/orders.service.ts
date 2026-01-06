@@ -8,6 +8,7 @@ import { SimpleEmailService } from '../simple-email/simple-email.service';
 import { MarketplaceGateway } from '../stock/stock.gateway';
 import { InvoicesService } from '../invoices/invoices.service';
 import { InvoicePdfService } from '../invoices/invoice-pdf.service';
+import { PlatformSettingsService } from '../platform/platform-settings.service';
 import { Response } from 'express';
 
 @Injectable()
@@ -25,6 +26,7 @@ export class OrdersService {
     private invoicesService: InvoicesService,
     @Inject(forwardRef(() => InvoicePdfService))
     private invoicePdfService: InvoicePdfService,
+    private platformSettingsService: PlatformSettingsService,
   ) {}
 
   async create(userId: string, createOrderDto: any) {
@@ -621,25 +623,8 @@ export class OrdersService {
       ? order.items.filter(item => itemIds.includes(item.id))
       : order.items;
     
-    for (const item of itemsToReturn) {
-      await this.productRepository.increment(
-        { id: item.productId },
-        'stockQuantity',
-        item.quantity
-      );
-      
-      // Get updated product stock and broadcast via WebSocket
-      const product = await this.productRepository.findOne({ 
-        where: { id: item.productId } 
-      });
-      if (product) {
-        this.marketplaceGateway.emitStockUpdate(
-          product.id,
-          product.stockQuantity
-        );
-        console.log(`[requestReturn] Restored ${item.quantity} units to product ${product.id}. New stock: ${product.stockQuantity}`);
-      }
-    }
+    // Note: Inventory is NOT restored at request time
+    // It will be restored when admin approves the return
 
     const itemList = itemIds && itemIds.length > 0 
       ? `Items: ${itemIds.join(', ')}` 
@@ -647,17 +632,144 @@ export class OrdersService {
     
     order.customerNotes = (order.customerNotes || '') + 
       `\nReturn requested: ${reason}\n${itemList}\nRequested at: ${new Date().toISOString()}`;
-    order.status = OrderStatus.RETURNED;
-    order.returnedAt = new Date();
+    order.status = OrderStatus.RETURN_REQUESTED;
     order.returnReason = reason;
 
-    // If order was paid, mark for refund and create credit note
+    // Note: Return is only requested, not approved yet
+    // Payment status and inventory remain unchanged until admin approves
+    // Admin can approve the return using approveReturn() method
+
+    // Emit order status update via WebSocket
+    this.marketplaceGateway.emitOrderStatusUpdate(order.id, OrderStatus.RETURN_REQUESTED, order.userId);
+
+    const savedOrder = await this.orderRepository.save(order);
+    
+    // Send return confirmation email (you can add this method to SimpleEmailService)
+    // this.simpleEmailService.sendOrderReturnedEmail(...)
+    
+    return savedOrder;
+  }
+
+  /**
+   * Approve a return request (Admin only)
+   * This allows customer to ship the item back but does NOT process refund yet
+   */
+  async approveReturnRequest(orderId: string): Promise<Order> {
+    const order = await this.orderRepository.findOne({
+      where: { id: orderId },
+      relations: ['items', 'user', 'vendor'],
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    if (order.status !== OrderStatus.RETURN_REQUESTED) {
+      throw new BadRequestException('Order does not have a pending return request');
+    }
+
+    // Update order status to approved - customer can now ship back
+    order.status = OrderStatus.RETURN_APPROVED;
+    order.adminNotes = (order.adminNotes || '') + 
+      `\nReturn request approved at: ${new Date().toISOString()}\nWaiting for customer to ship item back.`;
+
+    // Note: Payment status remains PAID, inventory unchanged
+    // Refund will be processed only after receiving and verifying the item
+
+    // Emit order status update via WebSocket
+    this.marketplaceGateway.emitOrderStatusUpdate(order.id, OrderStatus.RETURN_APPROVED, order.userId);
+
+    const savedOrder = await this.orderRepository.save(order);
+    
+    // Send return approved email with return shipping instructions
+    try {
+      const platformSettings = await this.platformSettingsService.getPlatformSettings();
+      
+      await this.simpleEmailService.sendReturnApprovalEmail(
+        order.user.email,
+        order.shippingName,
+        order.orderNumber,
+        order.returnReason || 'Customer requested return',
+        {
+          name: platformSettings.businessName || 'Marketplace',
+          addressLine1: platformSettings.registeredAddressLine1 || '',
+          city: platformSettings.registeredCity || '',
+          state: platformSettings.registeredState || '',
+          postalCode: platformSettings.registeredPincode || '',
+          country: platformSettings.registeredCountry || '',
+          phone: platformSettings.businessPhone || '',
+        }
+      );
+      console.log(`[approveReturnRequest] Return approval email sent to ${order.user.email}`);
+    } catch (error) {
+      console.error('Failed to send return approval email:', error);
+      // Don't fail the entire operation if email fails
+    }
+    
+    return savedOrder;
+  }
+
+  /**
+   * Confirm item received and process refund (Admin only)
+   * This restocks inventory and processes the refund
+   */
+  async confirmItemReceived(orderId: string, itemIds?: string[]): Promise<Order> {
+    const order = await this.orderRepository.findOne({
+      where: { id: orderId },
+      relations: ['items', 'items.product', 'user', 'vendor'],
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    if (order.status !== OrderStatus.RETURN_APPROVED) {
+      throw new BadRequestException('Return must be approved first');
+    }
+
+    // Restore inventory for returned items
+    const itemsToReturn = itemIds && itemIds.length > 0 
+      ? order.items.filter(item => itemIds.includes(item.id))
+      : order.items;
+    
+    for (const item of itemsToReturn) {
+      if (item.productId) {
+        await this.productRepository.increment(
+          { id: item.productId },
+          'stockQuantity',
+          item.quantity
+        );
+        
+        // Get updated product stock and broadcast via WebSocket
+        const product = await this.productRepository.findOne({ 
+          where: { id: item.productId } 
+        });
+        if (product) {
+          this.marketplaceGateway.emitStockUpdate(
+            product.id,
+            product.stockQuantity
+          );
+          console.log(`[confirmItemReceived] Restored ${item.quantity} units to product ${product.id}. New stock: ${product.stockQuantity}`);
+        }
+      }
+    }
+
+    // Update order status
+    order.status = OrderStatus.RETURNED;
+    order.returnedAt = new Date();
+    order.adminNotes = (order.adminNotes || '') + 
+      `\nItem received and verified at: ${new Date().toISOString()}\nRefund processed.`;
+
+    // Process refund
     if (order.paymentStatus === PaymentStatus.PAID) {
       order.paymentStatus = PaymentStatus.REFUNDED;
       
       try {
-        console.log(`[requestReturn] Creating credit note for returned order ${order.orderNumber}`);
-        await this.invoicesService.createCreditNote(order.id, reason || 'Order returned by customer');
+        console.log(`[confirmItemReceived] Creating credit note for returned order ${order.orderNumber}`);
+        await this.invoicesService.createCreditNote(
+          order.id, 
+          order.returnReason || 'Order returned by customer'
+        );
       } catch (error) {
         console.error('Failed to create credit note for returned order:', error);
       }
@@ -668,8 +780,41 @@ export class OrdersService {
 
     const savedOrder = await this.orderRepository.save(order);
     
-    // Send return confirmation email (you can add this method to SimpleEmailService)
-    // this.simpleEmailService.sendOrderReturnedEmail(...)
+    // Send refund processed email
+    // this.simpleEmailService.sendRefundProcessedEmail(...)
+    
+    return savedOrder;
+  }
+
+  /**
+   * Reject a return request (Admin only)
+   */
+  async rejectReturn(orderId: string, reason: string): Promise<Order> {
+    const order = await this.orderRepository.findOne({
+      where: { id: orderId },
+      relations: ['items', 'user', 'vendor'],
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    if (order.status !== OrderStatus.RETURN_REQUESTED) {
+      throw new BadRequestException('Order does not have a pending return request');
+    }
+
+    // Revert to delivered status
+    order.status = OrderStatus.DELIVERED;
+    order.adminNotes = (order.adminNotes || '') + 
+      `\nReturn rejected at: ${new Date().toISOString()}\nReason: ${reason}`;
+
+    // Emit order status update via WebSocket
+    this.marketplaceGateway.emitOrderStatusUpdate(order.id, OrderStatus.DELIVERED, order.userId);
+
+    const savedOrder = await this.orderRepository.save(order);
+    
+    // Send return rejected email
+    // this.simpleEmailService.sendOrderReturnRejectedEmail(...)
     
     return savedOrder;
   }

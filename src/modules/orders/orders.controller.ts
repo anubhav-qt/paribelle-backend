@@ -60,6 +60,21 @@ export class OrdersController {
     return this.ordersService.requestReturn(id, req.user.id, body.reason, body.itemIds);
   }
 
+  @Post(':id/return/approve')
+  approveReturnRequest(@Param('id') id: string) {
+    return this.ordersService.approveReturnRequest(id);
+  }
+
+  @Post(':id/return/confirm-received')
+  confirmItemReceived(@Param('id') id: string, @Body() body: { itemIds?: string[] }) {
+    return this.ordersService.confirmItemReceived(id, body.itemIds);
+  }
+
+  @Post(':id/return/reject')
+  rejectReturn(@Param('id') id: string, @Body() body: { reason: string }) {
+    return this.ordersService.rejectReturn(id, body.reason);
+  }
+
   @Get(':id/review')
   async getOrderReviews(@Param('id') id: string, @Request() req) {
     const [items, vendorReview] = await Promise.all([
@@ -80,6 +95,11 @@ export class OrdersController {
     @Res() res: Response,
   ) {
     return this.ordersService.downloadOrderInvoice(id, req.user.id, res);
+  }
+
+  @Get(':id/return-details')
+  getReturnDetails(@Param('id') id: string) {
+    return this.ordersService.getReturnDetails(id);
   }
 
   @Get(':id')

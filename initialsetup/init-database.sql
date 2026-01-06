@@ -130,6 +130,10 @@ CREATE TABLE vendors (
     free_shipping_threshold DECIMAL(10, 2),
     shipping_cost DECIMAL(10, 2) DEFAULT 50.00,
     
+    -- Return Policy Settings
+    return_policy_days INTEGER DEFAULT 7 CHECK (return_policy_days >= 0),
+    allow_returns BOOLEAN DEFAULT TRUE,
+    
     -- Business Details
     business_name VARCHAR(255),
     tax_id VARCHAR(255),
@@ -402,8 +406,8 @@ CREATE TABLE orders (
     order_number VARCHAR(50) UNIQUE NOT NULL,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     vendor_id UUID REFERENCES vendors(id) ON DELETE RESTRICT,
-    status VARCHAR(50) NOT NULL DEFAULT 'pending',
-    payment_status VARCHAR(50) NOT NULL DEFAULT 'pending',
+    status VARCHAR(50) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled', 'return_requested', 'return_approved', 'returned', 'refunded')),
+    payment_status VARCHAR(50) NOT NULL DEFAULT 'pending' CHECK (payment_status IN ('pending', 'paid', 'failed', 'refunded')),
     fulfillment_status VARCHAR(50) DEFAULT 'unfulfilled',
     
     -- Vendor snapshot at time of order (for invoices and historical accuracy)
@@ -463,6 +467,10 @@ CREATE TABLE orders (
     shipped_at TIMESTAMP,
     delivered_at TIMESTAMP,
     cancelled_at TIMESTAMP,
+    returned_at TIMESTAMP,
+    
+    -- Return information
+    return_reason TEXT,
     
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

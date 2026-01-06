@@ -782,4 +782,239 @@ Thank you for shopping with us!
       throw new Error('Failed to send password reset email');
     }
   }
+
+  async sendReturnApprovalEmail(
+    email: string,
+    customerName: string,
+    orderNumber: string,
+    returnReason: string,
+    returnAddress: {
+      name: string;
+      addressLine1: string;
+      city: string;
+      state: string;
+      postalCode: string;
+      country: string;
+      phone: string;
+    }
+  ) {
+    const appName = this.configService.get('APP_NAME') || 'GaliCart';
+    const appUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
+    
+    // Generate comprehensive QR code data for shipping carriers (Amazon-style)
+    const QRCode = require('qrcode');
+    
+    // Create a return authorization number
+    const returnAuthNumber = `RMA-${orderNumber}-${Date.now().toString().slice(-6)}`;
+    
+    // Comprehensive QR data for carrier scanning
+    const qrData = JSON.stringify({
+      rma: returnAuthNumber,
+      order: orderNumber,
+      returnTo: {
+        name: returnAddress.name,
+        address: returnAddress.addressLine1,
+        city: returnAddress.city,
+        state: returnAddress.state,
+        zip: returnAddress.postalCode,
+        country: returnAddress.country,
+        phone: returnAddress.phone
+      },
+      shipmentType: 'RETURN',
+      service: 'GROUND',
+      timestamp: new Date().toISOString(),
+      trackingUrl: `${appUrl}/orders/return/${returnAuthNumber}`
+    });
+    
+    const qrCodeDataUrl = await QRCode.toDataURL(qrData, { 
+      width: 300, 
+      margin: 2,
+      errorCorrectionLevel: 'H' // High error correction for better scanning
+    });
+
+    try {
+      await this.transporter.sendMail({
+        from: this.configService.get('SMTP_FROM') || this.configService.get('SMTP_USER'),
+        to: email,
+        subject: `Return Approved - Order #${orderNumber}`,
+        html: `
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <meta charset="utf-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <style>
+                body {
+                  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+                  line-height: 1.6;
+                  color: #333;
+                  margin: 0;
+                  padding: 0;
+                  background-color: #f4f4f4;
+                }
+                .container {
+                  max-width: 600px;
+                  margin: 40px auto;
+                  background: white;
+                  border-radius: 8px;
+                  overflow: hidden;
+                  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                }
+                .header {
+                  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+                  padding: 40px 20px;
+                  text-align: center;
+                  color: white;
+                }
+                .header h1 {
+                  margin: 0;
+                  font-size: 28px;
+                  font-weight: 600;
+                }
+                .content {
+                  padding: 40px 30px;
+                }
+                .content h2 {
+                  margin-top: 0;
+                  color: #333;
+                  font-size: 24px;
+                }
+                .content p {
+                  margin: 16px 0;
+                  color: #666;
+                  font-size: 16px;
+                }
+                .info-box {
+                  background: #f0fdf4;
+                  border-left: 4px solid #10b981;
+                  padding: 16px;
+                  margin: 24px 0;
+                  border-radius: 4px;
+                }
+                .info-box strong {
+                  color: #059669;
+                }
+                .return-label {
+                  background: #f9fafb;
+                  border: 2px dashed #d1d5db;
+                  padding: 24px;
+                  margin: 24px 0;
+                  border-radius: 8px;
+                  text-align: center;
+                }
+                .return-label h3 {
+                  margin: 0 0 16px 0;
+                  color: #111827;
+                  font-size: 18px;
+                }
+                .address-block {
+                  background: white;
+                  border: 1px solid #e5e7eb;
+                  padding: 16px;
+                  margin: 16px 0;
+                  text-align: left;
+                  line-height: 1.8;
+                }
+                .qr-code {
+                  margin: 20px 0;
+                }
+                .instructions {
+                  background: #fef3c7;
+                  border-left: 4px solid #f59e0b;
+                  padding: 16px;
+                  margin: 24px 0;
+                  border-radius: 4px;
+                }
+                .instructions ol {
+                  margin: 8px 0;
+                  padding-left: 20px;
+                }
+                .instructions li {
+                  margin: 8px 0;
+                  color: #78350f;
+                }
+                .footer {
+                  padding: 30px;
+                  text-align: center;
+                  background: #f8f9fa;
+                  color: #666;
+                  font-size: 14px;
+                  border-top: 1px solid #e9ecef;
+                }
+                .footer a {
+                  color: #10b981;
+                  text-decoration: none;
+                }
+              </style>
+            </head>
+            <body>
+              <div class="container">
+                <div class="header">
+                  <h1>✅ Return Approved</h1>
+                </div>
+                <div class="content">
+                  <h2>Hi ${customerName},</h2>
+                  <p>Good news! Your return request for order <strong>#${orderNumber}</strong> has been approved.</p>
+                  
+                  <div class="info-box">
+                    <strong>Return Authorization:</strong> ${returnAuthNumber}<br>
+                    <strong>Return Reason:</strong> ${returnReason}
+                  </div>
+
+                  <div class="instructions">
+                    <h3 style="margin-top: 0; color: #78350f;">📦 Return Shipping Instructions</h3>
+                    <ol>
+                      <li><strong>No Printer Needed:</strong> Show this QR code at any UPS, FedEx, or postal location</li>
+                      <li>The carrier will scan the QR code to generate your shipping label</li>
+                      <li>Pack the item securely in its original packaging</li>
+                      <li>Hand over the package - shipping is prepaid</li>
+                      <li>Keep your receipt for tracking</li>
+                    </ol>
+                    <p style="margin: 16px 0 0 0; font-size: 14px;">
+                      <strong>Important:</strong> Your refund will be processed within 3-5 business days after we receive and inspect the returned item.
+                    </p>
+                  </div>
+
+                  <div class="return-label">
+                    <h3>📱 Return QR Code - Scan at Carrier</h3>
+                    <p style="font-size: 14px; color: #6b7280; margin-bottom: 16px;">Show this code at UPS, FedEx, or USPS - No printing required!</p>
+                    <div class="qr-code">
+                      <img src="${qrCodeDataUrl}" alt="Return QR Code" width="300" height="300" style="border: 3px solid #10b981; padding: 12px; background: white; border-radius: 8px;" />
+                      <p style="font-size: 16px; font-weight: 600; color: #111827; margin: 12px 0;"><strong>RMA:</strong> ${returnAuthNumber}</p>
+                      <p style="font-size: 14px; color: #6b7280; margin: 4px 0;">Order: ${orderNumber}</p>
+                    </div>
+                    <div class="address-block">
+                      <strong style="font-size: 16px; display: block; margin-bottom: 8px;">Return To:</strong>
+                      <div style="font-size: 14px; color: #374151;">
+                        ${returnAddress.name}<br>
+                        ${returnAddress.addressLine1}<br>
+                        ${returnAddress.city}, ${returnAddress.state} ${returnAddress.postalCode}<br>
+                        ${returnAddress.country}<br>
+                        Phone: ${returnAddress.phone}
+                      </div>
+                    </div>
+                  </div>
+
+                  <p style="margin-top: 32px; font-size: 14px; color: #6b7280;">
+                    If you have any questions about the return process, please don't hesitate to contact our customer support.
+                  </p>
+                </div>
+                <div class="footer">
+                  <p>© ${new Date().getFullYear()} ${appName}. All rights reserved.</p>
+                  <p>
+                    Need help? <a href="${appUrl}/contact">Contact Support</a>
+                  </p>
+                </div>
+              </div>
+            </body>
+          </html>
+        `,
+      });
+
+      this.logger.log(`Return approval email sent to ${email} for order ${orderNumber}`);
+    } catch (error) {
+      this.logger.error(`Failed to send return approval email to ${email}:`, error);
+      throw new Error('Failed to send return approval email');
+    }
+  }
 }

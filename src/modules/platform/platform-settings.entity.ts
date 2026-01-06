@@ -57,9 +57,6 @@ export class PlatformSettings {
   @Column({ type: 'boolean', default: true, name: 'allow_vendor_custom_return_policy', comment: 'Allow vendors to set their own return policies' })
   allowVendorCustomReturnPolicy: boolean;
 
-  @Column({ name: 'business_phone_old', length: 20, nullable: true })
-  businessPhone: string;
-
   // Registered Address
   @Column({ name: 'registered_address_line1', length: 255 })
   registeredAddressLine1: string;
