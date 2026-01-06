@@ -320,6 +320,9 @@ export class OrdersService {
   }
 
   async updateStatus(id: string, status: OrderStatus) {
+    const startTime = Date.now();
+    console.log(`[updateStatus] Starting status update for order ${id} to ${status}`);
+    
     const order = await this.orderRepository.findOne({ 
       where: { id },
       relations: ['user'],
@@ -338,19 +341,18 @@ export class OrdersService {
     } else if (status === OrderStatus.DELIVERED) {
       order.deliveredAt = new Date();
       
-      // Send review request email to buyer
+      // Send review request email to buyer (async, don't wait)
       if (order.user && order.user.email) {
-        try {
-          await this.simpleEmailService.sendOrderDeliveredEmail(
-            order.user.email,
-            order.orderNumber,
-            order.id,
-            order.shippingName || `${order.user.firstName} ${order.user.lastName}` || 'Customer',
-          );
-        } catch (error) {
+        console.log(`[updateStatus] Triggering delivery email for order ${order.orderNumber}`);
+        this.simpleEmailService.sendOrderDeliveredEmail(
+          order.user.email,
+          order.orderNumber,
+          order.id,
+          order.shippingName || `${order.user.firstName} ${order.user.lastName}` || 'Customer',
+        ).catch(error => {
           // Log error but don't fail the status update
           console.error('Failed to send order delivered email:', error);
-        }
+        });
       }
     } else if (status === OrderStatus.CANCELLED) {
       order.cancelledAt = new Date();
@@ -360,6 +362,9 @@ export class OrdersService {
     
     // Emit order status update via WebSocket
     this.marketplaceGateway.emitOrderStatusUpdate(order.id, status, order.userId);
+    
+    const duration = Date.now() - startTime;
+    console.log(`[updateStatus] Completed status update for order ${id} in ${duration}ms`);
     
     return savedOrder;
   }
