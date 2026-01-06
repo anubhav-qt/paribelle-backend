@@ -831,21 +831,53 @@ export class OrdersService {
    * Only shows customer invoice (not vendor invoice)
    */
   async downloadOrderInvoice(orderId: string, userId: string, res: Response) {
-    // Verify order belongs to user
-    const order = await this.orderRepository.findOne({
+    // First try to find order belonging to user (for customers)
+    let order = await this.orderRepository.findOne({
       where: { id: orderId, userId },
-      relations: ['invoices'],
+      relations: ['invoices', 'user'],
     });
+
+    // If not found, check if user is admin and allow access to any order
+    if (!order) {
+      const user = await this.dataSource.getRepository('User').findOne({ 
+        where: { id: userId } 
+      });
+      
+      if (user && (user.role === 'super_admin' || user.role === 'admin')) {
+        // Admin can access any order
+        order = await this.orderRepository.findOne({
+          where: { id: orderId },
+          relations: ['invoices', 'user'],
+        });
+      }
+    }
 
     if (!order) {
       throw new NotFoundException('Order not found');
     }
 
     // Find customer invoice
-    const customerInvoice = order.invoices?.find(inv => inv.type === 'customer');
+    let customerInvoice = order.invoices?.find(inv => inv.type === 'customer');
+
+    // If invoice doesn't exist but order is paid, generate it now
+    if (!customerInvoice && order.paymentStatus === PaymentStatus.PAID) {
+      console.log(`Invoice not found for paid order ${order.orderNumber}. Generating now...`);
+      try {
+        const createdInvoice = await this.invoicesService.createFromOrder({
+          orderId: order.id,
+          type: 'customer' as any,
+          notes: 'Thank you for your purchase!',
+        });
+        customerInvoice = createdInvoice as any;
+        console.log(`Invoice generated for order ${order.orderNumber}`);
+      } catch (error) {
+        console.error(`Failed to generate invoice for order ${order.orderNumber}:`, error);
+        throw new NotFoundException('Failed to generate invoice. Please contact support.');
+      }
+    }
 
     if (!customerInvoice) {
-      throw new NotFoundException('Invoice not found for this order. Invoice is generated after delivery.');
+      throw new NotFoundException('Invoice not available. Invoice is generated after payment completion.');
     }
 
     // Generate PDF and send as response
