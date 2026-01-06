@@ -50,6 +50,16 @@ export class PlatformSettings {
   @Column({ name: 'business_phone', length: 20 })
   businessPhone: string;
 
+  // Return Policy Settings
+  @Column({ type: 'int', default: 7, name: 'default_return_policy_days', comment: 'Default number of days after delivery for returns' })
+  defaultReturnPolicyDays: number;
+
+  @Column({ type: 'boolean', default: true, name: 'allow_vendor_custom_return_policy', comment: 'Allow vendors to set their own return policies' })
+  allowVendorCustomReturnPolicy: boolean;
+
+  @Column({ name: 'business_phone_old', length: 20, nullable: true })
+  businessPhone: string;
+
   // Registered Address
   @Column({ name: 'registered_address_line1', length: 255 })
   registeredAddressLine1: string;

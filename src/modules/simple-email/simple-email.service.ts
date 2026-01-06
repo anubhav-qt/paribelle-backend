@@ -377,6 +377,85 @@ Thank you for shopping with us!
     }
   }
 
+  async sendOrderConfirmationEmail(email: string, orderNumber: string, customerName: string) {
+    const appName = this.configService.get('APP_NAME') || 'GaliCart';
+    
+    try {
+      await this.transporter.sendMail({
+        from: this.configService.get('MAIL_FROM') || this.configService.get('MAIL_USER'),
+        to: email,
+        subject: `Order Confirmed #${orderNumber} - ${appName}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #4CAF50;">Order Confirmed!</h2>
+            <p>Hi ${customerName},</p>
+            <p>Your order <strong>#${orderNumber}</strong> has been confirmed and is being prepared for shipment.</p>
+            <p>We'll send you another email when your order ships.</p>
+            <p>Thank you for shopping with ${appName}!</p>
+          </div>
+        `,
+      });
+      this.logger.log(`Order confirmation email sent to ${email}`);
+      return true;
+    } catch (error) {
+      this.logger.error(`Failed to send order confirmation email:`, error);
+      return false;
+    }
+  }
+
+  async sendOrderShippedEmail(email: string, orderNumber: string, customerName: string) {
+    const appName = this.configService.get('APP_NAME') || 'GaliCart';
+    
+    try {
+      await this.transporter.sendMail({
+        from: this.configService.get('MAIL_FROM') || this.configService.get('MAIL_USER'),
+        to: email,
+        subject: `Order Shipped #${orderNumber} - ${appName}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #2196F3;">Order Shipped!</h2>
+            <p>Hi ${customerName},</p>
+            <p>Good news! Your order <strong>#${orderNumber}</strong> has been shipped and is on its way.</p>
+            <p>You should receive it within the estimated delivery time.</p>
+            <p>Thank you for your patience!</p>
+          </div>
+        `,
+      });
+      this.logger.log(`Order shipped email sent to ${email}`);
+      return true;
+    } catch (error) {
+      this.logger.error(`Failed to send order shipped email:`, error);
+      return false;
+    }
+  }
+
+  async sendOrderCancelledEmail(email: string, orderNumber: string, customerName: string) {
+    const appName = this.configService.get('APP_NAME') || 'GaliCart';
+    
+    try {
+      await this.transporter.sendMail({
+        from: this.configService.get('MAIL_FROM') || this.configService.get('MAIL_USER'),
+        to: email,
+        subject: `Order Cancelled #${orderNumber} - ${appName}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #f44336;">Order Cancelled</h2>
+            <p>Hi ${customerName},</p>
+            <p>Your order <strong>#${orderNumber}</strong> has been cancelled as requested.</p>
+            <p>If you paid for this order, a credit note will be issued and refund will be processed within 5-7 business days.</p>
+            <p>If you have any questions, please contact our support team.</p>
+            <p>We hope to see you again soon!</p>
+          </div>
+        `,
+      });
+      this.logger.log(`Order cancelled email sent to ${email}`);
+      return true;
+    } catch (error) {
+      this.logger.error(`Failed to send order cancelled email:`, error);
+      return false;
+    }
+  }
+
   async sendInvoiceEmail(
     email: string,
     recipientName: string,

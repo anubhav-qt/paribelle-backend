@@ -302,6 +302,100 @@ export class InvoicesService {
   }
 
   /**
+   * Create credit note (negative invoice) for cancelled orders
+   */
+  async createCreditNote(orderId: string, reason: string): Promise<Invoice> {
+    // Find the original customer invoice
+    const originalInvoices = await this.invoiceRepository.find({
+      where: { orderId, type: InvoiceType.CUSTOMER },
+      relations: ['order', 'order.user'],
+    });
+
+    if (!originalInvoices || originalInvoices.length === 0) {
+      this.logger.warn(`No customer invoice found for order ${orderId} to create credit note`);
+      throw new NotFoundException('No invoice found for this order');
+    }
+
+    const originalInvoice = originalInvoices[0];
+
+    // Check if credit note already exists
+    const existingCreditNote = await this.invoiceRepository.findOne({
+      where: { 
+        orderId,
+        invoiceNumber: `CN-${originalInvoice.invoiceNumber}`,
+      },
+    });
+
+    if (existingCreditNote) {
+      this.logger.warn(`Credit note already exists for order ${orderId}`);
+      return existingCreditNote;
+    }
+
+    // Create credit note with negative amounts
+    const creditNote = this.invoiceRepository.create({
+      invoiceNumber: `CN-${originalInvoice.invoiceNumber}`,
+      type: InvoiceType.CUSTOMER,
+      status: InvoiceStatus.SENT,
+      orderId: orderId,
+      customerId: originalInvoice.customerId,
+      billingName: originalInvoice.billingName,
+      billingEmail: originalInvoice.billingEmail,
+      billingPhone: originalInvoice.billingPhone,
+      billingAddress: originalInvoice.billingAddress,
+      billingCity: originalInvoice.billingCity,
+      billingState: originalInvoice.billingState,
+      billingPostalCode: originalInvoice.billingPostalCode,
+      subtotal: -originalInvoice.subtotal,
+      tax: -originalInvoice.tax,
+      discount: -originalInvoice.discount,
+      shippingCost: -originalInvoice.shippingCost,
+      total: -originalInvoice.total,
+      invoiceDate: new Date(),
+      dueDate: new Date(),
+      notes: `Credit Note - ${reason}\\nOriginal Invoice: ${originalInvoice.invoiceNumber}`,
+      terms: 'This is a credit note for a cancelled order.',
+    });
+
+    const savedCreditNote = await this.invoiceRepository.save(creditNote);
+
+    // Load original invoice items and create negative items
+    const originalItems = await this.invoiceItemRepository.find({
+      where: { invoiceId: originalInvoice.id },
+    });
+
+    const creditNoteItems = originalItems.map(item => 
+      this.invoiceItemRepository.create({
+        invoiceId: savedCreditNote.id,
+        productId: item.productId,
+        name: item.name,
+        description: `Credit: ${item.description}`,
+        quantity: item.quantity,
+        unitPrice: -item.unitPrice,
+        total: -item.total,
+        taxAmount: -item.taxAmount,
+        taxRate: item.taxRate,
+        hsnCode: item.hsnCode,
+      })
+    );
+
+    await this.invoiceItemRepository.save(creditNoteItems);
+
+    // Generate PDF
+    try {
+      const pdfBuffer = await this.invoicePdfService.generateInvoicePdf(savedCreditNote.id);
+      const pdfUrl = await this.savePdf(savedCreditNote.id, pdfBuffer);
+      savedCreditNote.pdfUrl = pdfUrl;
+      await this.invoiceRepository.save(savedCreditNote);
+    } catch (error) {
+      this.logger.error(`Failed to generate PDF for credit note ${savedCreditNote.id}:`, error);
+    }
+
+    this.logger.log(`Credit note ${savedCreditNote.invoiceNumber} created for order ${orderId}`);
+
+    return savedCreditNote;
+  }
+
+  /**
    * Find all invoices with filters
    */
   async findAll(filters?: {

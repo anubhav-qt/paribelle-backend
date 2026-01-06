@@ -295,6 +295,11 @@ export class OrdersService {
     // Find customer invoice if available
     const customerInvoice = order.invoices?.find(inv => inv.type === 'customer');
     
+    // Get return policy from the first product's vendor (assuming single-vendor orders)
+    const vendor = order.items?.[0]?.product?.vendor;
+    const returnPolicyDays = vendor?.returnPolicyDays ?? 7;
+    const allowReturns = vendor?.allowReturns ?? true;
+    
     return {
       ...order,
       shippingAddress: {
@@ -316,6 +321,12 @@ export class OrdersService {
         downloadUrl: `/api/v1/orders/${order.id}/invoice/download`,
         viewUrl: `/api/v1/invoices/${customerInvoice.id}/pdf`,
       } : null,
+      // Add return policy information
+      returnPolicy: {
+        allowReturns,
+        returnPolicyDays,
+        vendorName: vendor?.storeName || vendor?.businessName,
+      },
     };
   }
 
@@ -325,23 +336,44 @@ export class OrdersService {
     
     const order = await this.orderRepository.findOne({ 
       where: { id },
-      relations: ['user'],
+      relations: ['user', 'items', 'items.product'],
     });
 
     if (!order) {
       throw new NotFoundException('Order not found');
     }
 
+    const previousStatus = order.status;
     order.status = status;
 
     if (status === OrderStatus.CONFIRMED) {
       order.confirmedAt = new Date();
+      // Send confirmation email
+      if (order.user && order.user.email) {
+        this.simpleEmailService.sendOrderConfirmationEmail(
+          order.user.email,
+          order.orderNumber,
+          order.shippingName || `${order.user.firstName} ${order.user.lastName}` || 'Customer',
+        ).catch(error => {
+          console.error('Failed to send order confirmation email:', error);
+        });
+      }
     } else if (status === OrderStatus.SHIPPED) {
       order.shippedAt = new Date();
+      // Send shipping notification email
+      if (order.user && order.user.email) {
+        this.simpleEmailService.sendOrderShippedEmail(
+          order.user.email,
+          order.orderNumber,
+          order.shippingName || `${order.user.firstName} ${order.user.lastName}` || 'Customer',
+        ).catch(error => {
+          console.error('Failed to send order shipped email:', error);
+        });
+      }
     } else if (status === OrderStatus.DELIVERED) {
       order.deliveredAt = new Date();
       
-      // Send review request email to buyer (async, don't wait)
+      // Send delivery notification and review request email
       if (order.user && order.user.email) {
         console.log(`[updateStatus] Triggering delivery email for order ${order.orderNumber}`);
         this.simpleEmailService.sendOrderDeliveredEmail(
@@ -350,12 +382,56 @@ export class OrdersService {
           order.id,
           order.shippingName || `${order.user.firstName} ${order.user.lastName}` || 'Customer',
         ).catch(error => {
-          // Log error but don't fail the status update
           console.error('Failed to send order delivered email:', error);
         });
       }
     } else if (status === OrderStatus.CANCELLED) {
       order.cancelledAt = new Date();
+      
+      // Restore stock quantities for cancelled order
+      if (order.items && order.items.length > 0) {
+        console.log(`[updateStatus] Restoring stock for cancelled order ${order.orderNumber}`);
+        for (const item of order.items) {
+          await this.productRepository.increment(
+            { id: item.productId },
+            'stockQuantity',
+            item.quantity
+          );
+          
+          // Get updated product stock and broadcast via WebSocket
+          const product = await this.productRepository.findOne({ 
+            where: { id: item.productId } 
+          });
+          if (product) {
+            this.marketplaceGateway.emitStockUpdate(
+              product.id,
+              product.stockQuantity
+            );
+            console.log(`[updateStatus] Restored ${item.quantity} units to product ${product.id}. New stock: ${product.stockQuantity}`);
+          }
+        }
+      }
+      
+      // Send cancellation email
+      if (order.user && order.user.email) {
+        this.simpleEmailService.sendOrderCancelledEmail(
+          order.user.email,
+          order.orderNumber,
+          order.shippingName || `${order.user.firstName} ${order.user.lastName}` || 'Customer',
+        ).catch(error => {
+          console.error('Failed to send order cancelled email:', error);
+        });
+      }
+
+      // Create credit note (negative invoice) for cancelled order
+      if (order.paymentStatus === 'paid') {
+        try {
+          console.log(`[updateStatus] Creating credit note for cancelled order ${order.orderNumber}`);
+          await this.invoicesService.createCreditNote(order.id, 'Order cancelled');
+        } catch (error) {
+          console.error('Failed to create credit note for cancelled order:', error);
+        }
+      }
     }
 
     const savedOrder = await this.orderRepository.save(order);
@@ -405,14 +481,37 @@ export class OrdersService {
   async cancel(id: string, userId: string, reason?: string) {
     const order = await this.orderRepository.findOne({
       where: { id, userId },
+      relations: ['items', 'items.product', 'user'],
     });
 
     if (!order) {
       throw new NotFoundException('Order not found');
     }
 
-    if (order.status !== OrderStatus.PENDING && order.status !== OrderStatus.CONFIRMED) {
+    if (order.status !== OrderStatus.PENDING && order.status !== OrderStatus.CONFIRMED && order.status !== OrderStatus.PROCESSING) {
       throw new BadRequestException('Order cannot be cancelled at this stage');
+    }
+
+    // Restore stock quantities
+    console.log(`[cancel] Restoring stock for cancelled order ${order.orderNumber}`);
+    for (const item of order.items) {
+      await this.productRepository.increment(
+        { id: item.productId },
+        'stockQuantity',
+        item.quantity
+      );
+      
+      // Get updated product stock and broadcast via WebSocket
+      const product = await this.productRepository.findOne({ 
+        where: { id: item.productId } 
+      });
+      if (product) {
+        this.marketplaceGateway.emitStockUpdate(
+          product.id,
+          product.stockQuantity
+        );
+        console.log(`[cancel] Restored ${item.quantity} units to product ${product.id}. New stock: ${product.stockQuantity}`);
+      }
     }
 
     order.status = OrderStatus.CANCELLED;
@@ -421,10 +520,31 @@ export class OrdersService {
       order.customerNotes = (order.customerNotes || '') + `\nCancellation reason: ${reason}`;
     }
 
-    // If order was paid, mark for refund
+    // If order was paid, mark for refund and create credit note
     if (order.paymentStatus === PaymentStatus.PAID) {
       order.paymentStatus = PaymentStatus.REFUNDED;
+      
+      try {
+        console.log(`[cancel] Creating credit note for cancelled order ${order.orderNumber}`);
+        await this.invoicesService.createCreditNote(order.id, reason || 'Order cancelled by customer');
+      } catch (error) {
+        console.error('Failed to create credit note for cancelled order:', error);
+      }
     }
+
+    // Send cancellation email
+    if (order.user && order.user.email) {
+      this.simpleEmailService.sendOrderCancelledEmail(
+        order.user.email,
+        order.orderNumber,
+        order.shippingName || `${order.user.firstName} ${order.user.lastName}` || 'Customer',
+      ).catch(error => {
+        console.error('Failed to send order cancelled email:', error);
+      });
+    }
+
+    // Emit order status update via WebSocket
+    this.marketplaceGateway.emitOrderStatusUpdate(order.id, OrderStatus.CANCELLED, order.userId);
 
     return this.orderRepository.save(order);
   }
@@ -455,7 +575,7 @@ export class OrdersService {
   async requestReturn(id: string, userId: string, reason: string, itemIds?: string[]) {
     const order = await this.orderRepository.findOne({
       where: { id, userId },
-      relations: ['items'],
+      relations: ['items', 'items.product', 'items.product.vendor', 'user'],
     });
 
     if (!order) {
@@ -466,12 +586,58 @@ export class OrdersService {
       throw new BadRequestException('Only delivered orders can be returned');
     }
 
-    // Check if return window is still open (e.g., 7 days)
+    // Get return policy from first product's vendor (assuming single-vendor orders)
+    const vendor = order.items[0]?.product?.vendor;
+    let returnPolicyDays = 7; // Default fallback
+    let allowReturns = true;
+
+    if (vendor) {
+      returnPolicyDays = vendor.returnPolicyDays ?? 7;
+      allowReturns = vendor.allowReturns ?? true;
+
+      if (!allowReturns) {
+        throw new BadRequestException('This vendor does not accept returns');
+      }
+
+      if (returnPolicyDays === 0) {
+        throw new BadRequestException('Returns are not allowed for this vendor');
+      }
+    }
+
+    // Check if return window is still open based on vendor's policy
     const deliveredDate = order.deliveredAt;
     if (deliveredDate) {
       const daysSinceDelivery = Math.floor((Date.now() - deliveredDate.getTime()) / (1000 * 60 * 60 * 24));
-      if (daysSinceDelivery > 7) {
-        throw new BadRequestException('Return window has expired (7 days from delivery)');
+      if (daysSinceDelivery > returnPolicyDays) {
+        throw new BadRequestException(
+          `Return window has expired (${returnPolicyDays} days from delivery). Order was delivered ${daysSinceDelivery} days ago.`
+        );
+      }
+    }
+
+    // Restore stock quantities for returned items
+    console.log(`[requestReturn] Restoring stock for returned order ${order.orderNumber}`);
+    const itemsToReturn = itemIds && itemIds.length > 0 
+      ? order.items.filter(item => itemIds.includes(item.id))
+      : order.items;
+    
+    for (const item of itemsToReturn) {
+      await this.productRepository.increment(
+        { id: item.productId },
+        'stockQuantity',
+        item.quantity
+      );
+      
+      // Get updated product stock and broadcast via WebSocket
+      const product = await this.productRepository.findOne({ 
+        where: { id: item.productId } 
+      });
+      if (product) {
+        this.marketplaceGateway.emitStockUpdate(
+          product.id,
+          product.stockQuantity
+        );
+        console.log(`[requestReturn] Restored ${item.quantity} units to product ${product.id}. New stock: ${product.stockQuantity}`);
       }
     }
 
@@ -481,9 +647,31 @@ export class OrdersService {
     
     order.customerNotes = (order.customerNotes || '') + 
       `\nReturn requested: ${reason}\n${itemList}\nRequested at: ${new Date().toISOString()}`;
-    order.status = OrderStatus.PENDING; // Mark as pending for review
+    order.status = OrderStatus.RETURNED;
+    order.returnedAt = new Date();
+    order.returnReason = reason;
 
-    return this.orderRepository.save(order);
+    // If order was paid, mark for refund and create credit note
+    if (order.paymentStatus === PaymentStatus.PAID) {
+      order.paymentStatus = PaymentStatus.REFUNDED;
+      
+      try {
+        console.log(`[requestReturn] Creating credit note for returned order ${order.orderNumber}`);
+        await this.invoicesService.createCreditNote(order.id, reason || 'Order returned by customer');
+      } catch (error) {
+        console.error('Failed to create credit note for returned order:', error);
+      }
+    }
+
+    // Emit order status update via WebSocket
+    this.marketplaceGateway.emitOrderStatusUpdate(order.id, OrderStatus.RETURNED, order.userId);
+
+    const savedOrder = await this.orderRepository.save(order);
+    
+    // Send return confirmation email (you can add this method to SimpleEmailService)
+    // this.simpleEmailService.sendOrderReturnedEmail(...)
+    
+    return savedOrder;
   }
 
   private generateOrderNumber(): string {

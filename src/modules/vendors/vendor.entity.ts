@@ -100,6 +100,13 @@ export class Vendor {
   @Column({ type: 'decimal', precision: 10, scale: 2, default: 50.0, name: 'shipping_cost' })
   shippingCost: number;
 
+  // Return policy settings
+  @Column({ type: 'int', default: 7, name: 'return_policy_days', comment: 'Number of days after delivery for returns (0 = no returns)' })
+  returnPolicyDays: number;
+
+  @Column({ type: 'boolean', default: true, name: 'allow_returns', comment: 'Whether this vendor accepts returns' })
+  allowReturns: boolean;
+
   // Business details
   @Column({ nullable: true, name: 'business_name' })
   businessName: string;
