@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Order, OrderStatus, PaymentStatus } from './order.entity';
@@ -6,6 +6,9 @@ import { OrderItem } from './order-item.entity';
 import { Product } from '../products/product.entity';
 import { SimpleEmailService } from '../simple-email/simple-email.service';
 import { MarketplaceGateway } from '../stock/stock.gateway';
+import { InvoicesService } from '../invoices/invoices.service';
+import { InvoicePdfService } from '../invoices/invoice-pdf.service';
+import { Response } from 'express';
 
 @Injectable()
 export class OrdersService {
@@ -18,6 +21,10 @@ export class OrdersService {
     private productRepository: Repository<Product>,
     private simpleEmailService: SimpleEmailService,
     private marketplaceGateway: MarketplaceGateway,
+    @Inject(forwardRef(() => InvoicesService))
+    private invoicesService: InvoicesService,
+    @Inject(forwardRef(() => InvoicePdfService))
+    private invoicePdfService: InvoicePdfService,
   ) {}
 
   async create(userId: string, createOrderDto: any) {
@@ -106,6 +113,9 @@ export class OrdersService {
     const createdOrders: Order[] = [];
 
     for (const [vendorId, vendorItems] of itemsByVendor.entries()) {
+      // Get vendor details for snapshot
+      const vendor = vendorItems[0].product.vendor;
+      
       // Calculate vendor-specific totals
       const vendorSubtotal = vendorItems.reduce((sum, item) => {
         return sum + (Number(item.price) || 0) * item.quantity;
@@ -139,6 +149,17 @@ export class OrdersService {
         orderNumber,
         userId,
         vendorId,
+        // Vendor snapshot (for invoices and historical accuracy)
+        vendorBusinessName: vendor.businessName,
+        vendorStoreName: vendor.storeName,
+        vendorGstNumber: vendor.gstNumber,
+        vendorAddress: vendor.address,
+        vendorCity: vendor.city,
+        vendorState: vendor.state,
+        vendorPostalCode: vendor.postalCode,
+        vendorCountry: vendor.country,
+        vendorContactEmail: vendor.contactEmail,
+        vendorContactPhone: vendor.contactPhone,
         subtotal: vendorSubtotal,
         tax: vendorTax,
         shippingCost: vendorShippingCost,
@@ -147,7 +168,7 @@ export class OrdersService {
         commissionAmount,
         vendorPayout,
         status: OrderStatus.PENDING,
-        paymentStatus: paymentMethod === 'cod' ? PaymentStatus.PENDING : PaymentStatus.PENDING,
+        paymentStatus: paymentMethod === 'cod' ? PaymentStatus.PENDING : PaymentStatus.PAID, // Mark online payments as paid (when not using Razorpay gateway)
         shippingName: shippingAddress.fullName,
         shippingEmail: '', // TODO: Get from user
         shippingPhone: shippingAddress.phone,
@@ -260,7 +281,7 @@ export class OrdersService {
   async findOne(id: string, userId: string) {
     const order = await this.orderRepository.findOne({
       where: { id, userId },
-      relations: ['items', 'items.product', 'items.product.vendor', 'vendor', 'payments'],
+      relations: ['items', 'items.product', 'items.product.vendor', 'vendor', 'payments', 'invoices'],
     });
 
     if (!order) {
@@ -271,6 +292,9 @@ export class OrdersService {
   }
 
   private transformOrder(order: Order) {
+    // Find customer invoice if available
+    const customerInvoice = order.invoices?.find(inv => inv.type === 'customer');
+    
     return {
       ...order,
       shippingAddress: {
@@ -283,6 +307,15 @@ export class OrdersService {
         country: order.shippingCountry,
       },
       paymentMethod: order.paymentStatus === 'pending' ? 'cod' : 'razorpay',
+      // Add customer invoice info for easy access
+      invoice: customerInvoice ? {
+        id: customerInvoice.id,
+        invoiceNumber: customerInvoice.invoiceNumber,
+        invoiceDate: customerInvoice.invoiceDate,
+        status: customerInvoice.status,
+        downloadUrl: `/api/v1/orders/${order.id}/invoice/download`,
+        viewUrl: `/api/v1/invoices/${customerInvoice.id}/pdf`,
+      } : null,
     };
   }
 
@@ -334,15 +367,32 @@ export class OrdersService {
   async updatePaymentStatus(id: string, paymentStatus: string) {
     const order = await this.orderRepository.findOne({ 
       where: { id },
-      relations: ['user'],
+      relations: ['user', 'items', 'items.product'],
     });
 
     if (!order) {
       throw new NotFoundException('Order not found');
     }
 
+    const previousStatus = order.paymentStatus;
     order.paymentStatus = paymentStatus as PaymentStatus;
     const savedOrder = await this.orderRepository.save(order);
+    
+    // Auto-generate customer invoice when payment is completed
+    if (paymentStatus === PaymentStatus.PAID && previousStatus !== PaymentStatus.PAID) {
+      try {
+        console.log(`Payment completed for order ${order.orderNumber}. Generating customer invoice...`);
+        await this.invoicesService.createFromOrder({
+          orderId: order.id,
+          type: 'customer' as any,
+          notes: 'Thank you for your purchase!',
+        });
+        console.log(`Customer invoice generated for order ${order.orderNumber}`);
+      } catch (error) {
+        console.error(`Failed to generate customer invoice for order ${order.orderNumber}:`, error);
+        // Don't throw - payment status update should succeed even if invoice generation fails
+      }
+    }
     
     return savedOrder;
   }
@@ -435,5 +485,40 @@ export class OrdersService {
     const timestamp = Date.now().toString();
     const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
     return `ORD${timestamp}${random}`;
+  }
+
+  /**
+   * Download invoice for a customer's order
+   * Only shows customer invoice (not vendor invoice)
+   */
+  async downloadOrderInvoice(orderId: string, userId: string, res: Response) {
+    // Verify order belongs to user
+    const order = await this.orderRepository.findOne({
+      where: { id: orderId, userId },
+      relations: ['invoices'],
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    // Find customer invoice
+    const customerInvoice = order.invoices?.find(inv => inv.type === 'customer');
+
+    if (!customerInvoice) {
+      throw new NotFoundException('Invoice not found for this order. Invoice is generated after delivery.');
+    }
+
+    // Generate PDF and send as response
+    const pdfBuffer = await this.invoicePdfService.generateInvoicePdf(customerInvoice.id);
+    const invoice = await this.invoicesService.findOne(customerInvoice.id);
+
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="invoice-${invoice.invoiceNumber}.pdf"`,
+      'Content-Length': pdfBuffer.length,
+    });
+
+    res.send(pdfBuffer);
   }
 }

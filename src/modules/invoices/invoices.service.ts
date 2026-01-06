@@ -62,6 +62,13 @@ export class InvoicesService {
       throw new NotFoundException('Order not found');
     }
 
+    // Log for debugging
+    this.logger.log(`Creating invoice for order ${orderId}, type: ${type}, items count: ${order.items?.length || 0}`);
+    if (!order.items || order.items.length === 0) {
+      this.logger.error(`Order ${orderId} has no items! Cannot create invoice.`);
+      throw new NotFoundException('Order has no items');
+    }
+
     const invoiceDate = createInvoiceDto.invoiceDate 
       ? new Date(createInvoiceDto.invoiceDate) 
       : new Date();
@@ -82,7 +89,19 @@ export class InvoicesService {
     }
 
     // Create invoice items
+    this.logger.log(`Creating ${order.items.length} invoice items for invoice ${invoice.id}`);
     await this.createInvoiceItems(invoice, order.items);
+
+    // Verify items were created
+    const createdItems = await this.invoiceItemRepository.find({
+      where: { invoiceId: invoice.id },
+    });
+    this.logger.log(`Verified: ${createdItems.length} invoice items exist in DB for invoice ${invoice.id}`);
+    
+    if (createdItems.length === 0) {
+      this.logger.error(`CRITICAL: Invoice items were not saved for invoice ${invoice.id}!`);
+      throw new Error('Failed to create invoice items');
+    }
 
     // Generate PDF
     const pdfBuffer = await this.invoicePdfService.generateInvoicePdf(invoice.id);
@@ -215,7 +234,13 @@ export class InvoicesService {
    * Create invoice items from order items
    */
   private async createInvoiceItems(invoice: Invoice, orderItems: OrderItem[]): Promise<void> {
+    if (!orderItems || orderItems.length === 0) {
+      this.logger.error(`Cannot create invoice items - no order items provided for invoice ${invoice.id}`);
+      throw new Error('No order items to create invoice items from');
+    }
+
     const invoiceItems = orderItems.map(item => {
+      this.logger.log(`Creating invoice item: ${item.productName}, qty: ${item.quantity}, price: ${item.price}`);
       return this.invoiceItemRepository.create({
         invoiceId: invoice.id,
         productId: item.productId,
@@ -231,6 +256,7 @@ export class InvoicesService {
     });
 
     await this.invoiceItemRepository.save(invoiceItems);
+    this.logger.log(`Successfully saved ${invoiceItems.length} invoice items for invoice ${invoice.id}`);
   }
 
   /**
@@ -471,34 +497,57 @@ export class InvoicesService {
 
   /**
    * Auto-generate invoices for completed orders
+   * Note: Customer invoices are now generated automatically on payment
+   * This method handles vendor payout invoices for delivered orders
    */
   async autoGenerateInvoices(): Promise<void> {
-    // Find all orders that don't have invoices yet
+    // Find all delivered+paid orders
     const orders = await this.orderRepository
       .createQueryBuilder('order')
-      .leftJoin('order.invoices', 'invoice')
+      .leftJoinAndSelect('order.items', 'items')
+      .leftJoinAndSelect('items.product', 'product')
+      .leftJoinAndSelect('order.user', 'user')
+      .leftJoinAndSelect('order.vendor', 'vendor')
+      .leftJoinAndSelect('order.invoices', 'invoices')
       .where('order.status = :status', { status: 'delivered' })
       .andWhere('order.paymentStatus = :paymentStatus', { paymentStatus: 'paid' })
-      .andWhere('invoice.id IS NULL')
       .getMany();
 
-    this.logger.log(`Auto-generating invoices for ${orders.length} orders`);
+    this.logger.log(`Checking ${orders.length} delivered orders for invoice generation`);
 
     for (const order of orders) {
       try {
-        // Create customer invoice
-        await this.createFromOrder({
-          orderId: order.id,
-          type: InvoiceType.CUSTOMER,
-        });
+        this.logger.log(`Processing order ${order.orderNumber} with ${order.items?.length || 0} items`);
+        
+        if (!order.items || order.items.length === 0) {
+          this.logger.error(`Skipping order ${order.orderNumber} - no items found`);
+          continue;
+        }
 
-        // Create vendor invoice
-        await this.createFromOrder({
-          orderId: order.id,
-          type: InvoiceType.VENDOR,
-        });
+        const hasCustomerInvoice = order.invoices?.some(inv => inv.type === InvoiceType.CUSTOMER);
+        const hasVendorInvoice = order.invoices?.some(inv => inv.type === InvoiceType.VENDOR);
 
-        this.logger.log(`Generated invoices for order ${order.orderNumber}`);
+        // Create customer invoice if missing (fallback for orders paid before this feature)
+        if (!hasCustomerInvoice) {
+          this.logger.log(`Creating missing customer invoice for order ${order.orderNumber}`);
+          await this.createFromOrder({
+            orderId: order.id,
+            type: InvoiceType.CUSTOMER,
+            notes: 'Thank you for your purchase!',
+          });
+        }
+
+        // Create vendor payout invoice for delivered orders
+        if (!hasVendorInvoice) {
+          this.logger.log(`Creating vendor payout invoice for order ${order.orderNumber}`);
+          await this.createFromOrder({
+            orderId: order.id,
+            type: InvoiceType.VENDOR,
+            notes: 'Vendor payout for delivered order',
+          });
+        }
+
+        this.logger.log(`Processed invoices for order ${order.orderNumber}`);
       } catch (error) {
         this.logger.error(`Error generating invoices for order ${order.orderNumber}:`, error);
       }

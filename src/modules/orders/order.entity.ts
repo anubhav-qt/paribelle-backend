@@ -167,6 +167,37 @@ export class Order {
   @Column({ name: 'vendor_id' })
   vendorId: string;
 
+  // Vendor snapshot at time of order (for invoices and historical accuracy)
+  @Column({ name: 'vendor_business_name', nullable: true })
+  vendorBusinessName: string;
+
+  @Column({ name: 'vendor_store_name', nullable: true })
+  vendorStoreName: string;
+
+  @Column({ name: 'vendor_gst_number', nullable: true })
+  vendorGstNumber: string;
+
+  @Column({ name: 'vendor_address', type: 'text', nullable: true })
+  vendorAddress: string;
+
+  @Column({ name: 'vendor_city', nullable: true })
+  vendorCity: string;
+
+  @Column({ name: 'vendor_state', nullable: true })
+  vendorState: string;
+
+  @Column({ name: 'vendor_postal_code', nullable: true })
+  vendorPostalCode: string;
+
+  @Column({ name: 'vendor_country', nullable: true })
+  vendorCountry: string;
+
+  @Column({ name: 'vendor_contact_email', nullable: true })
+  vendorContactEmail: string;
+
+  @Column({ name: 'vendor_contact_phone', nullable: true })
+  vendorContactPhone: string;
+
   @OneToMany(() => OrderItem, (orderItem) => orderItem.order, { cascade: true })
   items: OrderItem[];
 

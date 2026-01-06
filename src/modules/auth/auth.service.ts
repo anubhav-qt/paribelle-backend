@@ -235,6 +235,7 @@ export class AuthService {
         email: userResult.email,
         sub: userResult.id,
         role: userResult.role,
+        vendorId: vendor.id,
       }),
     };
   }

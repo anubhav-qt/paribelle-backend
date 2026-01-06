@@ -1,8 +1,9 @@
-import { Controller, Get, Post, Body, Param, Patch, UseGuards, Request, Query } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Patch, UseGuards, Request, Query, Res, NotFoundException } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { OrderStatus } from './order.entity';
 import { ReviewsService } from '../reviews/reviews.service';
+import { Response } from 'express';
 
 @Controller('orders')
 @UseGuards(JwtAuthGuard)
@@ -70,6 +71,15 @@ export class OrdersController {
       items,
       vendorReview,
     };
+  }
+
+  @Get(':id/invoice/download')
+  async downloadInvoice(
+    @Param('id') id: string,
+    @Request() req,
+    @Res() res: Response,
+  ) {
+    return this.ordersService.downloadOrderInvoice(id, req.user.id, res);
   }
 
   @Get(':id')

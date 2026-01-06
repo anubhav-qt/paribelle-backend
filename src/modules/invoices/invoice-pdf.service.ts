@@ -100,11 +100,11 @@ export class InvoicePdfService {
 
     // Invoice title
     doc
-      .fontSize(20)
+      .fontSize(18)
       .font('Helvetica-Bold')
       .text(this.getInvoiceTitle(invoice), 400, 50, { align: 'right' });
 
-    doc.moveDown(3);
+    doc.moveDown(0.5);
   }
 
   /**
@@ -136,30 +136,30 @@ export class InvoicePdfService {
       .text('Bill To:', 50, currentY);
 
     doc
-      .fontSize(10)
+      .fontSize(9)
       .font('Helvetica')
-      .text(invoice.billingName || 'N/A', 50, currentY + 20)
-      .text(invoice.billingEmail || '', 50, currentY + 35)
-      .text(invoice.billingPhone || '', 50, currentY + 50);
+      .text(invoice.billingName || 'N/A', 50, currentY + 18)
+      .text(invoice.billingEmail || '', 50, currentY + 30)
+      .text(invoice.billingPhone || '', 50, currentY + 42);
 
     if (invoice.billingAddress) {
-      doc.text(invoice.billingAddress, 50, currentY + 65);
+      doc.text(invoice.billingAddress, 50, currentY + 54);
       doc.text(
         `${invoice.billingCity}, ${invoice.billingState} ${invoice.billingPostalCode}`,
         50,
-        currentY + 80
+        currentY + 66
       );
     }
 
     if (invoice.gstNumber) {
-      doc.text(`GST: ${invoice.gstNumber}`, 50, currentY + 95);
+      doc.text(`GST: ${invoice.gstNumber}`, 50, currentY + 78);
     }
 
     if (invoice.panNumber) {
-      doc.text(`PAN: ${invoice.panNumber}`, 50, currentY + 110);
+      doc.text(`PAN: ${invoice.panNumber}`, 50, currentY + 90);
     }
 
-    doc.moveDown(7);
+    doc.moveDown(3);
   }
 
   /**
@@ -167,41 +167,52 @@ export class InvoicePdfService {
    */
   private addInvoiceDetails(doc: any, invoice: Invoice): void {
     const currentY = 140;
+    const labelX = 350;
+    const valueX = 460;
+    const lineHeight = 15;
+
+    // Invoice Number - use smaller font if too long
+    const invoiceNumFontSize = invoice.invoiceNumber.length > 20 ? 8 : 10;
+    doc
+      .fontSize(10)
+      .font('Helvetica-Bold')
+      .text('Invoice Number:', labelX, currentY)
+      .fontSize(invoiceNumFontSize)
+      .font('Helvetica')
+      .text(invoice.invoiceNumber, valueX, currentY, { width: 145, align: 'left' });
 
     doc
       .fontSize(10)
       .font('Helvetica-Bold')
-      .text('Invoice Number:', 350, currentY)
+      .text('Invoice Date:', labelX, currentY + lineHeight)
       .font('Helvetica')
-      .text(invoice.invoiceNumber, 460, currentY, { width: 90, lineBreak: false });
+      .text(this.formatDate(invoice.invoiceDate), valueX, currentY + lineHeight);
 
     doc
       .font('Helvetica-Bold')
-      .text('Invoice Date:', 350, currentY + 15)
+      .text('Due Date:', labelX, currentY + lineHeight * 2)
       .font('Helvetica')
-      .text(this.formatDate(invoice.invoiceDate), 460, currentY + 15);
+      .text(this.formatDate(invoice.dueDate), valueX, currentY + lineHeight * 2);
 
     doc
       .font('Helvetica-Bold')
-      .text('Due Date:', 350, currentY + 30)
+      .text('Status:', labelX, currentY + lineHeight * 3)
       .font('Helvetica')
-      .text(this.formatDate(invoice.dueDate), 460, currentY + 30);
-
-    doc
-      .font('Helvetica-Bold')
-      .text('Status:', 350, currentY + 45)
-      .font('Helvetica')
-      .text(invoice.status.toUpperCase(), 460, currentY + 45);
+      .text(invoice.status.toUpperCase(), valueX, currentY + lineHeight * 3);
 
     if (invoice.order) {
+      // Order Number - use smaller font if too long
+      const orderNumFontSize = invoice.order.orderNumber.length > 20 ? 8 : 10;
       doc
+        .fontSize(10)
         .font('Helvetica-Bold')
-        .text('Order Number:', 350, currentY + 60)
+        .text('Order Number:', labelX, currentY + lineHeight * 4)
+        .fontSize(orderNumFontSize)
         .font('Helvetica')
-        .text(invoice.order.orderNumber, 460, currentY + 60);
+        .text(invoice.order.orderNumber, valueX, currentY + lineHeight * 4, { width: 145, align: 'left' });
     }
 
-    doc.moveDown(5);
+    doc.moveDown(2);
   }
 
   /**
@@ -209,11 +220,11 @@ export class InvoicePdfService {
    */
   private addItemsTable(doc: any, items: InvoiceItem[]): void {
     const tableTop = doc.y + 20;
-    const itemCodeX = 50;
-    const descriptionX = 120;
-    const quantityX = 300;
-    const priceX = 360;
-    const amountX = 460;
+    const itemCodeX = 40;
+    const descriptionX = 110;
+    const quantityX = 320;
+    const priceX = 390;
+    const amountX = 480;
 
     // Table header
     doc
@@ -227,7 +238,7 @@ export class InvoicePdfService {
 
     // Draw line under header
     doc
-      .moveTo(50, tableTop + 15)
+      .moveTo(40, tableTop + 15)
       .lineTo(550, tableTop + 15)
       .stroke();
 
@@ -244,37 +255,41 @@ export class InvoicePdfService {
       currentY += 30;
       doc.fillColor('#000000');
     } else {
-      // Table rows
-      items.forEach((item, index) => {
-        // Check if we need a new page
-        if (currentY > 700) {
-          doc.addPage();
-          currentY = 50;
-        }
-
+      // Table rows - limit to first 15 items to fit on one page
+      const displayItems = items.slice(0, 15);
+      displayItems.forEach((item, index) => {
         doc
-          .fontSize(9)
+          .fontSize(8)
           .font('Helvetica')
-          .text(item.name, itemCodeX, currentY, { width: 60 })
-          .text(item.description || '', descriptionX, currentY, { width: 170 })
+          .text(item.name, itemCodeX, currentY, { width: 65 })
+          .text(item.description || '', descriptionX, currentY, { width: 200 })
           .text(item.quantity.toString(), quantityX, currentY)
           .text(this.formatCurrency(item.unitPrice), priceX, currentY)
           .text(this.formatCurrency(item.total), amountX, currentY);
 
         if (item.hsnCode) {
           doc
-            .fontSize(8)
+            .fontSize(7)
             .fillColor('#666666')
-            .text(`HSN: ${item.hsnCode}`, itemCodeX, currentY + 12);
+            .text(`HSN: ${item.hsnCode}`, itemCodeX, currentY + 10);
         }
 
-        currentY += 35;
+        currentY += item.hsnCode ? 24 : 18;
       });
+      
+      // Show count if items were truncated
+      if (items.length > 15) {
+        doc
+          .fontSize(8)
+          .fillColor('#666666')
+          .text(`... and ${items.length - 15} more items`, itemCodeX, currentY);
+        currentY += 18;
+      }
     }
 
     // Draw line after items
     doc
-      .moveTo(50, currentY)
+      .moveTo(40, currentY)
       .lineTo(550, currentY)
       .stroke();
 
@@ -286,116 +301,107 @@ export class InvoicePdfService {
    * Add totals section
    */
   private addTotals(doc: any, invoice: Invoice): void {
-    const currentY = doc.y + 20;
+    const currentY = doc.y + 10;
     const labelX = 380;
     const valueX = 480;
+    let lineY = 0;
 
-    doc.fontSize(10).font('Helvetica');
+    doc.fontSize(9).font('Helvetica');
 
     // Subtotal
     doc
       .text('Subtotal:', labelX, currentY)
       .text(this.formatCurrency(invoice.subtotal), valueX, currentY, { align: 'right' });
+    lineY = currentY + 12;
 
     // Discount
     if (invoice.discount > 0) {
       doc
-        .text('Discount:', labelX, currentY + 15)
-        .text(`-${this.formatCurrency(invoice.discount)}`, valueX, currentY + 15, { align: 'right' });
+        .text('Discount:', labelX, lineY)
+        .text(`-${this.formatCurrency(invoice.discount)}`, valueX, lineY, { align: 'right' });
+      lineY += 12;
     }
 
     // Shipping
     if (invoice.shippingCost > 0) {
       doc
-        .text('Shipping:', labelX, currentY + 30)
-        .text(this.formatCurrency(invoice.shippingCost), valueX, currentY + 30, { align: 'right' });
+        .text('Shipping:', labelX, lineY)
+        .text(this.formatCurrency(invoice.shippingCost), valueX, lineY, { align: 'right' });
+      lineY += 12;
     }
 
     // Tax
     if (invoice.tax > 0) {
       doc
-        .text('Tax:', labelX, currentY + 45)
-        .text(this.formatCurrency(invoice.tax), valueX, currentY + 45, { align: 'right' });
+        .text('Tax:', labelX, lineY)
+        .text(this.formatCurrency(invoice.tax), valueX, lineY, { align: 'right' });
+      lineY += 12;
     }
 
     // Draw line before total
     doc
-      .moveTo(380, currentY + 60)
-      .lineTo(550, currentY + 60)
+      .moveTo(380, lineY + 5)
+      .lineTo(550, lineY + 5)
       .stroke();
 
     // Total
     doc
-      .fontSize(12)
+      .fontSize(11)
       .font('Helvetica-Bold')
-      .text('Total:', labelX, currentY + 70)
-      .text(this.formatCurrency(invoice.total), valueX, currentY + 70, { align: 'right' });
+      .text('Total:', labelX, lineY + 12)
+      .text(this.formatCurrency(invoice.total), valueX, lineY + 12, { align: 'right' });
 
     // For vendor invoices, show commission and payout
     if (invoice.type === 'vendor' && invoice.commissionAmount) {
       doc
-        .fontSize(10)
+        .fontSize(9)
         .font('Helvetica')
-        .text(`Commission (${invoice.commissionRate}%):`, labelX, currentY + 95)
-        .text(`-${this.formatCurrency(invoice.commissionAmount)}`, valueX, currentY + 95, { align: 'right' });
+        .text(`Commission (${invoice.commissionRate}%):`, labelX, lineY + 30)
+        .text(`-${this.formatCurrency(invoice.commissionAmount)}`, valueX, lineY + 30, { align: 'right' });
 
       doc
-        .fontSize(12)
+        .fontSize(11)
         .font('Helvetica-Bold')
         .fillColor('#22c55e')
-        .text('Payout Amount:', labelX, currentY + 115)
-        .text(this.formatCurrency(invoice.payoutAmount), valueX, currentY + 115, { align: 'right' });
+        .text('Payout Amount:', labelX, lineY + 45)
+        .text(this.formatCurrency(invoice.payoutAmount), valueX, lineY + 45, { align: 'right' });
 
       doc.fillColor('#000000');
     }
 
-    doc.moveDown(8);
+    doc.moveDown(2);
   }
 
   /**
    * Add footer
    */
   private addFooter(doc: any, invoice: Invoice): void {
-    const footerY = doc.y + 30;
+    const footerY = doc.y + 15;
 
     // Notes
     if (invoice.notes) {
       doc
-        .fontSize(10)
+        .fontSize(8)
         .font('Helvetica-Bold')
         .text('Notes:', 50, footerY);
 
       doc
-        .fontSize(9)
+        .fontSize(7)
         .font('Helvetica')
-        .text(invoice.notes, 50, footerY + 15, { width: 500 });
+        .text(invoice.notes, 50, footerY + 12, { width: 500 });
     }
 
     // Terms
     if (invoice.terms) {
       doc
-        .fontSize(10)
-        .font('Helvetica-Bold')
-        .text('Terms & Conditions:', 50, footerY + 50);
-
-      doc
-        .fontSize(9)
-        .font('Helvetica')
-        .text(invoice.terms, 50, footerY + 65, { width: 500 });
-    }
-
-    // Add page numbers at the bottom
-    const pages = doc.bufferedPageRange();
-    for (let i = 0; i < pages.count; i++) {
-      doc.switchToPage(i);
-      doc
         .fontSize(8)
-        .text(
-          `Page ${i + 1} of ${pages.count}`,
-          50,
-          doc.page.height - 50,
-          { align: 'center' }
-        );
+        .font('Helvetica-Bold')
+        .text('Terms & Conditions:', 50, footerY + 35);
+
+      doc
+        .fontSize(7)
+        .font('Helvetica')
+        .text(invoice.terms, 50, footerY + 47, { width: 500 });
     }
   }
 

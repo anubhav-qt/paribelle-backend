@@ -9,6 +9,7 @@ import { ReviewsModule } from '../reviews/reviews.module';
 import { SimpleEmailModule } from '../simple-email/simple-email.module';
 import { StockModule } from '../stock/stock.module';
 import { PaymentsModule } from '../payments/payments.module';
+import { InvoicesModule } from '../invoices/invoices.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { PaymentsModule } from '../payments/payments.module';
     SimpleEmailModule,
     StockModule,
     forwardRef(() => PaymentsModule),
+    forwardRef(() => InvoicesModule),
   ],
   controllers: [OrdersController],
   providers: [OrdersService],

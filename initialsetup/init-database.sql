@@ -406,6 +406,18 @@ CREATE TABLE orders (
     payment_status VARCHAR(50) NOT NULL DEFAULT 'pending',
     fulfillment_status VARCHAR(50) DEFAULT 'unfulfilled',
     
+    -- Vendor snapshot at time of order (for invoices and historical accuracy)
+    vendor_business_name VARCHAR(255),
+    vendor_store_name VARCHAR(255),
+    vendor_gst_number VARCHAR(50),
+    vendor_address TEXT,
+    vendor_city VARCHAR(100),
+    vendor_state VARCHAR(100),
+    vendor_postal_code VARCHAR(20),
+    vendor_country VARCHAR(100),
+    vendor_contact_email VARCHAR(255),
+    vendor_contact_phone VARCHAR(20),
+    
     -- Amounts
     subtotal DECIMAL(10, 2) NOT NULL,
     tax DECIMAL(10, 2) DEFAULT 0,
@@ -631,7 +643,8 @@ CREATE TABLE invoice_items (
     invoice_id UUID NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
     
     -- Item details
-    description TEXT NOT NULL,
+    name VARCHAR(255), -- Product/item name
+    description TEXT,
     hsn_code VARCHAR(20),
     quantity DECIMAL(10, 2) NOT NULL,
     unit_price DECIMAL(10, 2) NOT NULL,
@@ -651,15 +664,23 @@ CREATE TABLE invoice_items (
     igst_amount DECIMAL(10, 2) DEFAULT 0,
     total_gst DECIMAL(10, 2) DEFAULT 0,
     
+    -- Simple tax fields (for compatibility with TypeORM entity)
+    tax_amount DECIMAL(10, 2) DEFAULT 0,
+    tax_rate DECIMAL(5, 2) DEFAULT 0,
+    
     -- Total
     total DECIMAL(10, 2) NOT NULL,
     
-    -- Reference
+    -- References
     order_item_id UUID REFERENCES order_items(id) ON DELETE SET NULL,
+    product_id UUID REFERENCES products(id) ON DELETE SET NULL,
     
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Index for faster product lookups
+CREATE INDEX idx_invoice_items_product_id ON invoice_items(product_id);
 
 -- ============================================================
 -- Review Tables

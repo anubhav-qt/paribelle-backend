@@ -1,7 +1,7 @@
 import { DataSource } from 'typeorm';
 import { Category } from '../modules/categories/category.entity';
 import { Product, ProductStatus } from '../modules/products/product.entity';
-import { Vendor, VendorStatus } from '../modules/vendors/vendor.entity';
+import { Vendor, VendorStatus, KYCStatus } from '../modules/vendors/vendor.entity';
 import { User, UserRole, UserStatus } from '../modules/users/user.entity';
 import * as bcrypt from 'bcrypt';
 
@@ -85,6 +85,7 @@ export async function seedData(dataSource: DataSource) {
       contactPhone: '+1234567890',
       description: 'Your trusted marketplace vendor',
       status: VendorStatus.ACTIVE,
+      kycStatus: KYCStatus.APPROVED, // Set KYC status to approved for seed data
     }) as Vendor;
   }
 
