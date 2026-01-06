@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { Order, OrderStatus, PaymentStatus } from './order.entity';
 import { OrderItem } from './order-item.entity';
 import { Product } from '../products/product.entity';
@@ -27,6 +27,7 @@ export class OrdersService {
     @Inject(forwardRef(() => InvoicePdfService))
     private invoicePdfService: InvoicePdfService,
     private platformSettingsService: PlatformSettingsService,
+    private dataSource: DataSource,
   ) {}
 
   async create(userId: string, createOrderDto: any) {
@@ -861,25 +862,39 @@ export class OrdersService {
   }
 
   async getReturnDetails(orderId: string) {
-    const order = await this.orderRepository.findOne({
-      where: { id: orderId },
-      relations: ['items', 'items.product', 'user', 'vendor'],
-    });
+    try {
+      const order = await this.orderRepository.findOne({
+        where: { id: orderId },
+        relations: ['items', 'items.product', 'user', 'vendor'],
+      });
 
-    if (!order) {
-      throw new NotFoundException('Order not found');
-    }
+      if (!order) {
+        throw new NotFoundException('Order not found');
+      }
 
-    // Only show return details for return_approved or returned status
-    if (order.status !== OrderStatus.RETURN_APPROVED && order.status !== OrderStatus.RETURNED) {
-      return null;
-    }
+      // Only show return details for return_approved or returned status
+      if (order.status !== OrderStatus.RETURN_APPROVED && order.status !== OrderStatus.RETURNED) {
+        return null;
+      }
 
-    // Get platform settings for return address
-    const platformSettings = await this.platformSettingsService.getPlatformSettings();
+      if (!order.vendor) {
+        throw new Error('Order vendor not found');
+      }
 
-    // Generate comprehensive QR code data for shipping carriers (Amazon-style)
-    const QRCode = require('qrcode');
+      // Get vendor's address for return shipping
+      const vendor = order.vendor;
+      const returnAddress = {
+        name: vendor.businessName || vendor.storeName,
+        addressLine1: vendor.address || '',
+        city: vendor.city || '',
+        state: vendor.state || '',
+        postalCode: vendor.postalCode || vendor.pincode || '',
+        country: vendor.country || 'India',
+        phone: vendor.contactPhone || '',
+      };
+
+      // Generate comprehensive QR code data for shipping carriers (Amazon-style)
+      const QRCode = require('qrcode');
     
     // Create a return authorization number
     const returnAuthNumber = `RMA-${order.orderNumber}-${Date.now().toString().slice(-6)}`;
@@ -889,13 +904,13 @@ export class OrdersService {
       rma: returnAuthNumber,
       order: order.orderNumber,
       returnTo: {
-        name: platformSettings.businessName || 'Marketplace',
-        address: platformSettings.registeredAddressLine1 || '',
-        city: platformSettings.registeredCity || '',
-        state: platformSettings.registeredState || '',
-        zip: platformSettings.registeredPincode || '',
-        country: platformSettings.registeredCountry || '',
-        phone: platformSettings.businessPhone || '',
+        name: returnAddress.name,
+        address: returnAddress.addressLine1,
+        city: returnAddress.city,
+        state: returnAddress.state,
+        zip: returnAddress.postalCode,
+        country: returnAddress.country,
+        phone: returnAddress.phone,
       },
       shipmentType: 'RETURN',
       service: 'GROUND',
@@ -914,15 +929,7 @@ export class OrdersService {
       returnAuthNumber,
       returnReason: order.returnReason,
       qrCodeDataUrl,
-      returnAddress: {
-        name: platformSettings.businessName || 'Marketplace',
-        addressLine1: platformSettings.registeredAddressLine1 || '',
-        city: platformSettings.registeredCity || '',
-        state: platformSettings.registeredState || '',
-        postalCode: platformSettings.registeredPincode || '',
-        country: platformSettings.registeredCountry || '',
-        phone: platformSettings.businessPhone || '',
-      },
+      returnAddress,
       instructions: [
         'No Printer Needed: Show this QR code at any UPS, FedEx, or postal location',
         'The carrier will scan the QR code to generate your shipping label',
@@ -931,5 +938,9 @@ export class OrdersService {
         'Keep your receipt for tracking'
       ]
     };
+    } catch (error) {
+      console.error(`Error generating return details for order ${orderId}:`, error);
+      throw error;
+    }
   }
 }

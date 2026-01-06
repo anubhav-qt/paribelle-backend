@@ -792,6 +792,20 @@ CREATE TABLE platform_settings (
     -- Business Settings
     commission_rate DECIMAL(5, 2) DEFAULT 10.00,
     tax_rate DECIMAL(5, 2) DEFAULT 18.00,
+    business_name VARCHAR(255),
+    business_phone VARCHAR(20),
+    business_email VARCHAR(255),
+    gstin VARCHAR(15),
+    registered_address_line1 VARCHAR(255),
+    registered_city VARCHAR(100),
+    registered_state VARCHAR(100),
+    registered_pincode VARCHAR(10),
+    registered_country VARCHAR(100),
+    
+    -- KYC Settings
+    kyc_status VARCHAR(50),
+    kyc_completed_at TIMESTAMP WITH TIME ZONE,
+    kyc_updated_by UUID REFERENCES users(id),
     
     -- Email Settings
     smtp_host VARCHAR(255),
@@ -820,6 +834,9 @@ CREATE TABLE platform_settings (
     return_policy TEXT,
     shipping_policy TEXT,
     
+    -- Metadata
+    settings_updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    settings_updated_by UUID REFERENCES users(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
