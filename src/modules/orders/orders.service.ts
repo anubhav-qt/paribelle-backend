@@ -859,4 +859,77 @@ export class OrdersService {
 
     res.send(pdfBuffer);
   }
+
+  async getReturnDetails(orderId: string) {
+    const order = await this.orderRepository.findOne({
+      where: { id: orderId },
+      relations: ['items', 'items.product', 'user', 'vendor'],
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    // Only show return details for return_approved or returned status
+    if (order.status !== OrderStatus.RETURN_APPROVED && order.status !== OrderStatus.RETURNED) {
+      return null;
+    }
+
+    // Get platform settings for return address
+    const platformSettings = await this.platformSettingsService.getPlatformSettings();
+
+    // Generate comprehensive QR code data for shipping carriers (Amazon-style)
+    const QRCode = require('qrcode');
+    
+    // Create a return authorization number
+    const returnAuthNumber = `RMA-${order.orderNumber}-${Date.now().toString().slice(-6)}`;
+    
+    // Comprehensive QR data for carrier scanning
+    const qrData = JSON.stringify({
+      rma: returnAuthNumber,
+      order: order.orderNumber,
+      returnTo: {
+        name: platformSettings.businessName || 'Marketplace',
+        address: platformSettings.registeredAddressLine1 || '',
+        city: platformSettings.registeredCity || '',
+        state: platformSettings.registeredState || '',
+        zip: platformSettings.registeredPincode || '',
+        country: platformSettings.registeredCountry || '',
+        phone: platformSettings.businessPhone || '',
+      },
+      shipmentType: 'RETURN',
+      service: 'GROUND',
+      timestamp: new Date().toISOString(),
+      trackingUrl: `${process.env.APP_URL || 'http://localhost:3000'}/orders/return/${returnAuthNumber}`
+    });
+    
+    const qrCodeDataUrl = await QRCode.toDataURL(qrData, { 
+      width: 300, 
+      margin: 2,
+      errorCorrectionLevel: 'H' // High error correction for better scanning
+    });
+
+    return {
+      orderNumber: order.orderNumber,
+      returnAuthNumber,
+      returnReason: order.returnReason,
+      qrCodeDataUrl,
+      returnAddress: {
+        name: platformSettings.businessName || 'Marketplace',
+        addressLine1: platformSettings.registeredAddressLine1 || '',
+        city: platformSettings.registeredCity || '',
+        state: platformSettings.registeredState || '',
+        postalCode: platformSettings.registeredPincode || '',
+        country: platformSettings.registeredCountry || '',
+        phone: platformSettings.businessPhone || '',
+      },
+      instructions: [
+        'No Printer Needed: Show this QR code at any UPS, FedEx, or postal location',
+        'The carrier will scan the QR code to generate your shipping label',
+        'Pack the item securely in its original packaging',
+        'Hand over the package - shipping is prepaid',
+        'Keep your receipt for tracking'
+      ]
+    };
+  }
 }
