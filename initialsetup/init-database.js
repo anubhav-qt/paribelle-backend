@@ -295,7 +295,7 @@ async function createDatabase() {
     print('   ✓ Vendor tables (vendors, pages, blog posts)', 'gray');
     print('   ✓ Product tables (products, variants)', 'gray');
     print('   ✓ Order tables (orders, order items, payments)', 'gray');
-    print('   ✓ Invoice tables (invoices, invoice items)', 'gray');
+    print('   ✓ Invoice tables (invoices - items from orders)', 'gray');
     print('   ✓ Review tables (product & vendor reviews)', 'gray');
     print('   ✓ Settings tables (platform, homepage, footer)', 'gray');
     print('   ✓ Location tables (cities, sub-locations)', 'gray');

@@ -645,50 +645,8 @@ CREATE TABLE invoices (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Invoice Items Table
-CREATE TABLE invoice_items (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    invoice_id UUID NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
-    
-    -- Item details
-    name VARCHAR(255), -- Product/item name
-    description TEXT,
-    hsn_code VARCHAR(20),
-    quantity DECIMAL(10, 2) NOT NULL,
-    unit_price DECIMAL(10, 2) NOT NULL,
-    
-    -- Amounts
-    subtotal DECIMAL(10, 2) NOT NULL,
-    discount DECIMAL(10, 2) DEFAULT 0,
-    taxable_amount DECIMAL(10, 2) NOT NULL,
-    
-    -- GST breakdown
-    gst_rate DECIMAL(5, 2) DEFAULT 0,
-    cgst_rate DECIMAL(5, 2) DEFAULT 0,
-    sgst_rate DECIMAL(5, 2) DEFAULT 0,
-    igst_rate DECIMAL(5, 2) DEFAULT 0,
-    cgst_amount DECIMAL(10, 2) DEFAULT 0,
-    sgst_amount DECIMAL(10, 2) DEFAULT 0,
-    igst_amount DECIMAL(10, 2) DEFAULT 0,
-    total_gst DECIMAL(10, 2) DEFAULT 0,
-    
-    -- Simple tax fields (for compatibility with TypeORM entity)
-    tax_amount DECIMAL(10, 2) DEFAULT 0,
-    tax_rate DECIMAL(5, 2) DEFAULT 0,
-    
-    -- Total
-    total DECIMAL(10, 2) NOT NULL,
-    
-    -- References
-    order_item_id UUID REFERENCES order_items(id) ON DELETE SET NULL,
-    product_id UUID REFERENCES products(id) ON DELETE SET NULL,
-    
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Index for faster product lookups
-CREATE INDEX idx_invoice_items_product_id ON invoice_items(product_id);
+-- Note: Invoice items are loaded directly from order_items table via relations
+-- No separate invoice_items table needed to avoid data duplication
 
 -- ============================================================
 -- Review Tables
@@ -1032,10 +990,6 @@ CREATE INDEX idx_invoices_userId ON invoices(user_id);
 CREATE INDEX idx_invoices_vendorId ON invoices(vendor_id);
 CREATE INDEX idx_invoices_type ON invoices(type);
 CREATE INDEX idx_invoices_status ON invoices(status);
-
--- Invoice Items
-CREATE INDEX idx_invoice_items_invoiceId ON invoice_items(invoice_id);
-CREATE INDEX idx_invoice_items_orderItemId ON invoice_items(order_item_id);
 
 -- Reviews
 CREATE INDEX idx_reviews_productId ON reviews(product_id);

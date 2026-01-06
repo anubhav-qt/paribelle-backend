@@ -2,7 +2,6 @@ import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Invoice } from './invoice.entity';
-import { InvoiceItem } from './invoice-item.entity';
 import { ConfigService } from '@nestjs/config';
 
 const PDFDocument = require('pdfkit');
@@ -14,8 +13,6 @@ export class InvoicePdfService {
   constructor(
     @InjectRepository(Invoice)
     private invoiceRepository: Repository<Invoice>,
-    @InjectRepository(InvoiceItem)
-    private invoiceItemRepository: Repository<InvoiceItem>,
     private configService: ConfigService,
   ) {}
 
@@ -23,25 +20,22 @@ export class InvoicePdfService {
    * Generate PDF for invoice
    */
   async generateInvoicePdf(invoiceId: string): Promise<Buffer> {
-    // Load invoice with all relations
+    // Load invoice with order and order items
     const invoice = await this.invoiceRepository.findOne({
       where: { id: invoiceId },
-      relations: ['order', 'vendor', 'customer'],
+      relations: ['order', 'order.items', 'order.items.product', 'vendor', 'customer'],
     });
 
     if (!invoice) {
       throw new NotFoundException('Invoice not found');
     }
 
-    // Load invoice items
-    const items = await this.invoiceItemRepository.find({
-      where: { invoiceId },
-      relations: ['product'],
-    });
+    // Use order items directly
+    const items = invoice.order?.items || [];
 
-    this.logger.log(`Generating PDF for invoice ${invoiceId} with ${items.length} items`);
+    this.logger.log(`Generating PDF for invoice ${invoiceId} with ${items.length} items from order`);
     if (items.length === 0) {
-      this.logger.warn(`No items found for invoice ${invoiceId}`);
+      this.logger.warn(`No order items found for invoice ${invoiceId}`);
     }
 
     // Create PDF
@@ -51,7 +45,7 @@ export class InvoicePdfService {
   /**
    * Create PDF document
    */
-  private async createPdfDocument(invoice: Invoice, items: InvoiceItem[]): Promise<Buffer> {
+  private async createPdfDocument(invoice: Invoice, items: any[]): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       try {
         const doc = new PDFDocument({ margin: 50, size: 'A4' });
@@ -218,7 +212,7 @@ export class InvoicePdfService {
   /**
    * Add items table
    */
-  private addItemsTable(doc: any, items: InvoiceItem[]): void {
+  private addItemsTable(doc: any, items: any[]): void {
     const tableTop = doc.y + 20;
     const itemCodeX = 40;
     const descriptionX = 110;
@@ -261,20 +255,21 @@ export class InvoicePdfService {
         doc
           .fontSize(8)
           .font('Helvetica')
-          .text(item.name, itemCodeX, currentY, { width: 65 })
-          .text(item.description || '', descriptionX, currentY, { width: 200 })
+          .text(item.productName || item.name, itemCodeX, currentY, { width: 65 })
+          .text(item.variantDetails ? JSON.stringify(item.variantDetails) : (item.description || ''), descriptionX, currentY, { width: 200 })
           .text(item.quantity.toString(), quantityX, currentY)
-          .text(this.formatCurrency(item.unitPrice), priceX, currentY)
-          .text(this.formatCurrency(item.total), amountX, currentY);
+          .text(this.formatCurrency(item.price || item.unitPrice), priceX, currentY)
+          .text(this.formatCurrency((item.price || item.unitPrice) * item.quantity), amountX, currentY);
 
-        if (item.hsnCode) {
+        const hsnCode = item.product?.hsnCode || item.hsnCode;
+        if (hsnCode) {
           doc
             .fontSize(7)
             .fillColor('#666666')
-            .text(`HSN: ${item.hsnCode}`, itemCodeX, currentY + 10);
+            .text(`HSN: ${hsnCode}`, itemCodeX, currentY + 10);
         }
 
-        currentY += item.hsnCode ? 24 : 18;
+        currentY += hsnCode ? 24 : 18;
       });
       
       // Show count if items were truncated

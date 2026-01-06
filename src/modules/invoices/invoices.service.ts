@@ -2,9 +2,7 @@ import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Invoice, InvoiceType, InvoiceStatus } from './invoice.entity';
-import { InvoiceItem } from './invoice-item.entity';
 import { Order } from '../orders/order.entity';
-import { OrderItem } from '../orders/order-item.entity';
 import { CreateInvoiceDto, UpdateInvoiceDto, SendInvoiceDto } from './dto/create-invoice.dto';
 import { InvoicePdfService } from './invoice-pdf.service';
 import { SimpleEmailService } from '../simple-email/simple-email.service';
@@ -17,12 +15,8 @@ export class InvoicesService {
   constructor(
     @InjectRepository(Invoice)
     private invoiceRepository: Repository<Invoice>,
-    @InjectRepository(InvoiceItem)
-    private invoiceItemRepository: Repository<InvoiceItem>,
     @InjectRepository(Order)
     private orderRepository: Repository<Order>,
-    @InjectRepository(OrderItem)
-    private orderItemRepository: Repository<OrderItem>,
     private invoicePdfService: InvoicePdfService,
     private simpleEmailService: SimpleEmailService,
     private configService: ConfigService,
@@ -64,6 +58,7 @@ export class InvoicesService {
 
     // Log for debugging
     this.logger.log(`Creating invoice for order ${orderId}, type: ${type}, items count: ${order.items?.length || 0}`);
+    
     if (!order.items || order.items.length === 0) {
       this.logger.error(`Order ${orderId} has no items! Cannot create invoice.`);
       throw new NotFoundException('Order has no items');
@@ -88,32 +83,9 @@ export class InvoicesService {
       invoice = await this.createPlatformInvoice(order, invoiceDate, dueDate, notes, terms);
     }
 
-    // Create invoice items
-    this.logger.log(`Creating ${order.items.length} invoice items for invoice ${invoice.id}`);
-    await this.createInvoiceItems(invoice, order.items);
+    this.logger.log(`Invoice ${invoice.invoiceNumber} created for order ${order.orderNumber} - items will be loaded from order.items`);
 
-    // Verify items were created
-    const createdItems = await this.invoiceItemRepository.find({
-      where: { invoiceId: invoice.id },
-    });
-    this.logger.log(`Verified: ${createdItems.length} invoice items exist in DB for invoice ${invoice.id}`);
-    
-    if (createdItems.length === 0) {
-      this.logger.error(`CRITICAL: Invoice items were not saved for invoice ${invoice.id}!`);
-      throw new Error('Failed to create invoice items');
-    }
-
-    // Generate PDF
-    const pdfBuffer = await this.invoicePdfService.generateInvoicePdf(invoice.id);
-    
-    // Save PDF and update invoice
-    const pdfUrl = await this.savePdf(invoice.id, pdfBuffer);
-    invoice.pdfUrl = pdfUrl;
-    await this.invoiceRepository.save(invoice);
-
-    this.logger.log(`Invoice ${invoice.invoiceNumber} created for order ${order.orderNumber}`);
-
-    return this.findOne(invoice.id);
+    return invoice;
   }
 
   /**
@@ -231,35 +203,6 @@ export class InvoicesService {
   }
 
   /**
-   * Create invoice items from order items
-   */
-  private async createInvoiceItems(invoice: Invoice, orderItems: OrderItem[]): Promise<void> {
-    if (!orderItems || orderItems.length === 0) {
-      this.logger.error(`Cannot create invoice items - no order items provided for invoice ${invoice.id}`);
-      throw new Error('No order items to create invoice items from');
-    }
-
-    const invoiceItems = orderItems.map(item => {
-      this.logger.log(`Creating invoice item: ${item.productName}, qty: ${item.quantity}, price: ${item.price}`);
-      return this.invoiceItemRepository.create({
-        invoiceId: invoice.id,
-        productId: item.productId,
-        name: item.productName,
-        description: item.variantDetails ? JSON.stringify(item.variantDetails) : '',
-        quantity: item.quantity,
-        unitPrice: item.price,
-        total: Number(item.price) * item.quantity,
-        taxAmount: 0, // Tax is calculated at order level
-        taxRate: 0,
-        hsnCode: item.product?.hsnCode,
-      });
-    });
-
-    await this.invoiceItemRepository.save(invoiceItems);
-    this.logger.log(`Successfully saved ${invoiceItems.length} invoice items for invoice ${invoice.id}`);
-  }
-
-  /**
    * Save PDF file
    */
   private async savePdf(invoiceId: string, pdfBuffer: Buffer): Promise<string> {
@@ -292,13 +235,7 @@ export class InvoicesService {
       throw new NotFoundException('Invoice not found');
     }
 
-    // Load invoice items separately
-    const items = await this.invoiceItemRepository.find({
-      where: { invoiceId: id },
-      relations: ['product'],
-    });
-
-    return { ...invoice, items } as any;
+    return invoice;
   }
 
   /**
@@ -358,27 +295,8 @@ export class InvoicesService {
 
     const savedCreditNote = await this.invoiceRepository.save(creditNote);
 
-    // Load original invoice items and create negative items
-    const originalItems = await this.invoiceItemRepository.find({
-      where: { invoiceId: originalInvoice.id },
-    });
-
-    const creditNoteItems = originalItems.map(item => 
-      this.invoiceItemRepository.create({
-        invoiceId: savedCreditNote.id,
-        productId: item.productId,
-        name: item.name,
-        description: `Credit: ${item.description}`,
-        quantity: item.quantity,
-        unitPrice: -item.unitPrice,
-        total: -item.total,
-        taxAmount: -item.taxAmount,
-        taxRate: item.taxRate,
-        hsnCode: item.hsnCode,
-      })
-    );
-
-    await this.invoiceItemRepository.save(creditNoteItems);
+    // Note: Credit note items will be loaded from the original order.items relation
+    // No need to create separate invoice items
 
     // Generate PDF
     try {
@@ -653,7 +571,7 @@ export class InvoicesService {
    */
   async delete(id: string): Promise<void> {
     const invoice = await this.findOne(id);
-    await this.invoiceItemRepository.delete({ invoiceId: id });
+    // Note: No need to delete invoice_items - they don't exist anymore
     await this.invoiceRepository.remove(invoice);
   }
 }
