@@ -758,10 +758,20 @@ export class InvoicePdfService {
     if (amount === null || amount === undefined || isNaN(amount)) {
       return '₹0.00';
     }
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      minimumFractionDigits: 2,
-    }).format(amount);
+    
+    // Format manually to avoid locale-specific thousand separators (like single quotes)
+    const absAmount = Math.abs(amount);
+    const formatted = absAmount.toFixed(2);
+    const [integerPart, decimalPart] = formatted.split('.');
+    
+    // Add commas for Indian numbering system (lakhs and crores)
+    let lastThree = integerPart.substring(integerPart.length - 3);
+    const otherNumbers = integerPart.substring(0, integerPart.length - 3);
+    if (otherNumbers !== '') {
+      lastThree = ',' + lastThree;
+    }
+    const formattedInteger = otherNumbers.replace(/\B(?=(\d{2})+(?!\d))/g, ',') + lastThree;
+    
+    return `₹${amount < 0 ? '-' : ''}${formattedInteger}.${decimalPart}`;
   }
 }

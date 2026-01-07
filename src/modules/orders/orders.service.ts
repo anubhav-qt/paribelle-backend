@@ -1289,7 +1289,10 @@ export class OrdersService {
    */
   async confirmItemReturnReceived(returnId: string, refundNow: boolean = true) {
     const result = await this.dataSource.query(
-      `SELECT * FROM returns WHERE id = $1`,
+      `SELECT r.*, oi.product_id, oi.quantity as item_quantity 
+       FROM returns r
+       LEFT JOIN order_items oi ON r.order_item_id = oi.id
+       WHERE r.id = $1`,
       [returnId]
     );
 
@@ -1301,6 +1304,27 @@ export class OrdersService {
 
     if (returnItem.status !== 'approved') {
       throw new BadRequestException('Return must be approved before confirming receipt');
+    }
+
+    // Restore inventory for the returned items
+    if (returnItem.product_id && returnItem.quantity > 0) {
+      await this.productRepository.increment(
+        { id: returnItem.product_id },
+        'stockQuantity',
+        returnItem.quantity
+      );
+      
+      // Get updated product stock and broadcast via WebSocket
+      const product = await this.productRepository.findOne({ 
+        where: { id: returnItem.product_id } 
+      });
+      if (product) {
+        this.marketplaceGateway.emitStockUpdate(
+          product.id,
+          product.stockQuantity
+        );
+        console.log(`[confirmItemReturnReceived] Restored ${returnItem.quantity} units to product ${product.id}. New stock: ${product.stockQuantity}`);
+      }
     }
 
     // Update return status
@@ -1323,6 +1347,19 @@ export class OrdersService {
     );
 
     if (refundNow) {
+      // Create credit note for both customer and vendor invoices (partial refund)
+      try {
+        console.log(`[confirmItemReturnReceived] Creating credit note for return ${returnItem.return_number}`);
+        await this.invoicesService.createCreditNote(
+          returnItem.order_id, 
+          `Item return: ${returnItem.product_name} (Qty: ${returnItem.quantity}) - ${returnItem.reason}`
+        );
+        console.log(`[confirmItemReturnReceived] Credit note created for customer and vendor invoices`);
+      } catch (error) {
+        console.error('Failed to create credit note for item return:', error);
+        // Don't fail the entire operation if credit note fails
+      }
+
       // TODO: Process actual refund through payment gateway
       console.log(`[confirmItemReturnReceived] Processing refund of $${returnItem.refund_total} for return ${returnItem.return_number}`);
     }

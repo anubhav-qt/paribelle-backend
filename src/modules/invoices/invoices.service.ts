@@ -123,7 +123,7 @@ export class InvoicesService {
       dueDate: invoiceDate, // For customer invoices, due date = invoice date (already paid)
       subtotal: order.subtotal,
       tax: order.tax,
-      discount: order.discount,
+      discount: order.discount || 0,
       shippingCost: order.shippingCost,
       total: order.total,
       paidAmount: order.total, // Set paid amount since it's already paid
@@ -180,7 +180,7 @@ export class InvoicesService {
       dueDate, // When vendor expects payout
       subtotal: order.subtotal,
       tax: order.tax,
-      discount: order.discount,
+      discount: order.discount || 0,
       shippingCost: order.shippingCost,
       total: order.total, // Full order amount for reference
       commissionAmount, // What platform takes as commission
@@ -297,87 +297,6 @@ export class InvoicesService {
     });
 
     return invoice;
-  }
-
-  /**
-   * Create credit note (negative invoice) for cancelled orders
-   */
-  async createCreditNote(orderId: string, reason: string): Promise<Invoice> {
-    // Find the original customer invoice
-    const originalInvoices = await this.invoiceRepository.find({
-      where: { orderId, type: InvoiceType.CUSTOMER },
-      relations: ['order', 'order.user'],
-    });
-
-    if (!originalInvoices || originalInvoices.length === 0) {
-      this.logger.warn(`No customer invoice found for order ${orderId} to create credit note`);
-      throw new NotFoundException('No invoice found for this order');
-    }
-
-    const originalInvoice = originalInvoices[0];
-
-    // Check if credit note already exists
-    const existingCreditNote = await this.invoiceRepository.findOne({
-      where: { 
-        orderId,
-        invoiceNumber: `CN-${originalInvoice.invoiceNumber}`,
-      },
-    });
-
-    if (existingCreditNote) {
-      this.logger.warn(`Credit note already exists for order ${orderId}`);
-      return existingCreditNote;
-    }
-
-    // Create credit note showing all order details, refunding product cost and tax
-    const subtotal = Number(originalInvoice.subtotal) || 0;
-    const discount = Number(originalInvoice.discount) || 0;
-    const tax = Number(originalInvoice.tax) || 0;
-    const shippingCost = Number(originalInvoice.shippingCost) || 0;
-    const refundAmount = subtotal - discount + tax;
-    
-    const creditNote = this.invoiceRepository.create({
-      invoiceNumber: `CN-${originalInvoice.invoiceNumber}`,
-      type: InvoiceType.CUSTOMER,
-      status: InvoiceStatus.CANCELLED,
-      orderId: orderId,
-      customerId: originalInvoice.customerId,
-      billingName: originalInvoice.billingName,
-      billingEmail: originalInvoice.billingEmail,
-      billingPhone: originalInvoice.billingPhone,
-      billingAddress: originalInvoice.billingAddress,
-      billingCity: originalInvoice.billingCity,
-      billingState: originalInvoice.billingState,
-      billingPostalCode: originalInvoice.billingPostalCode,
-      subtotal: -subtotal, // Show original subtotal (will be refunded)
-      tax: -tax, // Show original tax as negative (refundable)
-      discount: -discount, // Show original discount
-      shippingCost: shippingCost, // Show original shipping but as positive (non-refundable)
-      total: -refundAmount, // Refund: product cost + tax - discount
-      invoiceDate: new Date(),
-      dueDate: new Date(),
-      notes: `Credit Note - ${reason}\\nOriginal Invoice: ${originalInvoice.invoiceNumber}\\nRefund Amount: Product cost + Tax (${this.formatCurrency(refundAmount)})\\nShipping (${this.formatCurrency(shippingCost)}) is non-refundable.`,
-      terms: 'This is a credit note for a cancelled order. Product cost and tax are refunded. Shipping charges are non-refundable as per cancellation policy.',
-    });
-
-    const savedCreditNote = await this.invoiceRepository.save(creditNote);
-
-    // Note: Credit note items will be loaded from the original order.items relation
-    // No need to create separate invoice items
-
-    // Generate PDF
-    try {
-      const pdfBuffer = await this.invoicePdfService.generateInvoicePdf(savedCreditNote.id);
-      const pdfUrl = await this.savePdf(savedCreditNote.id, pdfBuffer);
-      savedCreditNote.pdfUrl = pdfUrl;
-      await this.invoiceRepository.save(savedCreditNote);
-    } catch (error) {
-      this.logger.error(`Failed to generate PDF for credit note ${savedCreditNote.id}:`, error);
-    }
-
-    this.logger.log(`Credit note ${savedCreditNote.invoiceNumber} created for order ${orderId}`);
-
-    return savedCreditNote;
   }
 
   /**
@@ -856,5 +775,146 @@ export class InvoicesService {
     const invoice = await this.findOne(id);
     // Note: No need to delete invoice_items - they don't exist anymore
     await this.invoiceRepository.remove(invoice);
+  }
+
+  /**
+   * Create credit notes for all invoice types (customer, vendor, platform)
+   * Used when orders are cancelled or returned
+   */
+  async createCreditNote(orderId: string, reason: string): Promise<void> {
+    const order = await this.orderRepository.findOne({
+      where: { id: orderId },
+      relations: ['user', 'vendor', 'items', 'items.product', 'invoices'],
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    this.logger.log(`Creating credit notes for order ${order.orderNumber}. Reason: ${reason}`);
+
+    // Get existing invoices for this order
+    const existingInvoices = order.invoices || [];
+
+    // Create credit note for customer invoice (refund to customer)
+    const customerInvoice = existingInvoices.find(inv => inv.type === InvoiceType.CUSTOMER);
+    if (customerInvoice) {
+      try {
+        const creditNote = this.invoiceRepository.create({
+          invoiceNumber: `CN-${customerInvoice.invoiceNumber}`,
+          type: InvoiceType.CUSTOMER,
+          status: InvoiceStatus.PAID, // Credit note is processed immediately
+          orderId: order.id,
+          customerId: order.userId,
+          vendorId: order.vendorId,
+          invoiceDate: new Date(),
+          dueDate: new Date(),
+          subtotal: -customerInvoice.subtotal, // Negative amounts for credit notes
+          tax: -customerInvoice.tax,
+          discount: -customerInvoice.discount,
+          shippingCost: 0, // Shipping cost is non-refundable for returns/cancellations
+          total: -(customerInvoice.subtotal + customerInvoice.tax - customerInvoice.discount), // Total without shipping
+          paidAmount: -(customerInvoice.subtotal + customerInvoice.tax - customerInvoice.discount),
+          paidAt: new Date(),
+          billingName: customerInvoice.billingName,
+          billingEmail: customerInvoice.billingEmail,
+          billingPhone: customerInvoice.billingPhone,
+          billingAddress: customerInvoice.billingAddress,
+          billingCity: customerInvoice.billingCity,
+          billingState: customerInvoice.billingState,
+          billingPostalCode: customerInvoice.billingPostalCode,
+          billingCountry: customerInvoice.billingCountry,
+          shippingName: customerInvoice.shippingName,
+          shippingEmail: customerInvoice.shippingEmail,
+          shippingPhone: customerInvoice.shippingPhone,
+          shippingAddress: customerInvoice.shippingAddress,
+          shippingCity: customerInvoice.shippingCity,
+          shippingState: customerInvoice.shippingState,
+          shippingPostalCode: customerInvoice.shippingPostalCode,
+          shippingCountry: customerInvoice.shippingCountry,
+          notes: `CREDIT NOTE - ${reason}`,
+          terms: `This credit note refunds the original invoice ${customerInvoice.invoiceNumber}.`,
+        });
+        await this.invoiceRepository.save(creditNote);
+        this.logger.log(`Customer credit note created: ${creditNote.invoiceNumber}`);
+      } catch (error) {
+        this.logger.error(`Failed to create customer credit note for order ${order.orderNumber}:`, error);
+      }
+    }
+
+    // Create credit note for vendor invoice (deduct from vendor payout)
+    const vendorInvoice = existingInvoices.find(inv => inv.type === InvoiceType.VENDOR);
+    if (vendorInvoice) {
+      try {
+        const creditNote = this.invoiceRepository.create({
+          invoiceNumber: `CN-${vendorInvoice.invoiceNumber}`,
+          type: InvoiceType.VENDOR,
+          status: InvoiceStatus.PENDING,
+          orderId: order.id,
+          vendorId: order.vendorId,
+          invoiceDate: new Date(),
+          dueDate: new Date(),
+          subtotal: -vendorInvoice.subtotal,
+          tax: -vendorInvoice.tax,
+          discount: -vendorInvoice.discount,
+          shippingCost: -vendorInvoice.shippingCost,
+          total: -vendorInvoice.total,
+          commissionAmount: -vendorInvoice.commissionAmount,
+          commissionRate: vendorInvoice.commissionRate,
+          payoutAmount: -vendorInvoice.payoutAmount, // Deduct from vendor payout
+          billingName: vendorInvoice.billingName,
+          billingEmail: vendorInvoice.billingEmail,
+          billingPhone: vendorInvoice.billingPhone,
+          billingAddress: vendorInvoice.billingAddress,
+          billingCity: vendorInvoice.billingCity,
+          billingState: vendorInvoice.billingState,
+          billingPostalCode: vendorInvoice.billingPostalCode,
+          billingCountry: vendorInvoice.billingCountry,
+          gstNumber: vendorInvoice.gstNumber,
+          panNumber: vendorInvoice.panNumber,
+          notes: `CREDIT NOTE - ${reason}. Deduction from vendor payout.`,
+          terms: `This credit note reverses the payout from invoice ${vendorInvoice.invoiceNumber}.`,
+        });
+        await this.invoiceRepository.save(creditNote);
+        
+        // Update vendor balance
+        if (order.vendorId) {
+          await this.updateVendorBalance(order.vendorId);
+        }
+        
+        this.logger.log(`Vendor credit note created: ${creditNote.invoiceNumber}`);
+      } catch (error) {
+        this.logger.error(`Failed to create vendor credit note for order ${order.orderNumber}:`, error);
+      }
+    }
+
+    // Create credit note for platform invoice (platform loses commission)
+    const platformInvoice = existingInvoices.find(inv => inv.type === InvoiceType.PLATFORM);
+    if (platformInvoice) {
+      try {
+        const creditNote = this.invoiceRepository.create({
+          invoiceNumber: `CN-${platformInvoice.invoiceNumber}`,
+          type: InvoiceType.PLATFORM,
+          status: InvoiceStatus.PAID,
+          orderId: order.id,
+          vendorId: order.vendorId,
+          invoiceDate: new Date(),
+          dueDate: new Date(),
+          subtotal: -platformInvoice.subtotal,
+          tax: -platformInvoice.tax,
+          total: -platformInvoice.total,
+          commissionAmount: -platformInvoice.commissionAmount, // Platform loses commission
+          commissionRate: platformInvoice.commissionRate,
+          notes: `CREDIT NOTE - ${reason}. Platform commission reversal.`,
+          terms: `This credit note reverses the commission from invoice ${platformInvoice.invoiceNumber}.`,
+        });
+        await this.invoiceRepository.save(creditNote);
+        this.logger.log(`Platform credit note created: ${creditNote.invoiceNumber}`);
+      } catch (error) {
+        this.logger.error(`Failed to create platform credit note for order ${order.orderNumber}:`, error);
+      }
+    }
+
+    this.logger.log(`Credit notes creation completed for order ${order.orderNumber}`);
   }
 }
