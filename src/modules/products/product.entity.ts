@@ -69,7 +69,7 @@ export class Product {
   @Column({ type: 'decimal', precision: 5, scale: 2, default: 18.00, name: 'gst_rate' })
   gstRate: number;
 
-  @Column({ default: 'selling_price_without_gst', name: 'price_type' })
+  @Column({ default: 'mrp_with_gst', name: 'price_type' })
   priceType: string; // 'mrp_with_gst' | 'selling_price_without_gst'
 
   @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })

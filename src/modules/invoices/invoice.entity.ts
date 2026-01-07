@@ -20,6 +20,7 @@ export enum InvoiceType {
 
 export enum InvoiceStatus {
   DRAFT = 'draft',
+  PENDING = 'pending', // Waiting for action (e.g., vendor payout pending)
   SENT = 'sent',
   PAID = 'paid',
   CANCELLED = 'cancelled',
@@ -81,6 +82,13 @@ export class Invoice {
   @Column({ name: 'payout_amount', type: 'decimal', precision: 10, scale: 2, nullable: true })
   payoutAmount: number;
 
+  // Payment tracking
+  @Column({ name: 'paid_amount', type: 'decimal', precision: 10, scale: 2, nullable: true })
+  paidAmount: number;
+
+  @Column({ name: 'paid_at', type: 'timestamp', nullable: true })
+  paidAt: Date;
+
   // Billing information
   @Column({ name: 'billing_name', type: 'text', nullable: true })
   billingName: string;
@@ -105,6 +113,31 @@ export class Invoice {
 
   @Column({ name: 'billing_country', nullable: true })
   billingCountry: string;
+
+  // Shipping information
+  @Column({ name: 'shipping_name', type: 'text', nullable: true })
+  shippingName: string;
+
+  @Column({ name: 'shipping_email', type: 'text', nullable: true })
+  shippingEmail: string;
+
+  @Column({ name: 'shipping_phone', type: 'text', nullable: true })
+  shippingPhone: string;
+
+  @Column({ name: 'shipping_address', type: 'text', nullable: true })
+  shippingAddress: string;
+
+  @Column({ name: 'shipping_city', nullable: true })
+  shippingCity: string;
+
+  @Column({ name: 'shipping_state', nullable: true })
+  shippingState: string;
+
+  @Column({ name: 'shipping_postal_code', nullable: true })
+  shippingPostalCode: string;
+
+  @Column({ name: 'shipping_country', nullable: true })
+  shippingCountry: string;
 
   // Tax details
   @Column({ name: 'gst_number', nullable: true })

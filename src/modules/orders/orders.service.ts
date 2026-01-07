@@ -31,7 +31,7 @@ export class OrdersService {
   ) {}
 
   async create(userId: string, createOrderDto: any) {
-    const { items, shippingAddress, paymentMethod, subtotal, shippingCost, tax, totalAmount } = createOrderDto;
+    const { items, shippingAddress, billingAddress, paymentMethod, subtotal, shippingCost, tax, totalAmount } = createOrderDto;
 
     console.log('Create order DTO received:', {
       subtotal, shippingCost, tax, totalAmount,
@@ -120,20 +120,54 @@ export class OrdersService {
       const vendor = vendorItems[0].product.vendor;
       
       // Calculate vendor-specific totals
+      // Extract base price (without tax) from each item
       const vendorSubtotal = vendorItems.reduce((sum, item) => {
-        return sum + (Number(item.price) || 0) * item.quantity;
+        const itemPrice = Number(item.price) || 0;
+        const product = item.product;
+        const priceType = product.priceType || 'mrp_with_gst';
+        const gstRate = Number(product.gstRate) || 18;
+
+        let basePrice = itemPrice;
+        if (priceType === 'mrp_with_gst') {
+          // Extract base price from tax-inclusive price
+          basePrice = itemPrice / (1 + gstRate / 100);
+        }
+        // For 'selling_price_without_gst', basePrice is already the price
+
+        return sum + basePrice * item.quantity;
       }, 0);
 
-      // Proportionally distribute shipping and tax based on subtotal
+      // Calculate vendor tax from items
+      const vendorTaxFromItems = vendorItems.reduce((sum, item) => {
+        const itemPrice = Number(item.price) || 0;
+        const product = item.product;
+        const priceType = product.priceType || 'mrp_with_gst';
+        const gstRate = Number(product.gstRate) || 18;
+
+        let itemTax = 0;
+        if (priceType === 'mrp_with_gst') {
+          // Extract tax from inclusive price
+          const basePrice = itemPrice / (1 + gstRate / 100);
+          itemTax = itemPrice - basePrice;
+        } else {
+          // Calculate tax on exclusive price
+          itemTax = itemPrice * (gstRate / 100);
+        }
+
+        return sum + itemTax * item.quantity;
+      }, 0);
+
+      // Proportionally distribute shipping based on subtotal
       const proportionOfTotal = numSubtotal > 0 ? vendorSubtotal / numSubtotal : 1 / itemsByVendor.size;
       const vendorShippingCost = Number((numShippingCost * proportionOfTotal).toFixed(2));
-      const vendorTax = Number((numTax * proportionOfTotal).toFixed(2));
+      const vendorTax = Number(vendorTaxFromItems.toFixed(2));
       const vendorTotal = Number((vendorSubtotal + vendorShippingCost + vendorTax).toFixed(2));
 
-      // Calculate commission (10% default)
+      // Calculate commission on subtotal + tax (excluding shipping)
       const commissionRate = 10;
-      const commissionAmount = Number(((vendorTotal * commissionRate) / 100).toFixed(2));
-      const vendorPayout = Number((vendorTotal - commissionAmount).toFixed(2));
+      const commissionBase = vendorSubtotal + vendorTax; // Base for commission calculation
+      const commissionAmount = Number((commissionBase * commissionRate / 100).toFixed(2));
+      const vendorPayout = Number((commissionBase - commissionAmount + vendorShippingCost).toFixed(2));
 
       // Generate order number
       const orderNumber = this.generateOrderNumber();
@@ -144,6 +178,8 @@ export class OrdersService {
         vendorShippingCost,
         vendorTax,
         vendorTotal,
+        commissionAmount,
+        vendorPayout,
         itemsCount: vendorItems.length,
       });
 
@@ -173,13 +209,25 @@ export class OrdersService {
         status: OrderStatus.PENDING,
         paymentStatus: paymentMethod === 'cod' ? PaymentStatus.PENDING : PaymentStatus.PAID, // Mark online payments as paid (when not using Razorpay gateway)
         shippingName: shippingAddress.fullName,
-        shippingEmail: '', // TODO: Get from user
+        shippingEmail: shippingAddress.email || '', // Use from address if available
         shippingPhone: shippingAddress.phone,
         shippingAddress: `${shippingAddress.addressLine1}${shippingAddress.addressLine2 ? ', ' + shippingAddress.addressLine2 : ''}`,
         shippingCity: shippingAddress.city,
         shippingState: shippingAddress.state,
         shippingCountry: shippingAddress.country,
         shippingPostalCode: shippingAddress.postalCode,
+        // Billing address (use billing if provided, otherwise same as shipping)
+        billingAddressSameAsShipping: !billingAddress || JSON.stringify(billingAddress) === JSON.stringify(shippingAddress),
+        billingName: billingAddress?.fullName || shippingAddress.fullName,
+        billingEmail: billingAddress?.email || shippingAddress.email || '',
+        billingPhone: billingAddress?.phone || shippingAddress.phone,
+        billingAddress: billingAddress 
+          ? `${billingAddress.addressLine1}${billingAddress.addressLine2 ? ', ' + billingAddress.addressLine2 : ''}`
+          : `${shippingAddress.addressLine1}${shippingAddress.addressLine2 ? ', ' + shippingAddress.addressLine2 : ''}`,
+        billingCity: billingAddress?.city || shippingAddress.city,
+        billingState: billingAddress?.state || shippingAddress.state,
+        billingCountry: billingAddress?.country || shippingAddress.country,
+        billingPostalCode: billingAddress?.postalCode || shippingAddress.postalCode,
       });
 
       const savedOrder = await this.orderRepository.save(order);
@@ -222,6 +270,51 @@ export class OrdersService {
       where: createdOrders.map(order => ({ id: order.id })),
       relations: ['items', 'items.product', 'vendor', 'user'],
     });
+
+    // Auto-generate invoices for orders that are already paid
+    for (const order of ordersWithDetails) {
+      if (order.paymentStatus === PaymentStatus.PAID) {
+        try {
+          console.log(`Order ${order.orderNumber} is already paid. Generating invoices...`);
+          
+          // Check if customer invoice already exists
+          const existingCustomerInvoice = await this.invoicesService.findByOrderAndType(order.id, 'customer');
+          if (!existingCustomerInvoice) {
+            await this.invoicesService.createFromOrder({
+              orderId: order.id,
+              type: 'customer' as any,
+              notes: 'Thank you for your purchase!',
+            });
+            console.log(`Customer invoice generated for order ${order.orderNumber}`);
+          }
+          
+          // Check if vendor invoice already exists
+          const existingVendorInvoice = await this.invoicesService.findByOrderAndType(order.id, 'vendor');
+          if (!existingVendorInvoice) {
+            await this.invoicesService.createFromOrder({
+              orderId: order.id,
+              type: 'vendor' as any,
+              notes: `Vendor payout for order ${order.orderNumber}`,
+            });
+            console.log(`Vendor invoice generated for order ${order.orderNumber}`);
+          }
+          
+          // Check if platform invoice already exists
+          const existingPlatformInvoice = await this.invoicesService.findByOrderAndType(order.id, 'platform');
+          if (!existingPlatformInvoice) {
+            await this.invoicesService.createFromOrder({
+              orderId: order.id,
+              type: 'platform' as any,
+              notes: `Platform commission for order ${order.orderNumber}`,
+            });
+            console.log(`Platform invoice generated for order ${order.orderNumber}`);
+          }
+        } catch (error) {
+          console.error(`Failed to generate invoices for order ${order.orderNumber}:`, error);
+          // Don't throw - order creation should succeed even if invoice generation fails
+        }
+      }
+    }
 
     return ordersWithDetails;
   }
@@ -388,6 +481,29 @@ export class OrdersService {
           console.error('Failed to send order delivered email:', error);
         });
       }
+      
+      // Auto-generate vendor invoice when order is delivered
+      if (order.paymentStatus === PaymentStatus.PAID) {
+        try {
+          console.log(`Order delivered: ${order.orderNumber}. Generating vendor invoice...`);
+          
+          // Check if vendor invoice already exists
+          const existingVendorInvoice = await this.invoicesService.findByOrderAndType(order.id, 'vendor');
+          if (!existingVendorInvoice) {
+            await this.invoicesService.createFromOrder({
+              orderId: order.id,
+              type: 'vendor' as any,
+              notes: `Vendor payout for delivered order ${order.orderNumber}`,
+            });
+            console.log(`Vendor invoice generated for order ${order.orderNumber}`);
+          } else {
+            console.log(`Vendor invoice already exists for order ${order.orderNumber}`);
+          }
+        } catch (error) {
+          console.error(`Failed to generate vendor invoice for order ${order.orderNumber}:`, error);
+          // Don't throw - status update should succeed even if invoice generation fails
+        }
+      }
     } else if (status === OrderStatus.CANCELLED) {
       order.cancelledAt = new Date();
       
@@ -462,18 +578,51 @@ export class OrdersService {
     order.paymentStatus = paymentStatus as PaymentStatus;
     const savedOrder = await this.orderRepository.save(order);
     
-    // Auto-generate customer invoice when payment is completed
+    // Auto-generate customer and platform invoices when payment is completed
     if (paymentStatus === PaymentStatus.PAID && previousStatus !== PaymentStatus.PAID) {
       try {
-        console.log(`Payment completed for order ${order.orderNumber}. Generating customer invoice...`);
-        await this.invoicesService.createFromOrder({
-          orderId: order.id,
-          type: 'customer' as any,
-          notes: 'Thank you for your purchase!',
-        });
-        console.log(`Customer invoice generated for order ${order.orderNumber}`);
+        console.log(`Payment completed for order ${order.orderNumber}. Generating invoices...`);
+        
+        // Check if customer invoice already exists
+        const existingCustomerInvoice = await this.invoicesService.findByOrderAndType(order.id, 'customer');
+        if (!existingCustomerInvoice) {
+          await this.invoicesService.createFromOrder({
+            orderId: order.id,
+            type: 'customer' as any,
+            notes: 'Thank you for your purchase!',
+          });
+          console.log(`Customer invoice generated for order ${order.orderNumber}`);
+        } else {
+          console.log(`Customer invoice already exists for order ${order.orderNumber}`);
+        }
+        
+        // Check if vendor invoice already exists
+        const existingVendorInvoice = await this.invoicesService.findByOrderAndType(order.id, 'vendor');
+        if (!existingVendorInvoice) {
+          await this.invoicesService.createFromOrder({
+            orderId: order.id,
+            type: 'vendor' as any,
+            notes: `Vendor payout for order ${order.orderNumber}`,
+          });
+          console.log(`Vendor invoice generated for order ${order.orderNumber}`);
+        } else {
+          console.log(`Vendor invoice already exists for order ${order.orderNumber}`);
+        }
+        
+        // Check if platform invoice already exists
+        const existingPlatformInvoice = await this.invoicesService.findByOrderAndType(order.id, 'platform');
+        if (!existingPlatformInvoice) {
+          await this.invoicesService.createFromOrder({
+            orderId: order.id,
+            type: 'platform' as any,
+            notes: `Platform commission for order ${order.orderNumber}`,
+          });
+          console.log(`Platform invoice generated for order ${order.orderNumber}`);
+        } else {
+          console.log(`Platform invoice already exists for order ${order.orderNumber}`);
+        }
       } catch (error) {
-        console.error(`Failed to generate customer invoice for order ${order.orderNumber}:`, error);
+        console.error(`Failed to generate invoices for order ${order.orderNumber}:`, error);
         // Don't throw - payment status update should succeed even if invoice generation fails
       }
     }

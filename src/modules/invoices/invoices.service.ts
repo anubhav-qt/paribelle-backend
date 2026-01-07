@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Invoice, InvoiceType, InvoiceStatus } from './invoice.entity';
+import { VendorBalance } from './vendor-balance.entity';
 import { Order } from '../orders/order.entity';
 import { CreateInvoiceDto, UpdateInvoiceDto, SendInvoiceDto } from './dto/create-invoice.dto';
 import { InvoicePdfService } from './invoice-pdf.service';
@@ -15,12 +16,25 @@ export class InvoicesService {
   constructor(
     @InjectRepository(Invoice)
     private invoiceRepository: Repository<Invoice>,
+    @InjectRepository(VendorBalance)
+    private vendorBalanceRepository: Repository<VendorBalance>,
     @InjectRepository(Order)
     private orderRepository: Repository<Order>,
     private invoicePdfService: InvoicePdfService,
     private simpleEmailService: SimpleEmailService,
     private configService: ConfigService,
   ) {}
+
+  /**
+   * Format currency helper
+   */
+  private formatCurrency(amount: number): string {
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      minimumFractionDigits: 2,
+    }).format(amount);
+  }
 
   /**
    * Generate invoice number
@@ -101,27 +115,39 @@ export class InvoicesService {
     const invoice = this.invoiceRepository.create({
       invoiceNumber: this.generateInvoiceNumber(),
       type: InvoiceType.CUSTOMER,
-      status: InvoiceStatus.DRAFT,
+      status: InvoiceStatus.PAID, // Customer invoices are created after payment, so status is PAID
       orderId: order.id,
       customerId: order.userId,
       vendorId: order.vendorId,
       invoiceDate,
-      dueDate,
+      dueDate: invoiceDate, // For customer invoices, due date = invoice date (already paid)
       subtotal: order.subtotal,
       tax: order.tax,
       discount: order.discount,
       shippingCost: order.shippingCost,
       total: order.total,
-      billingName: order.shippingName,
-      billingEmail: order.shippingEmail,
-      billingPhone: order.shippingPhone,
-      billingAddress: order.shippingAddress,
-      billingCity: order.shippingCity,
-      billingState: order.shippingState,
-      billingPostalCode: order.shippingPostalCode,
-      billingCountry: order.shippingCountry,
+      paidAmount: order.total, // Set paid amount since it's already paid
+      paidAt: invoiceDate, // Mark payment date as invoice date
+      // Use billing address from order (will be same as shipping if user selected "same as shipping")
+      billingName: order.billingName || order.shippingName,
+      billingEmail: order.billingEmail || order.shippingEmail,
+      billingPhone: order.billingPhone || order.shippingPhone,
+      billingAddress: order.billingAddress || order.shippingAddress,
+      billingCity: order.billingCity || order.shippingCity,
+      billingState: order.billingState || order.shippingState,
+      billingPostalCode: order.billingPostalCode || order.shippingPostalCode,
+      billingCountry: order.billingCountry || order.shippingCountry,
+      // Shipping address from order
+      shippingName: order.shippingName,
+      shippingEmail: order.shippingEmail,
+      shippingPhone: order.shippingPhone,
+      shippingAddress: order.shippingAddress,
+      shippingCity: order.shippingCity,
+      shippingState: order.shippingState,
+      shippingPostalCode: order.shippingPostalCode,
+      shippingCountry: order.shippingCountry,
       notes: notes || 'Thank you for your business!',
-      terms: terms || 'Payment is due within 30 days of invoice date.',
+      terms: terms || 'This invoice has been paid in full.',
     });
 
     return await this.invoiceRepository.save(invoice);
@@ -137,32 +163,42 @@ export class InvoicesService {
     notes?: string,
     terms?: string,
   ): Promise<Invoice> {
+    // Calculate commission on subtotal + tax (excluding shipping)
+    const commissionRate = order.commissionRate || order.vendor?.commissionRate || 10;
+    const commissionBase = order.subtotal + order.tax;
+    const commissionAmount = order.commissionAmount || (commissionBase * commissionRate / 100);
+    // Vendor gets: (subtotal + tax) - commission + shipping
+    const payoutAmount = order.vendorPayout || ((commissionBase - commissionAmount) + order.shippingCost);
+
     const invoice = this.invoiceRepository.create({
       invoiceNumber: this.generateInvoiceNumber(),
       type: InvoiceType.VENDOR,
-      status: InvoiceStatus.DRAFT,
+      status: InvoiceStatus.PENDING, // Vendor invoices start as PENDING (payout not processed yet)
       orderId: order.id,
       vendorId: order.vendorId,
       invoiceDate,
-      dueDate,
+      dueDate, // When vendor expects payout
       subtotal: order.subtotal,
       tax: order.tax,
       discount: order.discount,
       shippingCost: order.shippingCost,
-      total: order.total,
-      commissionAmount: order.commissionAmount,
-      commissionRate: order.commissionRate,
-      payoutAmount: order.vendorPayout,
-      billingName: order.vendor?.businessName || 'Vendor',
-      billingEmail: order.vendor?.contactEmail,
+      total: order.total, // Full order amount for reference
+      commissionAmount, // What platform takes as commission
+      commissionRate, // Commission percentage
+      payoutAmount, // What vendor receives (subtotal - commission)
+      // Vendor's business details (recipient of payout)
+      billingName: order.vendor?.businessName || order.vendor?.storeName || 'Vendor',
+      billingEmail: order.vendor?.contactEmail || order.vendor?.user?.email,
       billingPhone: order.vendor?.contactPhone,
       billingAddress: order.vendor?.address,
       billingCity: order.vendor?.city,
       billingState: order.vendor?.state,
+      billingPostalCode: order.vendor?.pincode,
+      billingCountry: order.vendor?.country || 'India',
       gstNumber: order.vendor?.gstNumber,
       panNumber: order.vendor?.panNumber,
-      notes: notes || 'Vendor payout statement',
-      terms: terms || 'Payout will be processed within 7 business days.',
+      notes: notes || `Vendor payout for Order #${order.orderNumber}. Commission: ${commissionRate}%`,
+      terms: terms || 'Payout will be processed within 7 business days of order delivery. Commission deducted from product sales. Shipping cost included in payout. Tax retained by platform for GST remittance.',
     });
 
     return await this.invoiceRepository.save(invoice);
@@ -178,25 +214,39 @@ export class InvoicesService {
     notes?: string,
     terms?: string,
   ): Promise<Invoice> {
+    // Calculate commission on subtotal + tax (excluding shipping)
+    const commissionRate = order.commissionRate || order.vendor?.commissionRate || 10;
+    const commissionBase = order.subtotal + order.tax;
+    const commissionAmount = order.commissionAmount || (commissionBase * commissionRate / 100);
+    
+    // Platform gets: commission only (calculated on subtotal + tax)
+    const platformTotal = commissionAmount;
+
     const invoice = this.invoiceRepository.create({
       invoiceNumber: this.generateInvoiceNumber(),
       type: InvoiceType.PLATFORM,
-      status: InvoiceStatus.DRAFT,
+      status: InvoiceStatus.PAID, // Platform commission is auto-deducted, so marked as PAID
       orderId: order.id,
       vendorId: order.vendorId,
       invoiceDate,
-      dueDate,
-      subtotal: order.commissionAmount,
-      tax: 0,
+      dueDate: invoiceDate, // Platform receives commission immediately
+      subtotal: commissionAmount, // Commission on subtotal + tax
+      tax: 0, // Tax already factored into commission base
       discount: 0,
-      shippingCost: 0,
-      total: order.commissionAmount,
-      commissionAmount: order.commissionAmount,
-      commissionRate: order.commissionRate,
-      billingName: order.vendor?.businessName || 'Vendor',
-      billingEmail: order.vendor?.contactEmail,
-      notes: notes || 'Platform commission invoice',
-      terms: terms || 'Commission is deducted from vendor payout automatically.',
+      shippingCost: 0, // Shipping excluded from commission
+      total: platformTotal, // Commission (10% of subtotal + tax)
+      commissionAmount,
+      commissionRate,
+      paidAmount: platformTotal,
+      paidAt: invoiceDate,
+      // Vendor details (who is being charged the commission)
+      billingName: order.vendor?.businessName || order.vendor?.storeName || 'Vendor',
+      billingEmail: order.vendor?.contactEmail || order.vendor?.user?.email,
+      billingPhone: order.vendor?.contactPhone,
+      gstNumber: order.vendor?.gstNumber,
+      panNumber: order.vendor?.panNumber,
+      notes: notes || `Platform commission for Order #${order.orderNumber}. Rate: ${commissionRate}%`,
+      terms: terms || 'Commission is automatically deducted from vendor payout. Tax amount retained for GST remittance. Shipping handled by vendor.',
     });
 
     return await this.invoiceRepository.save(invoice);
@@ -239,6 +289,17 @@ export class InvoicesService {
   }
 
   /**
+   * Find invoice by order ID and type
+   */
+  async findByOrderAndType(orderId: string, type: string): Promise<Invoice | null> {
+    const invoice = await this.invoiceRepository.findOne({
+      where: { orderId, type: type as InvoiceType },
+    });
+
+    return invoice;
+  }
+
+  /**
    * Create credit note (negative invoice) for cancelled orders
    */
   async createCreditNote(orderId: string, reason: string): Promise<Invoice> {
@@ -268,11 +329,17 @@ export class InvoicesService {
       return existingCreditNote;
     }
 
-    // Create credit note with negative amounts
+    // Create credit note showing all order details, refunding product cost and tax
+    const subtotal = Number(originalInvoice.subtotal) || 0;
+    const discount = Number(originalInvoice.discount) || 0;
+    const tax = Number(originalInvoice.tax) || 0;
+    const shippingCost = Number(originalInvoice.shippingCost) || 0;
+    const refundAmount = subtotal - discount + tax;
+    
     const creditNote = this.invoiceRepository.create({
       invoiceNumber: `CN-${originalInvoice.invoiceNumber}`,
       type: InvoiceType.CUSTOMER,
-      status: InvoiceStatus.SENT,
+      status: InvoiceStatus.CANCELLED,
       orderId: orderId,
       customerId: originalInvoice.customerId,
       billingName: originalInvoice.billingName,
@@ -282,15 +349,15 @@ export class InvoicesService {
       billingCity: originalInvoice.billingCity,
       billingState: originalInvoice.billingState,
       billingPostalCode: originalInvoice.billingPostalCode,
-      subtotal: -originalInvoice.subtotal,
-      tax: -originalInvoice.tax,
-      discount: -originalInvoice.discount,
-      shippingCost: -originalInvoice.shippingCost,
-      total: -originalInvoice.total,
+      subtotal: -subtotal, // Show original subtotal (will be refunded)
+      tax: -tax, // Show original tax as negative (refundable)
+      discount: -discount, // Show original discount
+      shippingCost: shippingCost, // Show original shipping but as positive (non-refundable)
+      total: -refundAmount, // Refund: product cost + tax - discount
       invoiceDate: new Date(),
       dueDate: new Date(),
-      notes: `Credit Note - ${reason}\\nOriginal Invoice: ${originalInvoice.invoiceNumber}`,
-      terms: 'This is a credit note for a cancelled order.',
+      notes: `Credit Note - ${reason}\\nOriginal Invoice: ${originalInvoice.invoiceNumber}\\nRefund Amount: Product cost + Tax (${this.formatCurrency(refundAmount)})\\nShipping (${this.formatCurrency(shippingCost)}) is non-refundable.`,
+      terms: 'This is a credit note for a cancelled order. Product cost and tax are refunded. Shipping charges are non-refundable as per cancellation policy.',
     });
 
     const savedCreditNote = await this.invoiceRepository.save(creditNote);
@@ -498,16 +565,6 @@ export class InvoicesService {
   }
 
   /**
-   * Format currency
-   */
-  private formatCurrency(amount: number): string {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-    }).format(amount);
-  }
-
-  /**
    * Auto-generate invoices for completed orders
    * Note: Customer invoices are now generated automatically on payment
    * This method handles vendor payout invoices for delivered orders
@@ -564,6 +621,232 @@ export class InvoicesService {
         this.logger.error(`Error generating invoices for order ${order.orderNumber}:`, error);
       }
     }
+  }
+
+  /**
+   * Create vendor deduction invoice for returns/cancellations
+   * Reuses existing createFromOrder but with negative amounts
+   */
+  async createVendorDeductionInvoice(orderId: string, reason: string): Promise<Invoice> {
+    const order = await this.orderRepository.findOne({
+      where: { id: orderId },
+      relations: ['user', 'vendor', 'items', 'items.product'],
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    // Check if deduction invoice already exists
+    const existingDeduction = await this.invoiceRepository.findOne({
+      where: { 
+        orderId,
+        type: InvoiceType.VENDOR,
+        notes: reason,
+      },
+    });
+
+    if (existingDeduction) {
+      this.logger.warn(`Deduction invoice already exists for order ${orderId}`);
+      return existingDeduction;
+    }
+
+    // Create negative vendor invoice using existing method
+    const invoice = await this.createVendorInvoice(
+      order,
+      new Date(),
+      new Date(),
+      `Deduction: ${reason}`,
+      'Amount deducted from vendor payout'
+    );
+
+    // Make amounts negative
+    invoice.subtotal = -Math.abs(invoice.subtotal);
+    invoice.total = -Math.abs(invoice.total);
+    invoice.payoutAmount = -Math.abs(invoice.payoutAmount || 0);
+    invoice.commissionAmount = Math.abs(invoice.commissionAmount || 0); // Commission is reversed (positive)
+
+    await this.invoiceRepository.save(invoice);
+
+    // Update vendor balance
+    await this.updateVendorBalance(order.vendorId);
+
+    this.logger.log(`Deduction invoice created for order ${order.orderNumber}`);
+    return invoice;
+  }
+
+  /**
+   * Update vendor balance based on all their invoices
+   */
+  async updateVendorBalance(vendorId: string): Promise<VendorBalance> {
+    // Get or create vendor balance
+    let balance = await this.vendorBalanceRepository.findOne({
+      where: { vendorId },
+    });
+
+    if (!balance) {
+      balance = this.vendorBalanceRepository.create({ vendorId });
+    }
+
+    // Calculate totals from all vendor invoices
+    const invoices = await this.invoiceRepository.find({
+      where: { vendorId, type: InvoiceType.VENDOR },
+    });
+
+    let totalSales = 0;
+    let totalDeductions = 0;
+    let totalCommission = 0;
+
+    invoices.forEach(invoice => {
+      if (invoice.total > 0) {
+        // Positive invoice = payout
+        totalSales += Number(invoice.total);
+        totalCommission += Number(invoice.commissionAmount || 0);
+      } else {
+        // Negative invoice = deduction
+        totalDeductions += Math.abs(Number(invoice.total));
+      }
+    });
+
+    balance.totalSales = totalSales;
+    balance.totalDeductions = totalDeductions;
+    balance.totalCommission = totalCommission;
+    balance.invoiceCount = invoices.length;
+    balance.availableBalance = totalSales - totalDeductions - totalCommission - balance.paidOut;
+    balance.pendingPayout = balance.availableBalance;
+
+    return await this.vendorBalanceRepository.save(balance);
+  }
+
+  /**
+   * Get vendor balance
+   */
+  async getVendorBalance(vendorId: string): Promise<VendorBalance> {
+    const balance = await this.vendorBalanceRepository.findOne({
+      where: { vendorId },
+      relations: ['vendor'],
+    });
+
+    if (!balance) {
+      // Create and return new balance
+      return this.updateVendorBalance(vendorId);
+    }
+
+    return balance;
+  }
+
+  /**
+   * Get vendor statement for a period
+   */
+  async getVendorStatement(vendorId: string, startDate?: Date, endDate?: Date) {
+    const query = this.invoiceRepository
+      .createQueryBuilder('invoice')
+      .where('invoice.vendorId = :vendorId', { vendorId })
+      .andWhere('invoice.type = :type', { type: InvoiceType.VENDOR })
+      .leftJoinAndSelect('invoice.order', 'order')
+      .orderBy('invoice.createdAt', 'DESC');
+
+    if (startDate) {
+      query.andWhere('invoice.createdAt >= :startDate', { startDate });
+    }
+
+    if (endDate) {
+      query.andWhere('invoice.createdAt <= :endDate', { endDate });
+    }
+
+    const invoices = await query.getMany();
+    const balance = await this.getVendorBalance(vendorId);
+
+    // Separate payouts and deductions
+    const payouts = invoices.filter(inv => inv.total > 0);
+    const deductions = invoices.filter(inv => inv.total < 0);
+
+    const totalPayouts = payouts.reduce((sum, inv) => sum + Number(inv.total), 0);
+    const totalDeductionAmount = deductions.reduce((sum, inv) => sum + Math.abs(Number(inv.total)), 0);
+    const totalCommissionAmount = invoices.reduce((sum, inv) => sum + Number(inv.commissionAmount || 0), 0);
+
+    return {
+      vendorId,
+      period: { startDate, endDate },
+      balance,
+      summary: {
+        totalPayouts,
+        totalDeductions: totalDeductionAmount,
+        totalCommission: totalCommissionAmount,
+        netAmount: totalPayouts - totalDeductionAmount - totalCommissionAmount,
+        invoiceCount: invoices.length,
+        payoutCount: payouts.length,
+        deductionCount: deductions.length,
+      },
+      invoices: invoices.map(inv => ({
+        id: inv.id,
+        invoiceNumber: inv.invoiceNumber,
+        orderId: inv.orderId,
+        orderNumber: inv.order?.orderNumber,
+        type: inv.total > 0 ? 'payout' : 'deduction',
+        amount: Number(inv.total),
+        commission: Number(inv.commissionAmount || 0),
+        status: inv.status,
+        date: inv.createdAt,
+        notes: inv.notes,
+      })),
+    };
+  }
+
+  /**
+   * Reconcile vendor balance (recalculate from all invoices)
+   */
+  async reconcileVendorBalance(vendorId: string): Promise<VendorBalance> {
+    this.logger.log(`Reconciling balance for vendor ${vendorId}`);
+    return await this.updateVendorBalance(vendorId);
+  }
+
+  /**
+   * Generate vendor invoices for all delivered+paid orders without invoices
+   */
+  async generateMissingVendorInvoices(): Promise<{ created: number; skipped: number }> {
+    const orders = await this.orderRepository
+      .createQueryBuilder('order')
+      .leftJoinAndSelect('order.items', 'items')
+      .leftJoinAndSelect('items.product', 'product')
+      .leftJoinAndSelect('order.user', 'user')
+      .leftJoinAndSelect('order.vendor', 'vendor')
+      .leftJoinAndSelect('order.invoices', 'invoices')
+      .where('order.status = :status', { status: 'delivered' })
+      .andWhere('order.paymentStatus = :paymentStatus', { paymentStatus: 'paid' })
+      .getMany();
+
+    let created = 0;
+    let skipped = 0;
+
+    for (const order of orders) {
+      try {
+        const hasVendorInvoice = order.invoices?.some(inv => inv.type === InvoiceType.VENDOR && inv.total > 0);
+
+        if (!hasVendorInvoice) {
+          // Reuse existing createFromOrder method
+          await this.createFromOrder({
+            orderId: order.id,
+            type: InvoiceType.VENDOR,
+            notes: 'Vendor payout for delivered order',
+          });
+          
+          // Update vendor balance
+          await this.updateVendorBalance(order.vendorId);
+          
+          created++;
+          this.logger.log(`Created vendor invoice for order ${order.orderNumber}`);
+        } else {
+          skipped++;
+        }
+      } catch (error) {
+        this.logger.error(`Error generating vendor invoice for order ${order.orderNumber}:`, error);
+        skipped++;
+      }
+    }
+
+    this.logger.log(`Vendor invoice generation complete: ${created} created, ${skipped} skipped`);
+    return { created, skipped };
   }
 
   /**

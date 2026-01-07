@@ -430,6 +430,14 @@ export class ProductsService {
   async create(productData: any): Promise<Product> {
     const { categoryIds, newFilterOptions, categoryId, variations, variants, variantOptions, ...data } = productData;
     
+    // Ensure GST fields have default values if not provided
+    if (!data.priceType) {
+      data.priceType = 'mrp_with_gst'; // Default to tax-inclusive pricing
+    }
+    if (!data.gstRate && data.gstRate !== 0) {
+      data.gstRate = 18.00; // Default to 18% GST
+    }
+    
     // Validate image URLs in production
     if (data.images && Array.isArray(data.images)) {
       this.validateImageUrls(data.images);
@@ -526,6 +534,15 @@ export class ProductsService {
       variantOptions,
       ...data 
     } = productData;
+    
+    // Ensure GST fields have default values if explicitly set to null/undefined
+    // Don't override existing values if fields are not in the update payload
+    if (data.hasOwnProperty('priceType') && !data.priceType) {
+      data.priceType = 'mrp_with_gst';
+    }
+    if (data.hasOwnProperty('gstRate') && !data.gstRate && data.gstRate !== 0) {
+      data.gstRate = 18.00;
+    }
     
     // Validate image URLs in production
     if (data.images && Array.isArray(data.images)) {

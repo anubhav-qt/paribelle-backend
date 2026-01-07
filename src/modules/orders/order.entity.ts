@@ -113,6 +113,15 @@ export class Order {
   @Column({ default: true, name: 'billing_address_same_as_shipping' })
   billingAddressSameAsShipping: boolean;
 
+  @Column({ nullable: true, name: 'billing_name' })
+  billingName: string;
+
+  @Column({ nullable: true, name: 'billing_email' })
+  billingEmail: string;
+
+  @Column({ nullable: true, name: 'billing_phone' })
+  billingPhone: string;
+
   @Column({ type: 'text', nullable: true, name: 'billing_address' })
   billingAddress: string;
 

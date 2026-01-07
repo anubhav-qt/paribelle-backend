@@ -4,13 +4,16 @@ import { InvoicesService } from './invoices.service';
 import { InvoicesController } from './invoices.controller';
 import { InvoicePdfService } from './invoice-pdf.service';
 import { Invoice } from './invoice.entity';
+import { VendorBalance } from './vendor-balance.entity';
 import { Order } from '../orders/order.entity';
 import { SimpleEmailModule } from '../simple-email/simple-email.module';
+import { AdminModule } from '../admin/admin.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Invoice, Order]),
+    TypeOrmModule.forFeature([Invoice, VendorBalance, Order]),
     SimpleEmailModule,
+    AdminModule,
   ],
   controllers: [InvoicesController],
   providers: [InvoicesService, InvoicePdfService],

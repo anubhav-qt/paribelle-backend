@@ -312,7 +312,7 @@ CREATE TABLE products (
     hsn_code VARCHAR(255),
     sac_code VARCHAR(255),
     gst_rate DECIMAL(5, 2) DEFAULT 18.00,
-    price_type VARCHAR(50) DEFAULT 'selling_price_without_gst',
+    price_type VARCHAR(50) DEFAULT 'mrp_with_gst',
     mrp DECIMAL(10, 2),
     base_price DECIMAL(10, 2),
     gst_amount DECIMAL(10, 2),
@@ -446,6 +446,9 @@ CREATE TABLE orders (
     
     -- Billing Information
     billing_address_same_as_shipping BOOLEAN DEFAULT TRUE,
+    billing_name VARCHAR(255),
+    billing_email VARCHAR(255),
+    billing_phone VARCHAR(20),
     billing_address TEXT,
     billing_city VARCHAR(100),
     billing_state VARCHAR(100),
@@ -611,6 +614,10 @@ CREATE TABLE invoices (
     commission_rate DECIMAL(5, 2),
     payout_amount DECIMAL(10, 2),
     
+    -- Payment tracking
+    paid_amount DECIMAL(10, 2),
+    paid_at TIMESTAMP,
+    
     -- Billing information
     billing_name TEXT,
     billing_email TEXT,
@@ -620,6 +627,16 @@ CREATE TABLE invoices (
     billing_state VARCHAR(255),
     billing_postal_code VARCHAR(20),
     billing_country VARCHAR(100),
+    
+    -- Shipping information
+    shipping_name TEXT,
+    shipping_email TEXT,
+    shipping_phone TEXT,
+    shipping_address TEXT,
+    shipping_city VARCHAR(255),
+    shipping_state VARCHAR(255),
+    shipping_postal_code VARCHAR(20),
+    shipping_country VARCHAR(100),
     
     -- Tax details
     gst_number VARCHAR(50),
@@ -647,6 +664,28 @@ CREATE TABLE invoices (
 
 -- Note: Invoice items are loaded directly from order_items table via relations
 -- No separate invoice_items table needed to avoid data duplication
+
+-- Vendor Balances Table (aggregate tracking for performance)
+CREATE TABLE vendor_balances (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    vendor_id UUID NOT NULL REFERENCES vendors(id) ON DELETE CASCADE,
+    
+    -- Aggregate totals
+    total_sales DECIMAL(10, 2) DEFAULT 0,
+    total_deductions DECIMAL(10, 2) DEFAULT 0,
+    total_commission DECIMAL(10, 2) DEFAULT 0,
+    pending_payout DECIMAL(10, 2) DEFAULT 0,
+    paid_out DECIMAL(10, 2) DEFAULT 0,
+    available_balance DECIMAL(10, 2) DEFAULT 0,
+    
+    -- Counts
+    invoice_count INTEGER DEFAULT 0,
+    
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    UNIQUE(vendor_id)
+);
 
 -- ============================================================
 -- Review Tables
@@ -990,6 +1029,9 @@ CREATE INDEX idx_invoices_userId ON invoices(user_id);
 CREATE INDEX idx_invoices_vendorId ON invoices(vendor_id);
 CREATE INDEX idx_invoices_type ON invoices(type);
 CREATE INDEX idx_invoices_status ON invoices(status);
+CREATE INDEX idx_invoices_billingState ON invoices(billing_state);
+CREATE INDEX idx_invoices_shippingState ON invoices(shipping_state);
+CREATE INDEX idx_invoices_paidAt ON invoices(paid_at);
 
 -- Reviews
 CREATE INDEX idx_reviews_productId ON reviews(product_id);
