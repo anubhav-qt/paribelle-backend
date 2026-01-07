@@ -800,6 +800,10 @@ export class InvoicesService {
     const customerInvoice = existingInvoices.find(inv => inv.type === InvoiceType.CUSTOMER);
     if (customerInvoice) {
       try {
+        const subtotal = Number(customerInvoice.subtotal) || 0;
+        const tax = Number(customerInvoice.tax) || 0;
+        const discount = Number(customerInvoice.discount) || 0;
+        
         const creditNote = this.invoiceRepository.create({
           invoiceNumber: `CN-${customerInvoice.invoiceNumber}`,
           type: InvoiceType.CUSTOMER,
@@ -809,12 +813,12 @@ export class InvoicesService {
           vendorId: order.vendorId,
           invoiceDate: new Date(),
           dueDate: new Date(),
-          subtotal: -customerInvoice.subtotal, // Negative amounts for credit notes
-          tax: -customerInvoice.tax,
-          discount: -customerInvoice.discount,
+          subtotal: -subtotal, // Negative amounts for credit notes
+          tax: -tax,
+          discount: discount, // Keep discount positive (it was a reduction, so credit note shows same reduction)
           shippingCost: 0, // Shipping cost is non-refundable for returns/cancellations
-          total: -(customerInvoice.subtotal + customerInvoice.tax - customerInvoice.discount), // Total without shipping
-          paidAmount: -(customerInvoice.subtotal + customerInvoice.tax - customerInvoice.discount),
+          total: -(subtotal + tax - discount), // Total without shipping
+          paidAmount: -(subtotal + tax - discount),
           paidAt: new Date(),
           billingName: customerInvoice.billingName,
           billingEmail: customerInvoice.billingEmail,
@@ -842,10 +846,20 @@ export class InvoicesService {
       }
     }
 
-    // Create credit note for vendor invoice (deduct from vendor payout)
+    // Create credit note for vendor invoice (vendor returns product value only, keeps commission & shipping)
     const vendorInvoice = existingInvoices.find(inv => inv.type === InvoiceType.VENDOR);
     if (vendorInvoice) {
       try {
+        // Fair model: Vendor returns (subtotal + tax - commission), keeps shipping
+        // This means marketplace takes the loss on commission
+        const subtotal = Number(vendorInvoice.subtotal) || 0;
+        const tax = Number(vendorInvoice.tax) || 0;
+        const discount = Number(vendorInvoice.discount) || 0;
+        const commissionAmount = Number(vendorInvoice.commissionAmount) || 0;
+        const commissionRate = Number(vendorInvoice.commissionRate) || 0;
+        
+        const amountToReturn = -(subtotal + tax - commissionAmount);
+        
         const creditNote = this.invoiceRepository.create({
           invoiceNumber: `CN-${vendorInvoice.invoiceNumber}`,
           type: InvoiceType.VENDOR,
@@ -854,14 +868,14 @@ export class InvoicesService {
           vendorId: order.vendorId,
           invoiceDate: new Date(),
           dueDate: new Date(),
-          subtotal: -vendorInvoice.subtotal,
-          tax: -vendorInvoice.tax,
-          discount: -vendorInvoice.discount,
-          shippingCost: -vendorInvoice.shippingCost,
-          total: -vendorInvoice.total,
-          commissionAmount: -vendorInvoice.commissionAmount,
-          commissionRate: vendorInvoice.commissionRate,
-          payoutAmount: -vendorInvoice.payoutAmount, // Deduct from vendor payout
+          subtotal: -subtotal,
+          tax: -tax,
+          discount: discount, // Keep discount positive (it was a reduction)
+          shippingCost: 0, // Vendor keeps shipping cost
+          total: -(subtotal + tax - discount), // Total without shipping
+          commissionAmount: commissionAmount, // Show as positive (vendor keeps it)
+          commissionRate: commissionRate,
+          payoutAmount: amountToReturn, // Amount vendor owes back (excludes shipping and commission)
           billingName: vendorInvoice.billingName,
           billingEmail: vendorInvoice.billingEmail,
           billingPhone: vendorInvoice.billingPhone,
@@ -872,8 +886,8 @@ export class InvoicesService {
           billingCountry: vendorInvoice.billingCountry,
           gstNumber: vendorInvoice.gstNumber,
           panNumber: vendorInvoice.panNumber,
-          notes: `CREDIT NOTE - ${reason}. Deduction from vendor payout.`,
-          terms: `This credit note reverses the payout from invoice ${vendorInvoice.invoiceNumber}.`,
+          notes: `CREDIT NOTE - ${reason}. Vendor keeps commission and shipping. Marketplace absorbs commission loss.`,
+          terms: `Vendor returns product value only. Shipping retained by vendor. Commission not charged back.`,
         });
         await this.invoiceRepository.save(creditNote);
         
@@ -892,6 +906,12 @@ export class InvoicesService {
     const platformInvoice = existingInvoices.find(inv => inv.type === InvoiceType.PLATFORM);
     if (platformInvoice) {
       try {
+        const subtotal = Number(platformInvoice.subtotal) || 0;
+        const tax = Number(platformInvoice.tax) || 0;
+        const total = Number(platformInvoice.total) || 0;
+        const commissionAmount = Number(platformInvoice.commissionAmount) || 0;
+        const commissionRate = Number(platformInvoice.commissionRate) || 0;
+        
         const creditNote = this.invoiceRepository.create({
           invoiceNumber: `CN-${platformInvoice.invoiceNumber}`,
           type: InvoiceType.PLATFORM,
@@ -900,11 +920,11 @@ export class InvoicesService {
           vendorId: order.vendorId,
           invoiceDate: new Date(),
           dueDate: new Date(),
-          subtotal: -platformInvoice.subtotal,
-          tax: -platformInvoice.tax,
-          total: -platformInvoice.total,
-          commissionAmount: -platformInvoice.commissionAmount, // Platform loses commission
-          commissionRate: platformInvoice.commissionRate,
+          subtotal: -subtotal,
+          tax: -tax,
+          total: -total,
+          commissionAmount: -commissionAmount, // Platform loses commission
+          commissionRate: commissionRate,
           notes: `CREDIT NOTE - ${reason}. Platform commission reversal.`,
           terms: `This credit note reverses the commission from invoice ${platformInvoice.invoiceNumber}.`,
         });

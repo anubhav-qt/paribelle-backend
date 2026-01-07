@@ -469,19 +469,20 @@ export class InvoicePdfService {
 
     // Totals section (right side)
     let lineY = startY;
+    const isCreditNote = this.isCreditNote(invoice);
 
     doc.fontSize(9).font('Helvetica');
 
-    // Subtotal
+    // Subtotal (use absolute value for credit notes)
     doc
       .fillColor('#666666')
       .text('Sub Total:', labelX, lineY)
       .fillColor('#000000')
-      .text(this.formatCurrency(invoice.subtotal), valueX, lineY, { align: 'right' });
+      .text(this.formatCurrency(isCreditNote ? Math.abs(invoice.subtotal) : invoice.subtotal), valueX, lineY, { align: 'right' });
     lineY += 15;
 
-    // Discount
-    if (invoice.discount && invoice.discount !== 0) {
+    // Discount (only show if there's an actual discount)
+    if (invoice.discount && Math.abs(invoice.discount) > 0) {
       doc
         .fillColor('#666666')
         .text('Discount:', labelX, lineY)
@@ -491,7 +492,7 @@ export class InvoicePdfService {
     }
     
     // Tax (show separately for normal invoices, combine with subtotal for credit notes)
-    if (invoice.status !== 'cancelled' && invoice.tax && invoice.tax > 0) {
+    if (!isCreditNote && invoice.tax && invoice.tax > 0) {
       // Determine if transaction is intra-state or inter-state
       const vendorState = invoice.order?.vendor?.state || invoice.order?.vendor?.gstState;
       const customerState = invoice.billingState;
@@ -525,19 +526,19 @@ export class InvoicePdfService {
           .text(this.formatCurrency(invoice.tax), valueX, lineY, { align: 'right' });
         lineY += 15;
       }
-    } else if (invoice.status === 'cancelled' && invoice.tax && invoice.tax !== 0) {
-      // For credit notes, show tax as part of refundable amount
+    } else if (isCreditNote && invoice.tax && invoice.tax !== 0) {
+      // For credit notes, show tax as refundable amount (negative becomes positive for display)
       doc
         .fillColor('#666666')
         .text('Tax (Refundable):', labelX, lineY)
         .fillColor('#000000')
-        .text(this.formatCurrency(invoice.tax), valueX, lineY, { align: 'right' });
+        .text(this.formatCurrency(Math.abs(invoice.tax)), valueX, lineY, { align: 'right' });
       lineY += 15;
     }
 
-    // Shipping
-    if (invoice.shippingCost && invoice.shippingCost !== 0) {
-      const shippingLabel = invoice.status === 'cancelled' ? 'Shipping (Non-refundable):' : 'Shipping:';
+    // Shipping (only show if there's an actual shipping cost)
+    if (invoice.shippingCost && Math.abs(invoice.shippingCost) > 0) {
+      const shippingLabel = isCreditNote ? 'Shipping (Non-refundable):' : 'Shipping:';
       doc
         .fillColor('#666666')
         .text(shippingLabel, labelX, lineY)
@@ -552,24 +553,36 @@ export class InvoicePdfService {
       .lineTo(555, lineY + 5)
       .stroke('#dee2e6');
 
+    // For credit notes, show the total as positive (it's a refund)
+    const totalLabel = isCreditNote ? 'Refund Amount:' : 'Order Total:';
+    const totalColor = isCreditNote ? '#059669' : '#000000';
+    
     doc
       .fontSize(11)
       .font('Helvetica-Bold')
-      .fillColor('#000000')
-      .text('Order Total:', labelX, lineY + 12)
-      .text(this.formatCurrency(invoice.total), 450, lineY + 12, { width: 100, align: 'right' });
+      .fillColor(totalColor)
+      .text(totalLabel, labelX, lineY + 12)
+      .text(this.formatCurrency(Math.abs(invoice.total)), 450, lineY + 12, { width: 100, align: 'right' });
 
     lineY += 35;
 
     // For vendor invoices, show commission deduction and final payout
-    if (invoice.type === 'vendor' && invoice.commissionAmount) {
+    if (invoice.type === 'vendor' && invoice.commissionAmount && invoice.commissionAmount !== 0) {
+      const absCommission = Math.abs(invoice.commissionAmount);
+      const isCommissionRefund = isCreditNote && invoice.commissionAmount < 0;
+      const commissionLabel = isCommissionRefund 
+        ? `Commission Refund (${invoice.commissionRate}%):` 
+        : `Platform Commission (${invoice.commissionRate}%):`;
+      const commissionColor = isCommissionRefund ? '#22c55e' : '#ef4444';
+      const commissionSign = isCommissionRefund ? '+' : '-';
+      
       doc
         .fontSize(9)
         .font('Helvetica')
         .fillColor('#666666')
-        .text(`Platform Commission (${invoice.commissionRate}%):`, labelX, lineY)
-        .fillColor('#ef4444')
-        .text(`-${this.formatCurrency(invoice.commissionAmount)}`, valueX, lineY, { align: 'right' });
+        .text(commissionLabel, labelX, lineY)
+        .fillColor(commissionColor)
+        .text(`${commissionSign}${this.formatCurrency(absCommission)}`, valueX, lineY, { align: 'right' });
       lineY += 20;
 
       // Line above Vendor Payout
@@ -578,12 +591,15 @@ export class InvoicePdfService {
         .lineTo(555, lineY)
         .stroke('#10b981');
 
+      const payoutLabel = isCreditNote ? 'Payout Reversal:' : 'Vendor Payout:';
+      const payoutColor = isCreditNote ? '#dc2626' : '#065f46';
+      
       doc
         .fontSize(12)
         .font('Helvetica-Bold')
-        .fillColor('#065f46')
-        .text('Vendor Payout:', labelX, lineY + 8)
-        .text(this.formatCurrency(invoice.payoutAmount), valueX, lineY + 8, { align: 'right' });
+        .fillColor(payoutColor)
+        .text(payoutLabel, labelX, lineY + 8)
+        .text(this.formatCurrency(Math.abs(invoice.payoutAmount)), valueX, lineY + 8, { align: 'right' });
 
       lineY += 35;
     }
@@ -753,6 +769,10 @@ export class InvoicePdfService {
   /**
    * Format currency
    */
+  private isCreditNote(invoice: Invoice): boolean {
+    return invoice.invoiceNumber?.startsWith('CN-') || false;
+  }
+
   private formatCurrency(amount: number): string {
     // Handle invalid inputs
     if (amount === null || amount === undefined || isNaN(amount)) {

@@ -322,7 +322,7 @@ export class OrdersService {
   async findAll(userId: string) {
     const orders = await this.orderRepository.find({
       where: { userId },
-      relations: ['items', 'items.product', 'items.product.vendor', 'vendor'],
+      relations: ['items', 'items.product', 'items.product.vendor', 'vendor', 'invoices'],
       order: { createdAt: 'DESC' },
     });
 
@@ -459,7 +459,7 @@ export class OrdersService {
 
   async findAllForAdmin() {
     const orders = await this.orderRepository.find({
-      relations: ['items', 'items.product', 'vendor', 'user'],
+      relations: ['items', 'items.product', 'vendor', 'user', 'invoices'],
       order: { createdAt: 'DESC' },
     });
 
