@@ -326,8 +326,57 @@ export class OrdersService {
       order: { createdAt: 'DESC' },
     });
 
-    // Transform orders to include shippingAddress as object
-    return orders.map(order => this.transformOrder(order));
+    // Fetch returns for all order items
+    const orderIds = orders.map(o => o.id);
+    let returnsData: any[] = [];
+    
+    if (orderIds.length > 0) {
+      const returnsQuery = `
+        SELECT r.*, oi.order_id 
+        FROM returns r
+        INNER JOIN order_items oi ON r.order_item_id = oi.id
+        WHERE oi.order_id = ANY($1)
+        ORDER BY r.created_at DESC
+      `;
+      returnsData = await this.dataSource.query(returnsQuery, [orderIds]);
+    }
+
+    // Group returns by order_id
+    const returnsByOrder: Record<string, any[]> = returnsData.reduce((acc: Record<string, any[]>, ret: any) => {
+      if (!acc[ret.order_id]) {
+        acc[ret.order_id] = [];
+      }
+      acc[ret.order_id].push({
+        id: ret.id,
+        returnNumber: ret.return_number,
+        orderItemId: ret.order_item_id,
+        productName: ret.product_name,
+        quantity: ret.quantity,
+        originalQuantity: ret.original_quantity,
+        refundAmount: parseFloat(ret.refund_amount),
+        refundTotal: parseFloat(ret.refund_total),
+        reason: ret.reason,
+        status: ret.status,
+        requestedAt: ret.requested_at,
+        approvedAt: ret.approved_at,
+        rejectedAt: ret.rejected_at,
+        refundedAt: ret.refunded_at,
+        rejectionReason: ret.rejection_reason,
+        vendorNotes: ret.vendor_notes,
+        trackingNumber: ret.tracking_number,
+        images: ret.images
+      });
+      return acc;
+    }, {});
+
+    // Transform orders to include shippingAddress as object and returns
+    return orders.map(order => {
+      const transformed = this.transformOrder(order);
+      return {
+        ...transformed,
+        returns: returnsByOrder[order.id] || []
+      };
+    });
   }
 
   async findByUserAndStatus(userId: string, status: OrderStatus) {
@@ -362,7 +411,50 @@ export class OrdersService {
     }
 
     const orders = Array.from(ordersMap.values());
-    return orders.map(order => this.transformOrder(order));
+
+    // Fetch returns data for all orders
+    const orderIds = orders.map(o => o.id);
+    const returnsData = orderIds.length > 0 ? await this.dataSource.query(
+      `SELECT * FROM returns WHERE order_id = ANY($1) ORDER BY requested_at DESC`,
+      [orderIds]
+    ) : [];
+
+    // Group returns by order ID
+    const returnsByOrder = returnsData.reduce((acc: any, ret: any) => {
+      if (!acc[ret.order_id]) {
+        acc[ret.order_id] = [];
+      }
+      acc[ret.order_id].push({
+        id: ret.id,
+        returnNumber: ret.return_number,
+        orderItemId: ret.order_item_id,
+        productName: ret.product_name,
+        quantity: ret.quantity,
+        originalQuantity: ret.original_quantity,
+        refundAmount: parseFloat(ret.refund_amount),
+        refundTotal: parseFloat(ret.refund_total),
+        reason: ret.reason,
+        status: ret.status,
+        requestedAt: ret.requested_at,
+        approvedAt: ret.approved_at,
+        rejectedAt: ret.rejected_at,
+        refundedAt: ret.refunded_at,
+        rejectionReason: ret.rejection_reason,
+        vendorNotes: ret.vendor_notes,
+        trackingNumber: ret.tracking_number,
+        images: ret.images
+      });
+      return acc;
+    }, {});
+
+    // Transform orders to include returns
+    return orders.map(order => {
+      const transformed = this.transformOrder(order);
+      return {
+        ...transformed,
+        returns: returnsByOrder[order.id] || []
+      };
+    });
   }
 
   async findAllForAdmin() {
@@ -371,7 +463,49 @@ export class OrdersService {
       order: { createdAt: 'DESC' },
     });
 
-    return orders.map(order => this.transformOrder(order));
+    // Fetch returns data for all orders
+    const orderIds = orders.map(o => o.id);
+    const returnsData = orderIds.length > 0 ? await this.dataSource.query(
+      `SELECT * FROM returns WHERE order_id = ANY($1) ORDER BY requested_at DESC`,
+      [orderIds]
+    ) : [];
+
+    // Group returns by order ID
+    const returnsByOrder = returnsData.reduce((acc: any, ret: any) => {
+      if (!acc[ret.order_id]) {
+        acc[ret.order_id] = [];
+      }
+      acc[ret.order_id].push({
+        id: ret.id,
+        returnNumber: ret.return_number,
+        orderItemId: ret.order_item_id,
+        productName: ret.product_name,
+        quantity: ret.quantity,
+        originalQuantity: ret.original_quantity,
+        refundAmount: parseFloat(ret.refund_amount),
+        refundTotal: parseFloat(ret.refund_total),
+        reason: ret.reason,
+        status: ret.status,
+        requestedAt: ret.requested_at,
+        approvedAt: ret.approved_at,
+        rejectedAt: ret.rejected_at,
+        refundedAt: ret.refunded_at,
+        rejectionReason: ret.rejection_reason,
+        vendorNotes: ret.vendor_notes,
+        trackingNumber: ret.tracking_number,
+        images: ret.images
+      });
+      return acc;
+    }, {});
+
+    // Transform orders to include returns
+    return orders.map(order => {
+      const transformed = this.transformOrder(order);
+      return {
+        ...transformed,
+        returns: returnsByOrder[order.id] || []
+      };
+    });
   }
 
   async findOne(id: string, userId: string) {
@@ -800,6 +934,135 @@ export class OrdersService {
     return savedOrder;
   }
 
+  async requestItemReturn(
+    orderId: string,
+    orderItemId: string,
+    userId: string,
+    quantity: number,
+    reason: string,
+    customerNotes?: string,
+    images?: string[]
+  ) {
+    // Find the order and order item
+    const order = await this.orderRepository.findOne({
+      where: { id: orderId, userId },
+      relations: ['items', 'items.product', 'items.product.vendor', 'user'],
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    if (order.status !== OrderStatus.DELIVERED) {
+      throw new BadRequestException('Only delivered orders can be returned');
+    }
+
+    const orderItem = order.items.find(item => item.id === orderItemId);
+    if (!orderItem) {
+      throw new NotFoundException('Order item not found');
+    }
+
+    // Check vendor return policy
+    const vendor = orderItem.product?.vendor;
+    let returnPolicyDays = 7;
+    let allowReturns = true;
+
+    if (vendor) {
+      returnPolicyDays = vendor.returnPolicyDays ?? 7;
+      allowReturns = vendor.allowReturns ?? true;
+
+      if (!allowReturns) {
+        throw new BadRequestException('This vendor does not accept returns');
+      }
+
+      if (returnPolicyDays === 0) {
+        throw new BadRequestException('Returns are not allowed for this vendor');
+      }
+    }
+
+    // Check return window
+    const deliveredDate = order.deliveredAt;
+    if (deliveredDate) {
+      const daysSinceDelivery = Math.floor((Date.now() - deliveredDate.getTime()) / (1000 * 60 * 60 * 24));
+      if (daysSinceDelivery > returnPolicyDays) {
+        throw new BadRequestException(
+          `Return window has expired (${returnPolicyDays} days from delivery). Order was delivered ${daysSinceDelivery} days ago.`
+        );
+      }
+    }
+
+    // Check if quantity is valid
+    if (quantity <= 0 || quantity > orderItem.quantity) {
+      throw new BadRequestException('Invalid return quantity');
+    }
+
+    // Generate return number
+    const date = new Date();
+    const dateStr = date.toISOString().split('T')[0].replace(/-/g, '');
+    const randomNum = Math.floor(1000 + Math.random() * 9000);
+    const returnNumber = `RET-${dateStr}-${randomNum}`;
+
+    // Calculate refund amounts
+    const itemPrice = parseFloat(orderItem.price.toString());
+    const refundAmount = itemPrice * quantity;
+    const taxRate = 0.18; // Assuming 18% GST, adjust as needed
+    const refundTax = refundAmount * taxRate;
+    const refundTotal = refundAmount + refundTax;
+
+    // Get vendor ID from the order
+    const vendorId = order.vendorId || orderItem.product?.vendorId;
+    if (!vendorId) {
+      throw new BadRequestException('Vendor information not found for this order');
+    }
+
+    // Insert return record directly
+    const insertQuery = `
+      INSERT INTO returns (
+        return_number, order_id, order_item_id, user_id, vendor_id,
+        product_name, quantity, original_quantity, original_price,
+        refund_amount, refund_tax, refund_total,
+        reason, customer_notes, images, status,
+        requested_at, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+      RETURNING *
+    `;
+
+    const returnRecord = await this.dataSource.query(insertQuery, [
+      returnNumber,
+      orderId,
+      orderItemId,
+      userId,
+      vendorId,
+      orderItem.productName,
+      quantity,
+      orderItem.quantity,
+      itemPrice,
+      refundAmount,
+      refundTax,
+      refundTotal,
+      reason,
+      customerNotes || null,
+      images ? JSON.stringify(images) : null,
+      'requested',
+      new Date(),
+      new Date(),
+      new Date()
+    ]);
+
+    // Update order status to RETURN_REQUESTED
+    order.status = OrderStatus.RETURN_REQUESTED;
+    await this.orderRepository.save(order);
+
+    // Emit event
+    this.marketplaceGateway.emitOrderStatusUpdate(order.id, OrderStatus.RETURN_REQUESTED, order.userId);
+
+    return {
+      success: true,
+      message: 'Return request submitted successfully',
+      data: returnRecord[0]
+    };
+  }
+
   /**
    * Approve a return request (Admin only)
    * This allows customer to ship the item back but does NOT process refund yet
@@ -820,6 +1083,7 @@ export class OrdersService {
 
     // Update order status to approved - customer can now ship back
     order.status = OrderStatus.RETURN_APPROVED;
+    order.returnApprovedAt = new Date();
     order.adminNotes = (order.adminNotes || '') + 
       `\nReturn request approved at: ${new Date().toISOString()}\nWaiting for customer to ship item back.`;
 
@@ -955,6 +1219,8 @@ export class OrdersService {
 
     // Revert to delivered status
     order.status = OrderStatus.DELIVERED;
+    order.returnRejectedAt = new Date();
+    order.returnRejectionReason = reason;
     order.adminNotes = (order.adminNotes || '') + 
       `\nReturn rejected at: ${new Date().toISOString()}\nReason: ${reason}`;
 

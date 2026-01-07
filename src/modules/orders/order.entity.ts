@@ -170,6 +170,15 @@ export class Order {
   @Column({ type: 'text', nullable: true, name: 'return_reason' })
   returnReason: string;
 
+  @Column({ type: 'timestamp', nullable: true, name: 'return_approved_at' })
+  returnApprovedAt: Date;
+
+  @Column({ type: 'timestamp', nullable: true, name: 'return_rejected_at' })
+  returnRejectedAt: Date;
+
+  @Column({ type: 'text', nullable: true, name: 'return_rejection_reason' })
+  returnRejectionReason: string;
+
   // Relations
   @ManyToOne(() => User, (user) => user.orders)
   @JoinColumn({ name: 'user_id' })

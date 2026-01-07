@@ -474,6 +474,9 @@ CREATE TABLE orders (
     
     -- Return information
     return_reason TEXT,
+    return_approved_at TIMESTAMP,
+    return_rejected_at TIMESTAMP,
+    return_rejection_reason TEXT,
     
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

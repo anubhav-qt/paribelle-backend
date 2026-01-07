@@ -60,6 +60,24 @@ export class OrdersController {
     return this.ordersService.requestReturn(id, req.user.id, body.reason, body.itemIds);
   }
 
+  @Post(':id/items/:itemId/return')
+  requestItemReturn(
+    @Param('id') orderId: string,
+    @Param('itemId') orderItemId: string,
+    @Request() req,
+    @Body() body: { quantity: number; reason: string; customerNotes?: string; images?: string[] }
+  ) {
+    return this.ordersService.requestItemReturn(
+      orderId,
+      orderItemId,
+      req.user.id,
+      body.quantity,
+      body.reason,
+      body.customerNotes,
+      body.images
+    );
+  }
+
   @Post(':id/return/approve')
   approveReturnRequest(@Param('id') id: string) {
     return this.ordersService.approveReturnRequest(id);
