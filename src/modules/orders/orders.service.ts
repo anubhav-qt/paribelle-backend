@@ -1201,6 +1201,146 @@ export class OrdersService {
   }
 
   /**
+   * Approve an individual item return request
+   */
+  async approveItemReturn(returnId: string) {
+    const result = await this.dataSource.query(
+      `SELECT * FROM returns WHERE id = $1`,
+      [returnId]
+    );
+
+    if (!result || result.length === 0) {
+      throw new NotFoundException('Return request not found');
+    }
+
+    const returnItem = result[0];
+
+    if (returnItem.status !== 'requested') {
+      throw new BadRequestException('Return request has already been processed');
+    }
+
+    // Update return status to approved
+    await this.dataSource.query(
+      `UPDATE returns 
+       SET status = $1, approved_at = $2, updated_at = $3 
+       WHERE id = $4`,
+      ['approved', new Date(), new Date(), returnId]
+    );
+
+    // Emit WebSocket event to notify customer
+    this.marketplaceGateway.emitOrderStatusUpdate(
+      returnItem.order_id, 
+      'return_item_approved', 
+      returnItem.user_id
+    );
+
+    return {
+      success: true,
+      message: 'Item return approved. Customer can now ship the item back.',
+    };
+  }
+
+  /**
+   * Reject an individual item return request
+   */
+  async rejectItemReturn(returnId: string, reason: string) {
+    const result = await this.dataSource.query(
+      `SELECT * FROM returns WHERE id = $1`,
+      [returnId]
+    );
+
+    if (!result || result.length === 0) {
+      throw new NotFoundException('Return request not found');
+    }
+
+    const returnItem = result[0];
+
+    if (returnItem.status !== 'requested') {
+      throw new BadRequestException('Return request has already been processed');
+    }
+
+    if (!reason || !reason.trim()) {
+      throw new BadRequestException('Rejection reason is required');
+    }
+
+    // Update return status to rejected
+    await this.dataSource.query(
+      `UPDATE returns 
+       SET status = $1, rejected_at = $2, rejection_reason = $3, updated_at = $4 
+       WHERE id = $5`,
+      ['rejected', new Date(), reason, new Date(), returnId]
+    );
+
+    // Emit WebSocket event to notify customer
+    this.marketplaceGateway.emitOrderStatusUpdate(
+      returnItem.order_id, 
+      'return_item_rejected', 
+      returnItem.user_id
+    );
+
+    return {
+      success: true,
+      message: 'Item return request rejected.',
+    };
+  }
+
+  /**
+   * Confirm individual item return received and process refund
+   */
+  async confirmItemReturnReceived(returnId: string, refundNow: boolean = true) {
+    const result = await this.dataSource.query(
+      `SELECT * FROM returns WHERE id = $1`,
+      [returnId]
+    );
+
+    if (!result || result.length === 0) {
+      throw new NotFoundException('Return request not found');
+    }
+
+    const returnItem = result[0];
+
+    if (returnItem.status !== 'approved') {
+      throw new BadRequestException('Return must be approved before confirming receipt');
+    }
+
+    // Update return status
+    const newStatus = refundNow ? 'refunded' : 'received';
+    const updateFields: any = {
+      status: newStatus,
+      received_at: new Date(),
+      updated_at: new Date(),
+    };
+
+    if (refundNow) {
+      updateFields.refunded_at = new Date();
+    }
+
+    await this.dataSource.query(
+      `UPDATE returns 
+       SET status = $1, received_at = $2, refunded_at = $3, updated_at = $4 
+       WHERE id = $5`,
+      [newStatus, updateFields.received_at, updateFields.refunded_at || null, updateFields.updated_at, returnId]
+    );
+
+    if (refundNow) {
+      // TODO: Process actual refund through payment gateway
+      console.log(`[confirmItemReturnReceived] Processing refund of $${returnItem.refund_total} for return ${returnItem.return_number}`);
+    }
+
+    // Emit WebSocket event to notify customer
+    this.marketplaceGateway.emitOrderStatusUpdate(
+      returnItem.order_id, 
+      refundNow ? 'return_item_refunded' : 'return_item_received', 
+      returnItem.user_id
+    );
+
+    return {
+      success: true,
+      message: refundNow ? 'Item return received and refund processed.' : 'Item return received.',
+    };
+  }
+
+  /**
    * Reject a return request (Admin only)
    */
   async rejectReturn(orderId: string, reason: string): Promise<Order> {

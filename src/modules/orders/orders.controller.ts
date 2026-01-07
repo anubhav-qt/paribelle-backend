@@ -93,6 +93,21 @@ export class OrdersController {
     return this.ordersService.rejectReturn(id, body.reason);
   }
 
+  @Post('returns/:returnId/approve')
+  approveItemReturn(@Param('returnId') returnId: string) {
+    return this.ordersService.approveItemReturn(returnId);
+  }
+
+  @Post('returns/:returnId/reject')
+  rejectItemReturn(@Param('returnId') returnId: string, @Body() body: { reason: string }) {
+    return this.ordersService.rejectItemReturn(returnId, body.reason);
+  }
+
+  @Post('returns/:returnId/received')
+  confirmItemReturnReceived(@Param('returnId') returnId: string, @Body() body: { refundNow?: boolean }) {
+    return this.ordersService.confirmItemReturnReceived(returnId, body.refundNow);
+  }
+
   @Get(':id/review')
   async getOrderReviews(@Param('id') id: string, @Request() req) {
     const [items, vendorReview] = await Promise.all([
