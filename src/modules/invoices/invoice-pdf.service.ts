@@ -355,7 +355,7 @@ export class InvoicePdfService {
       .text('HSN', hsnX, tableTop + 8)
       .text('Qty', qtyX, tableTop + 8)
       .text('Price', priceX, tableTop + 8)
-      .text('Tax', taxX, tableTop + 8)
+      .text('Tax/Unit', taxX, tableTop + 8)
       .text('Total', totalX, tableTop + 8);
 
     let currentY = tableTop + 35;
@@ -411,7 +411,7 @@ export class InvoicePdfService {
           .text(hsnCode, hsnX, currentY)
           .text(quantity.toString(), qtyX, currentY)
           .text(this.formatCurrency(baseUnitPrice), priceX, currentY)
-          .text(taxAmount > 0 ? this.formatCurrency(taxAmount) : '-', taxX, currentY)
+          .text(taxPerUnit > 0 ? this.formatCurrency(taxPerUnit) : '-', taxX, currentY)
           .text(this.formatCurrency(itemTotal), totalX, currentY);
 
         // Variant details if any
