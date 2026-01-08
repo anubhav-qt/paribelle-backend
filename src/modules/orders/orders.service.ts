@@ -398,6 +398,7 @@ export class OrdersService {
         returnNumber: ret.return_number,
         orderItemId: ret.order_item_id,
         productName: ret.product_name,
+        product_sku: ret.product_sku,
         quantity: ret.quantity,
         originalQuantity: ret.original_quantity,
         refundAmount: parseFloat(ret.refund_amount),
@@ -407,10 +408,15 @@ export class OrdersService {
         requestedAt: ret.requested_at,
         approvedAt: ret.approved_at,
         rejectedAt: ret.rejected_at,
+        receivedAt: ret.received_at,
         refundedAt: ret.refunded_at,
+        cancelledAt: ret.cancelled_at,
         rejectionReason: ret.rejection_reason,
+        customerNotes: ret.customer_notes,
+        adminNotes: ret.admin_notes,
         vendorNotes: ret.vendor_notes,
         trackingNumber: ret.tracking_number,
+        carrier: ret.carrier,
         images: ret.images
       });
       return acc;
@@ -476,6 +482,7 @@ export class OrdersService {
         returnNumber: ret.return_number,
         orderItemId: ret.order_item_id,
         productName: ret.product_name,
+        product_sku: ret.product_sku,
         quantity: ret.quantity,
         originalQuantity: ret.original_quantity,
         refundAmount: parseFloat(ret.refund_amount),
@@ -485,10 +492,15 @@ export class OrdersService {
         requestedAt: ret.requested_at,
         approvedAt: ret.approved_at,
         rejectedAt: ret.rejected_at,
+        receivedAt: ret.received_at,
         refundedAt: ret.refunded_at,
+        cancelledAt: ret.cancelled_at,
         rejectionReason: ret.rejection_reason,
+        customerNotes: ret.customer_notes,
+        adminNotes: ret.admin_notes,
         vendorNotes: ret.vendor_notes,
         trackingNumber: ret.tracking_number,
+        carrier: ret.carrier,
         images: ret.images
       });
       return acc;
@@ -527,6 +539,7 @@ export class OrdersService {
         returnNumber: ret.return_number,
         orderItemId: ret.order_item_id,
         productName: ret.product_name,
+        product_sku: ret.product_sku,
         quantity: ret.quantity,
         originalQuantity: ret.original_quantity,
         refundAmount: parseFloat(ret.refund_amount),
@@ -536,10 +549,15 @@ export class OrdersService {
         requestedAt: ret.requested_at,
         approvedAt: ret.approved_at,
         rejectedAt: ret.rejected_at,
+        receivedAt: ret.received_at,
         refundedAt: ret.refunded_at,
+        cancelledAt: ret.cancelled_at,
         rejectionReason: ret.rejection_reason,
+        customerNotes: ret.customer_notes,
+        adminNotes: ret.admin_notes,
         vendorNotes: ret.vendor_notes,
         trackingNumber: ret.tracking_number,
+        carrier: ret.carrier,
         images: ret.images
       });
       return acc;
