@@ -1,11 +1,16 @@
 #!/usr/bin/env pwsh
+param(
+    [switch]$ResetDB,
+    [switch]$Build
+)
+
 Write-Host "=====================================" -ForegroundColor Cyan
 Write-Host "  Restarting Marketplace Services" -ForegroundColor Cyan
 Write-Host "=====================================" -ForegroundColor Cyan
 
-# Check if BUILD_MODE is enabled
-$buildMode = $env:BUILD_MODE -eq "true"
-$resetDb = $env:RESET_DB -eq "true"
+# Check if BUILD_MODE is enabled (parameter takes precedence over env var)
+$buildMode = if ($Build) { $true } else { $env:BUILD_MODE -eq "true" }
+$resetDb = if ($ResetDB) { $true } else { $env:RESET_DB -eq "true" }
 
 if ($buildMode) {
     Write-Host "`n🔨 BUILD MODE ENABLED - Building projects..." -ForegroundColor Magenta
@@ -139,14 +144,19 @@ Write-Host "`nCheck the new terminal windows for server logs" -ForegroundColor Y
 Write-Host "Press Ctrl+C in those windows to stop the servers" -ForegroundColor Yellow
 
 Write-Host "`n💡 Usage Tips:" -ForegroundColor Cyan
+Write-Host "   Command-line options:" -ForegroundColor Gray
+Write-Host "     .\restart-services.ps1 -ResetDB    # Reset database and restart" -ForegroundColor Gray
+Write-Host "     .\restart-services.ps1 -Build      # Build projects in production mode" -ForegroundColor Gray
+Write-Host "     .\restart-services.ps1 -ResetDB -Build # Both options" -ForegroundColor Gray
+Write-Host "" -ForegroundColor Gray
 if ($buildMode) {
     Write-Host "   Currently in BUILD mode (production builds + production servers)" -ForegroundColor Gray
     Write-Host "   To switch to dev mode: `$env:BUILD_MODE=`"false`" or restart PowerShell" -ForegroundColor Gray
 } else {
     Write-Host "   Currently in DEV mode (development servers with hot reload)" -ForegroundColor Gray
-    Write-Host "   To enable build mode: `$env:BUILD_MODE=`"true`"" -ForegroundColor Gray
+    Write-Host "   To enable build mode: `$env:BUILD_MODE=`"true`" or use -Build parameter" -ForegroundColor Gray
 }
 
 if ($resetDb) {
-    Write-Host "   Database was reset. To skip reset: `$env:RESET_DB=`"false`"" -ForegroundColor Gray
+    Write-Host "   Database was reset. To skip reset next time, don't use -ResetDB" -ForegroundColor Gray
 }
