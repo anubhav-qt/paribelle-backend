@@ -60,15 +60,15 @@ class InvoiceService {
 
       const items = itemsResult.rows;
 
-      // Calculate totals with returns
+      // Calculate totals - show original order amounts, then subtract returns
       let subtotal = 0;
       let totalTax = 0;
       let totalRefunded = 0;
 
       const invoiceItems = items.map(item => {
-        const effectiveQuantity = item.quantity - item.returned_quantity;
-        const itemSubtotal = item.price * effectiveQuantity;
-        const itemTax = (item.tax || 0) * (effectiveQuantity / item.quantity);
+        // Calculate based on ORIGINAL quantity ordered
+        const itemSubtotal = item.price * item.quantity;
+        const itemTax = item.tax || 0;
         
         subtotal += itemSubtotal;
         totalTax += itemTax;
@@ -76,7 +76,6 @@ class InvoiceService {
 
         return {
           ...item,
-          effective_quantity: effectiveQuantity,
           returned_quantity: item.returned_quantity,
           item_subtotal: itemSubtotal,
           item_tax: itemTax,
@@ -84,8 +83,10 @@ class InvoiceService {
         };
       });
 
-      const invoiceTotal = subtotal + totalTax + (order.shipping_cost || 0) - (order.discount || 0);
-      const finalAmount = invoiceTotal - totalRefunded;
+      // Calculate invoice total from original order
+      const originalTotal = subtotal + totalTax + (order.shipping_cost || 0) - (order.discount || 0);
+      // Subtract refunds for returned items
+      const finalAmount = originalTotal - totalRefunded;
 
       return {
         order,
@@ -95,7 +96,7 @@ class InvoiceService {
           tax: totalTax,
           shipping: order.shipping_cost || 0,
           discount: order.discount || 0,
-          invoice_total: invoiceTotal,
+          invoice_total: originalTotal,
           refunded: totalRefunded,
           final_amount: finalAmount
         },
@@ -255,9 +256,9 @@ class InvoiceService {
           item.product_id,
           item.product_name,
           item.returned_quantity > 0 
-            ? `${item.product_name} (${item.returned_quantity} returned)` 
-            : item.product_name,
-          item.effective_quantity,
+            ? `Original quantity: ${item.quantity}, Returned: ${item.returned_quantity}` 
+            : null,
+          item.quantity,  // Show original quantity, not effective quantity
           item.price,
           item.item_total,
           item.item_tax,
