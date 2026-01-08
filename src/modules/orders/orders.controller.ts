@@ -109,6 +109,11 @@ export class OrdersController {
     return this.ordersService.rejectAllReturns(orderId, body.reason);
   }
 
+  @Post(':orderId/returns/confirm-all')
+  confirmAllReturns(@Param('orderId') orderId: string) {
+    return this.ordersService.confirmAllReturns(orderId);
+  }
+
   @Post('returns/:returnId/approve')
   approveItemReturn(@Param('returnId') returnId: string) {
     return this.ordersService.approveItemReturn(returnId);

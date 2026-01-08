@@ -1223,6 +1223,115 @@ export class OrdersService {
   }
 
   /**
+   * Confirm all approved returns - restore stock and create single credit note
+   */
+  async confirmAllReturns(orderId: string) {
+    // Get all approved returns for this order
+    const returns = await this.dataSource.query(
+      `SELECT * FROM returns WHERE order_id = $1 AND status = 'approved'`,
+      [orderId]
+    );
+
+    if (!returns || returns.length === 0) {
+      throw new NotFoundException('No approved returns found for this order');
+    }
+
+    // Get order details
+    const order = await this.orderRepository.findOne({
+      where: { id: orderId },
+      relations: ['items', 'user', 'vendor'],
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    // Restore stock for each return item
+    for (const returnItem of returns) {
+      // Check if it's a variant or regular product
+      if (returnItem.variant_id) {
+        await this.dataSource.query(
+          `UPDATE product_variants SET stock_quantity = stock_quantity + $1 WHERE id = $2`,
+          [returnItem.quantity, returnItem.variant_id]
+        );
+        console.log(`[confirmAllReturns] Restored ${returnItem.quantity} units to variant ${returnItem.variant_id}`);
+      } else if (returnItem.product_id) {
+        await this.productRepository.increment(
+          { id: returnItem.product_id },
+          'stockQuantity',
+          returnItem.quantity
+        );
+        console.log(`[confirmAllReturns] Restored ${returnItem.quantity} units to product ${returnItem.product_id}`);
+      }
+
+      // Update return status to received
+      await this.dataSource.query(
+        `UPDATE returns 
+         SET status = 'received', received_at = $1, updated_at = $2 
+         WHERE id = $3`,
+        [new Date(), new Date(), returnItem.id]
+      );
+
+      // Emit WebSocket stock update
+      if (returnItem.product_id) {
+        const product = await this.productRepository.findOne({
+          where: { id: returnItem.product_id }
+        });
+        if (product) {
+          this.marketplaceGateway.emitStockUpdate(
+            product.id,
+            product.stockQuantity
+          );
+        }
+      }
+    }
+
+    // Update order status to RETURNED
+    await this.orderRepository.update(
+      { id: orderId },
+      { 
+        status: OrderStatus.RETURNED,
+        returnedAt: new Date()
+      }
+    );
+
+    // Create a single consolidated credit note for all returns
+    try {
+      // Calculate totals from all returns
+      const totalRefundAmount = returns.reduce((sum, r) => sum + parseFloat(r.refund_amount || 0), 0);
+      const totalRefundTax = returns.reduce((sum, r) => sum + parseFloat(r.refund_tax || 0), 0);
+      
+      // Calculate commission on returned amount (assuming commission rate from order)
+      const commissionRate = order.commissionRate || 0;
+      const returnedCommission = totalRefundAmount * (commissionRate / 100);
+
+      await this.invoicesService.createPartialCreditNote(
+        orderId,
+        totalRefundAmount,
+        totalRefundTax,
+        returnedCommission,
+        `Return of ${returns.length} item(s)`
+      );
+      console.log(`[confirmAllReturns] Created consolidated credit note for order ${orderId}`);
+    } catch (error) {
+      console.error('Failed to create consolidated credit note:', error);
+    }
+
+    // Emit WebSocket event
+    this.marketplaceGateway.emitOrderStatusUpdate(
+      orderId,
+      OrderStatus.RETURNED,
+      order.userId
+    );
+
+    return {
+      success: true,
+      message: `${returns.length} return(s) confirmed. Stock restored and credit note created.`,
+      confirmedCount: returns.length
+    };
+  }
+
+  /**
    * Approve a return request (Admin only)
    * This allows customer to ship the item back but does NOT process refund yet
    */
