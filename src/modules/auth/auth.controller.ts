@@ -84,6 +84,7 @@ export class AuthController {
       country?: string;
       postalCode?: string;
       isGoogleAuth?: boolean;
+      referralCode?: string;
     },
   ) {
     return this.authService.registerVendor(body);

@@ -6,12 +6,13 @@ import { InvoicePdfService } from './invoice-pdf.service';
 import { Invoice } from './invoice.entity';
 import { VendorBalance } from './vendor-balance.entity';
 import { Order } from '../orders/order.entity';
+import { Vendor } from '../vendors/vendor.entity';
 import { SimpleEmailModule } from '../simple-email/simple-email.module';
 import { AdminModule } from '../admin/admin.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Invoice, VendorBalance, Order]),
+    TypeOrmModule.forFeature([Invoice, VendorBalance, Order, Vendor]),
     SimpleEmailModule,
     AdminModule,
   ],

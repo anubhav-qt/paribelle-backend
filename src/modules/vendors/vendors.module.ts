@@ -12,11 +12,15 @@ import { VendorPagesService } from './vendor-pages.service';
 import { KYCController } from './kyc.controller';
 import { KYCService } from './kyc.service';
 import { LocationsModule } from '../locations/locations.module';
+import { ReferralsModule } from '../referrals/referrals.module';
+import { InvoicesModule } from '../invoices/invoices.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Vendor, User, VendorPage, VendorBlogPost, VendorNavigation]),
     LocationsModule,
+    ReferralsModule,
+    InvoicesModule,
   ],
   controllers: [VendorsController, VendorPagesController, KYCController],
   providers: [VendorsService, VendorPagesService, KYCService],

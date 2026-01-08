@@ -4,10 +4,12 @@ import { Repository } from 'typeorm';
 import { Invoice, InvoiceType, InvoiceStatus } from './invoice.entity';
 import { VendorBalance } from './vendor-balance.entity';
 import { Order } from '../orders/order.entity';
+import { Vendor } from '../vendors/vendor.entity';
 import { CreateInvoiceDto, UpdateInvoiceDto, SendInvoiceDto } from './dto/create-invoice.dto';
 import { InvoicePdfService } from './invoice-pdf.service';
 import { SimpleEmailService } from '../simple-email/simple-email.service';
 import { ConfigService } from '@nestjs/config';
+import { SettingsService } from '../admin/settings.service';
 
 @Injectable()
 export class InvoicesService {
@@ -20,9 +22,12 @@ export class InvoicesService {
     private vendorBalanceRepository: Repository<VendorBalance>,
     @InjectRepository(Order)
     private orderRepository: Repository<Order>,
+    @InjectRepository(Vendor)
+    private vendorRepository: Repository<Vendor>,
     private invoicePdfService: InvoicePdfService,
     private simpleEmailService: SimpleEmailService,
     private configService: ConfigService,
+    private settingsService: SettingsService,
   ) {}
 
   /**
@@ -936,5 +941,125 @@ export class InvoicesService {
     }
 
     this.logger.log(`Credit notes creation completed for order ${order.orderNumber}`);
+  }
+
+  /**
+   * Create registration invoice for vendor
+   */
+  async createRegistrationInvoice(
+    vendor: Vendor,
+    referralDiscount: number = 0,
+  ): Promise<Invoice> {
+    // Get registration cost from settings
+    const registrationCost = Number(
+      await this.settingsService.getSetting('VENDOR_REGISTRATION_COST'),
+    ) || 5000;
+
+    const subtotal = registrationCost;
+    const discount = referralDiscount;
+    const tax = 0; // No tax on registration fee
+    const total = subtotal - discount + tax;
+
+    const invoice = this.invoiceRepository.create({
+      invoiceNumber: this.generateInvoiceNumber(),
+      type: InvoiceType.REGISTRATION,
+      status: InvoiceStatus.PENDING,
+      vendorId: vendor.id,
+      invoiceDate: new Date(),
+      dueDate: this.calculateDueDate(new Date(), 7), // 7 days to pay
+      subtotal,
+      tax,
+      discount,
+      total,
+      billingName: vendor.businessName || vendor.storeName,
+      billingEmail: vendor.contactEmail,
+      billingPhone: vendor.contactPhone,
+      billingAddress: vendor.address,
+      billingCity: vendor.city,
+      billingState: vendor.state,
+      billingPostalCode: vendor.postalCode,
+      billingCountry: vendor.country,
+      notes: referralDiscount > 0
+        ? `Vendor registration fee with referral discount of ${this.formatCurrency(referralDiscount)}.`
+        : 'Vendor registration fee.',
+      terms: 'Payment must be completed within 7 days to activate your vendor account.',
+    });
+
+    return this.invoiceRepository.save(invoice);
+  }
+
+  /**
+   * Create referral credit invoice (credit note for referrer)
+   */
+  async createReferralCreditInvoice(
+    referrerId: string,
+    creditAmount: number,
+    registrationInvoiceId: string,
+  ): Promise<Invoice> {
+    // Get the registration invoice to link
+    const registrationInvoice = await this.invoiceRepository.findOne({
+      where: { id: registrationInvoiceId },
+      relations: ['vendor'],
+    });
+
+    if (!registrationInvoice) {
+      throw new NotFoundException('Registration invoice not found');
+    }
+
+    const invoice = this.invoiceRepository.create({
+      invoiceNumber: `RC-${registrationInvoice.invoiceNumber}`,
+      type: InvoiceType.REFERRAL_CREDIT,
+      status: InvoiceStatus.PAID,
+      vendorId: registrationInvoice.vendorId,
+      invoiceDate: new Date(),
+      dueDate: new Date(),
+      subtotal: creditAmount,
+      tax: 0,
+      discount: 0,
+      total: creditAmount,
+      paidAmount: creditAmount,
+      paidAt: new Date(),
+      notes: `Referral credit for bringing in vendor: ${registrationInvoice.vendor?.storeName || 'Unknown'}.`,
+      terms: `This credit has been added to your wallet/vendor balance.`,
+    });
+
+    return this.invoiceRepository.save(invoice);
+  }
+
+  /**
+   * Find registration invoice for vendor
+   */
+  async findRegistrationInvoice(vendorId: string): Promise<Invoice | null> {
+    return this.invoiceRepository.findOne({
+      where: {
+        vendorId,
+        type: InvoiceType.REGISTRATION,
+      },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  /**
+   * Mark invoice as paid
+   */
+  async markInvoiceAsPaid(
+    invoiceId: string,
+    paymentId: string,
+    amount: number,
+  ): Promise<Invoice> {
+    const invoice = await this.invoiceRepository.findOne({
+      where: { id: invoiceId },
+    });
+
+    if (!invoice) {
+      throw new NotFoundException('Invoice not found');
+    }
+
+    invoice.status = InvoiceStatus.PAID;
+    invoice.paidAmount = amount;
+    invoice.paidAt = new Date();
+    invoice.notes = `${invoice.notes || ''}\nPayment ID: ${paymentId}`;
+
+    return this.invoiceRepository.save(invoice);
   }
 }

@@ -85,6 +85,22 @@ export class User {
   @Column({ type: 'timestamp', nullable: true, name: 'last_login_at' })
   lastLoginAt: Date;
 
+  // Referral System Fields
+  @Column({ type: 'varchar', length: 20, unique: true, nullable: true, name: 'referral_code' })
+  referralCode: string;
+
+  @Column({ type: 'uuid', nullable: true, name: 'referred_by' })
+  referredBy: string;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0, name: 'wallet_balance' })
+  walletBalance: number;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0, name: 'referral_credits_earned' })
+  referralCreditsEarned: number;
+
+  @Column({ type: 'timestamp', nullable: true, name: 'last_referral_date' })
+  lastReferralDate: Date;
+
   @OneToOne(() => Vendor, (vendor) => vendor.user)
   vendor: Vendor;
 

@@ -42,6 +42,11 @@ CREATE TABLE users (
     email_verification_token_expiry TIMESTAMP,
     phone_verified_at TIMESTAMP,
     last_login_at TIMESTAMP,
+    referral_code VARCHAR(20) UNIQUE,
+    referred_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    wallet_balance DECIMAL(10, 2) DEFAULT 0,
+    referral_credits_earned DECIMAL(10, 2) DEFAULT 0,
+    last_referral_date TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -221,6 +226,12 @@ CREATE TABLE vendors (
     -- Return & Cancellation Policies (JSONB)
     return_policy JSONB,
     cancellation_policy JSONB,
+    
+    -- Referral System
+    referred_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    registration_fee_paid DECIMAL(10, 2) DEFAULT 0,
+    registration_paid_at TIMESTAMP,
+    referral_discount DECIMAL(10, 2) DEFAULT 0,
     
     -- Relations
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -780,6 +791,20 @@ CREATE TABLE vendor_balances (
     UNIQUE(vendor_id)
 );
 
+-- Referral Transactions Table
+CREATE TABLE referral_transactions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    referrer_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    referred_vendor_id UUID NOT NULL REFERENCES vendors(id) ON DELETE CASCADE,
+    credit_amount DECIMAL(10, 2) NOT NULL,
+    registration_invoice_id UUID REFERENCES invoices(id) ON DELETE SET NULL,
+    status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'credited', 'failed', 'cancelled')),
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    credited_at TIMESTAMP
+);
+
 -- ============================================================
 -- Review Tables
 -- ============================================================
@@ -1243,6 +1268,18 @@ COMMENT ON TABLE returns IS 'Tracks return requests for individual order items';
 COMMENT ON TABLE return_refunds IS 'Tracks refund transactions for approved returns';
 COMMENT ON COLUMN returns.quantity IS 'Number of items being returned (can be partial quantity)';
 COMMENT ON COLUMN returns.original_quantity IS 'Original quantity purchased in the order item';
+
+-- ============================================================
+-- Referral System Indexes
+-- ============================================================
+
+CREATE INDEX IF NOT EXISTS idx_users_referral_code ON users(referral_code);
+CREATE INDEX IF NOT EXISTS idx_users_referred_by ON users(referred_by);
+CREATE INDEX IF NOT EXISTS idx_users_last_referral_date ON users(last_referral_date);
+CREATE INDEX IF NOT EXISTS idx_vendors_referred_by ON vendors(referred_by);
+CREATE INDEX IF NOT EXISTS idx_referral_transactions_referrer ON referral_transactions(referrer_id);
+CREATE INDEX IF NOT EXISTS idx_referral_transactions_vendor ON referral_transactions(referred_vendor_id);
+CREATE INDEX IF NOT EXISTS idx_referral_transactions_status ON referral_transactions(status);
 
 -- ============================================================
 -- Database Initialization Complete

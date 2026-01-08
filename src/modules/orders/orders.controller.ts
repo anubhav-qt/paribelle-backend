@@ -35,6 +35,12 @@ export class OrdersController {
     return this.ordersService.findAllForAdmin();
   }
 
+  @Get('wallet-balance')
+  async getWalletBalance(@Request() req) {
+    const balance = await this.ordersService.getWalletBalance(req.user.id);
+    return { balance };
+  }
+
   @Patch(':id/cancel')
   cancel(@Param('id') id: string, @Request() req, @Body() body: { reason?: string }) {
     return this.ordersService.cancel(id, req.user.id, body.reason);

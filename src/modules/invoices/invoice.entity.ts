@@ -16,6 +16,8 @@ export enum InvoiceType {
   CUSTOMER = 'customer', // Invoice sent to customer
   VENDOR = 'vendor', // Invoice/payout statement for vendor
   PLATFORM = 'platform', // Commission invoice for platform
+  REGISTRATION = 'registration', // Vendor registration fee invoice
+  REFERRAL_CREDIT = 'referral_credit', // Referral credit invoice
 }
 
 export enum InvoiceStatus {

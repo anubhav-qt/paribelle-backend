@@ -8,6 +8,7 @@ import { User, UserRole } from '../users/user.entity';
 import { UsersService } from '../users/users.service';
 import { Vendor, VendorStatus } from '../vendors/vendor.entity';
 import { SimpleEmailService } from '../simple-email/simple-email.service';
+import { ReferralsService } from '../referrals/referrals.service';
 
 @Injectable()
 export class AuthService {
@@ -19,6 +20,7 @@ export class AuthService {
     private usersRepository: Repository<User>,
     @InjectRepository(Vendor)
     private vendorsRepository: Repository<Vendor>,
+    private referralsService: ReferralsService,
   ) {}
 
   async validateUser(email: string, password: string): Promise<any> {
@@ -67,11 +69,15 @@ export class AuthService {
     const verificationTokenExpiry = new Date();
     verificationTokenExpiry.setHours(verificationTokenExpiry.getHours() + 24); // 24 hours
     
+    // Generate referral code for new user
+    const referralCode = await this.referralsService.generateReferralCode();
+    
     const user = await this.usersService.create({
       ...userData,
       password: hashedPassword,
       emailVerificationToken: verificationToken,
       emailVerificationTokenExpiry: verificationTokenExpiry,
+      referralCode,
     });
     
     // Send verification email
@@ -157,6 +163,7 @@ export class AuthService {
     country?: string;
     postalCode?: string;
     isGoogleAuth?: boolean;
+    referralCode?: string;
   }) {
     // Check if user already exists
     const existingUser = await this.usersService.findByEmail(vendorData.email);
@@ -170,6 +177,17 @@ export class AuthService {
     });
     if (existingStore) {
       throw new BadRequestException('Store name already taken');
+    }
+
+    // Process referral code if provided
+    let referrerId: string | null = null;
+    let registrationDiscount = 0;
+    if (vendorData.referralCode) {
+      const feeData = await this.referralsService.calculateDiscountedFee(
+        vendorData.referralCode,
+      );
+      referrerId = feeData.referrerId;
+      registrationDiscount = feeData.discount;
     }
 
     // Create user account
@@ -187,6 +205,9 @@ export class AuthService {
       hashedPassword = await bcrypt.hash(vendorData.password, 10);
     }
 
+    // Generate referral code for the new vendor
+    const referralCode = await this.referralsService.generateReferralCode();
+
     const user = await this.usersRepository.save({
       email: vendorData.email,
       password: hashedPassword,
@@ -194,6 +215,8 @@ export class AuthService {
       lastName: vendorData.lastName,
       phone: vendorData.phone,
       role: UserRole.VENDOR_ADMIN,
+      referralCode,
+      referredBy: referrerId || undefined,
     });
 
     // Create vendor/store
@@ -216,6 +239,8 @@ export class AuthService {
       postalCode: vendorData.postalCode,
       status: VendorStatus.PENDING,
       userId: user.id,
+      referredBy: referrerId || undefined,
+      referralDiscount: registrationDiscount,
     });
 
     // Link vendor to user

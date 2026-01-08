@@ -34,6 +34,7 @@ import { PlatformModule } from './modules/platform/platform.module';
 import { HsnCodesModule } from './modules/hsn-codes/hsn-codes.module';
 import { InvoicesModule } from './modules/invoices/invoices.module';
 import { StockModule } from './modules/stock/stock.module';
+import { ReferralsModule } from './modules/referrals/referrals.module';
 
 @Module({
   imports: [
@@ -126,6 +127,7 @@ import { StockModule } from './modules/stock/stock.module';
     HsnCodesModule,
     InvoicesModule,
     StockModule,
+    ReferralsModule,
   ],
 })
 export class AppModule {}

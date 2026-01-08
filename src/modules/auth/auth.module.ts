@@ -10,10 +10,12 @@ import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
 import { UsersModule } from '../users/users.module';
+import { ReferralsModule } from '../referrals/referrals.module';
 
 @Module({
   imports: [
     UsersModule,
+    ReferralsModule,
     PassportModule,
     TypeOrmModule.forFeature([User, Vendor]),
     JwtModule.registerAsync({

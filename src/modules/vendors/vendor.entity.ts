@@ -343,6 +343,19 @@ export class Vendor {
     text: string;
   } | null;
 
+  // Referral System Fields
+  @Column({ type: 'uuid', nullable: true, name: 'referred_by' })
+  referredBy: string;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0, name: 'registration_fee_paid' })
+  registrationFeePaid: number;
+
+  @Column({ type: 'timestamp', nullable: true, name: 'registration_paid_at' })
+  registrationPaidAt: Date;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0, name: 'referral_discount' })
+  referralDiscount: number;
+
   // Relations
   @OneToOne(() => User, (user) => user.vendor)
   @JoinColumn({ name: 'user_id' })

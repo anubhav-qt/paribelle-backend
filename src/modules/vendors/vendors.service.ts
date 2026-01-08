@@ -1,13 +1,15 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
-import { Vendor } from './vendor.entity';
+import { Vendor, VendorStatus } from './vendor.entity';
 import { User, UserRole, UserStatus } from '../users/user.entity';
 import { LocationsService } from '../locations/locations.service';
 import { City } from '../locations/entities/city.entity';
 import { SubLocation } from '../locations/entities/sub-location.entity';
 import { FileCleanupService } from '../../common/services/file-cleanup.service';
+import { ReferralsService } from '../referrals/referrals.service';
+import { InvoicesService } from '../invoices/invoices.service';
 
 @Injectable()
 export class VendorsService {
@@ -18,6 +20,8 @@ export class VendorsService {
     private usersRepository: Repository<User>,
     private locationsService: LocationsService,
     private fileCleanupService: FileCleanupService,
+    private referralsService: ReferralsService,
+    private invoicesService: InvoicesService,
   ) {}
 
   async findAll(): Promise<Vendor[]> {
@@ -211,6 +215,90 @@ export class VendorsService {
     if (locationData.longitude !== undefined) vendor.longitude = locationData.longitude;
 
     return this.vendorsRepository.save(vendor);
+  }
+
+  /**
+   * Approve vendor and create registration invoice
+   */
+  async approveVendor(vendorId: string): Promise<{ vendor: Vendor; invoice: any }> {
+    const vendor = await this.vendorsRepository.findOne({
+      where: { id: vendorId },
+      relations: ['user'],
+    });
+
+    if (!vendor) {
+      throw new NotFoundException('Vendor not found');
+    }
+
+    if (vendor.status !== VendorStatus.PENDING) {
+      throw new BadRequestException('Vendor is not in pending status');
+    }
+
+    // Update vendor status to ACTIVE
+    vendor.status = VendorStatus.ACTIVE;
+    await this.vendorsRepository.save(vendor);
+
+    // Create registration invoice
+    const invoice = await this.invoicesService.createRegistrationInvoice(
+      vendor,
+      vendor.referralDiscount || 0,
+    );
+
+    // TODO: Send payment email to vendor with invoice and payment link
+    // await this.emailService.sendRegistrationPaymentEmail(vendor, invoice);
+
+    return { vendor, invoice };
+  }
+
+  /**
+   * Process registration payment and credit referrer
+   */
+  async processRegistrationPayment(
+    vendorId: string,
+    paymentData: {
+      razorpayPaymentId: string;
+      razorpayOrderId: string;
+      razorpaySignature: string;
+      amount: number;
+    },
+  ): Promise<{ vendor: Vendor; invoice: any }> {
+    const vendor = await this.vendorsRepository.findOne({
+      where: { id: vendorId },
+    });
+
+    if (!vendor) {
+      throw new NotFoundException('Vendor not found');
+    }
+
+    if (vendor.registrationFeePaid && vendor.registrationFeePaid > 0) {
+      throw new BadRequestException('Registration fee already paid');
+    }
+
+    // Find the registration invoice
+    const invoice = await this.invoicesService.findRegistrationInvoice(vendorId);
+
+    if (!invoice) {
+      throw new NotFoundException('Registration invoice not found');
+    }
+
+    // Mark invoice as paid
+    const paidInvoice = await this.invoicesService.markInvoiceAsPaid(
+      invoice.id,
+      paymentData.razorpayPaymentId,
+      paymentData.amount,
+    );
+
+    // Update vendor payment details
+    vendor.registrationFeePaid = paymentData.amount;
+    vendor.registrationPaidAt = new Date();
+    await this.vendorsRepository.save(vendor);
+
+    // Process referral credit if vendor was referred
+    if (vendor.referredBy) {
+      await this.referralsService.processReferralCredit(vendorId, invoice.id);
+    }
+
+    return { vendor, invoice: paidInvoice };
   }
 
   async remove(id: string): Promise<void> {

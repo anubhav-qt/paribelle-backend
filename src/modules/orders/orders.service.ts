@@ -4,6 +4,7 @@ import { Repository, DataSource } from 'typeorm';
 import { Order, OrderStatus, PaymentStatus } from './order.entity';
 import { OrderItem } from './order-item.entity';
 import { Product } from '../products/product.entity';
+import { User } from '../users/user.entity';
 import { SimpleEmailService } from '../simple-email/simple-email.service';
 import { MarketplaceGateway } from '../stock/stock.gateway';
 import { InvoicesService } from '../invoices/invoices.service';
@@ -20,6 +21,8 @@ export class OrdersService {
     private orderItemRepository: Repository<OrderItem>,
     @InjectRepository(Product)
     private productRepository: Repository<Product>,
+    @InjectRepository(User)
+    private userRepository: Repository<User>,
     private simpleEmailService: SimpleEmailService,
     private marketplaceGateway: MarketplaceGateway,
     @Inject(forwardRef(() => InvoicesService))
@@ -31,18 +34,41 @@ export class OrdersService {
   ) {}
 
   async create(userId: string, createOrderDto: any) {
-    const { items, shippingAddress, billingAddress, paymentMethod, subtotal, shippingCost, tax, totalAmount } = createOrderDto;
+    const { items, shippingAddress, billingAddress, paymentMethod, subtotal, shippingCost, tax, totalAmount, useWalletBalance } = createOrderDto;
 
     console.log('Create order DTO received:', {
       subtotal, shippingCost, tax, totalAmount,
       itemsCount: items.length,
+      useWalletBalance,
     });
 
     // Convert to numbers and ensure proper decimal precision
-    const numSubtotal = Number(subtotal) || 0;
-    const numShippingCost = Number(shippingCost) || 0;
-    const numTax = Number(tax) || 0;
-    const numTotalAmount = Number(totalAmount) || 0;
+    let numSubtotal = Number(subtotal) || 0;
+    let numShippingCost = Number(shippingCost) || 0;
+    let numTax = Number(tax) || 0;
+    let numTotalAmount = Number(totalAmount) || 0;
+
+    // Get user's wallet balance
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Apply wallet balance if requested
+    let walletAmountUsed = 0;
+    let finalAmountToPay = numTotalAmount;
+
+    if (useWalletBalance && user.walletBalance > 0) {
+      walletAmountUsed = Math.min(user.walletBalance, numTotalAmount);
+      finalAmountToPay = Number((numTotalAmount - walletAmountUsed).toFixed(2));
+      
+      console.log('Wallet balance applied:', {
+        availableBalance: user.walletBalance,
+        walletAmountUsed,
+        originalTotal: numTotalAmount,
+        finalAmountToPay,
+      });
+    }
 
     // Load all products with vendor information
     const productIds = items.map((item: any) => item.productId);
@@ -183,6 +209,12 @@ export class OrdersService {
         itemsCount: vendorItems.length,
       });
 
+      // Proportionally apply wallet discount to this vendor's order
+      const vendorWalletDiscount = walletAmountUsed > 0 
+        ? Number((walletAmountUsed * proportionOfTotal).toFixed(2))
+        : 0;
+      const vendorFinalTotal = Number((vendorTotal - vendorWalletDiscount).toFixed(2));
+
       // Create order
       const order = this.orderRepository.create({
         orderNumber,
@@ -202,7 +234,8 @@ export class OrdersService {
         subtotal: vendorSubtotal,
         tax: vendorTax,
         shippingCost: vendorShippingCost,
-        total: vendorTotal,
+        discount: vendorWalletDiscount,
+        total: vendorFinalTotal > 0 ? vendorFinalTotal : vendorTotal,
         commissionRate,
         commissionAmount,
         vendorPayout,
@@ -264,6 +297,14 @@ export class OrdersService {
     }
 
     console.log(`Created ${createdOrders.length} order(s)`);
+
+    // Deduct wallet balance if it was used
+    if (walletAmountUsed > 0) {
+      await this.userRepository.update(userId, {
+        walletBalance: () => `wallet_balance - ${walletAmountUsed}`,
+      });
+      console.log(`Deducted ${walletAmountUsed} from user wallet. Remaining balance: ${user.walletBalance - walletAmountUsed}`);
+    }
 
     // Return all orders with items
     const ordersWithDetails = await this.orderRepository.find({
@@ -1416,6 +1457,22 @@ export class OrdersService {
     const timestamp = Date.now().toString();
     const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
     return `ORD${timestamp}${random}`;
+  }
+
+  /**
+   * Get user's wallet balance
+   */
+  async getWalletBalance(userId: string): Promise<number> {
+    const user = await this.userRepository.findOne({ 
+      where: { id: userId },
+      select: ['walletBalance'],
+    });
+    
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    
+    return Number(user.walletBalance) || 0;
   }
 
   /**
