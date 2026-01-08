@@ -1,74 +1,79 @@
-const nodemailer = require('nodemailer');
+/**
+ * Email Functionality Test Script
+ * Run with: node test-email.js
+ */
+
 require('dotenv').config({ path: '.env.local' });
-
-console.log('📧 Testing Email Configuration...\n');
-
-const config = {
-  SMTP_HOST: process.env.SMTP_HOST,
-  SMTP_PORT: process.env.SMTP_PORT,
-  SMTP_USER: process.env.SMTP_USER,
-  SMTP_PASSWORD: process.env.SMTP_PASSWORD ? '***' : undefined,
-  SMTP_FROM: process.env.SMTP_FROM,
-  APP_NAME: process.env.APP_NAME,
-  APP_URL: process.env.APP_URL,
-};
-
-console.log('Configuration:');
-console.log(JSON.stringify(config, null, 2));
-console.log('');
-
-if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASSWORD) {
-  console.error('❌ Missing SMTP configuration!');
-  console.error('Required: SMTP_HOST, SMTP_USER, SMTP_PASSWORD');
-  process.exit(1);
-}
-
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: parseInt(process.env.SMTP_PORT || '587'),
-  secure: process.env.SMTP_SECURE === 'true' || parseInt(process.env.SMTP_PORT || '587') === 465,
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASSWORD,
-  },
-});
+const nodemailer = require('nodemailer');
 
 async function testEmail() {
-  try {
-    console.log('🔍 Verifying SMTP connection...');
-    await transporter.verify();
-    console.log('✅ SMTP connection successful!\n');
+  console.log('🔧 Testing Email Configuration...\n');
 
-    console.log('📨 Sending test email...');
-    const testEmail = process.env.SMTP_USER; // Send to yourself
-    
+  // Read SMTP config
+  const config = {
+    host: process.env.SMTP_HOST,
+    port: parseInt(process.env.SMTP_PORT),
+    secure: process.env.SMTP_SECURE === 'true',
+    user: process.env.SMTP_USER,
+    password: process.env.SMTP_PASSWORD,
+    from: process.env.SMTP_FROM,
+  };
+
+  console.log('Config:', {
+    host: config.host,
+    port: config.port,
+    secure: config.secure,
+    user: config.user,
+    password: config.password ? '***' + config.password.slice(-4) : 'NOT SET',
+  });
+
+  // Validate
+  if (!config.host || !config.user || !config.password) {
+    console.error('❌ Missing SMTP configuration in .env.local');
+    process.exit(1);
+  }
+
+  // Create transporter
+  const transporter = nodemailer.createTransport({
+    host: config.host,
+    port: config.port,
+    secure: config.secure,
+    auth: {
+      user: config.user,
+      pass: config.password,
+    },
+  });
+
+  // Test connection
+  try {
+    console.log('\n📡 Verifying SMTP connection...');
+    await transporter.verify();
+    console.log('✅ SMTP connection verified!');
+  } catch (error) {
+    console.error('❌ Connection failed:', error.message);
+    process.exit(1);
+  }
+
+  // Send test email
+  try {
+    console.log('\n📧 Sending test email...');
     const info = await transporter.sendMail({
-      from: process.env.SMTP_FROM || process.env.SMTP_USER,
-      to: testEmail,
-      subject: `Test Email - Password Reset - ${process.env.APP_NAME || 'Marketplace'}`,
+      from: `"Marketplace Test" <${config.from}>`,
+      to: config.user,
+      subject: 'Test Email - Marketplace',
       html: `
-        <h2>Test Email</h2>
-        <p>This is a test email from your marketplace backend.</p>
-        <p><strong>SMTP Configuration is working!</strong></p>
-        <p>Reset Link Example: <a href="${process.env.APP_URL || 'http://localhost:3000'}/reset-password?token=test123">Click Here</a></p>
-        <hr>
-        <p style="color: #666; font-size: 12px;">Sent at: ${new Date().toISOString()}</p>
+        <h2>✅ Email Service Working!</h2>
+        <p>Your email configuration is correct.</p>
+        <p><strong>Time:</strong> ${new Date().toLocaleString()}</p>
+        <p><strong>SMTP Host:</strong> ${config.host}</p>
       `,
     });
 
     console.log('✅ Email sent successfully!');
     console.log('Message ID:', info.messageId);
-    console.log('Recipient:', testEmail);
-    console.log('\n🎉 Email service is working correctly!');
+    console.log(`\n📬 Check your inbox at: ${config.user}`);
   } catch (error) {
-    console.error('❌ Email test failed!');
-    console.error('Error:', error.message);
-    if (error.code) {
-      console.error('Error Code:', error.code);
-    }
-    if (error.command) {
-      console.error('Failed Command:', error.command);
-    }
+    console.error('❌ Failed to send email:', error.message);
     process.exit(1);
   }
 }

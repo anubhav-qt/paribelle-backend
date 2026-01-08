@@ -90,26 +90,32 @@ export class OrdersService {
         throw new NotFoundException(`Product ${item.productId} not found`);
       }
 
-      // Check if product has enough stock
-      if (product.stockQuantity < item.quantity) {
-        throw new BadRequestException(
-          `Insufficient stock for "${product.name}". Available: ${product.stockQuantity}, Requested: ${item.quantity}`
+      // Only check stock for products with inventory tracking enabled
+      if (product.trackInventory) {
+        // Ensure stockQuantity is a valid number (handle null/undefined)
+        const availableStock = product.stockQuantity ?? 0;
+        
+        // Check if product has enough stock
+        if (availableStock < item.quantity) {
+          throw new BadRequestException(
+            `Insufficient stock for "${product.name}". Available: ${availableStock}, Requested: ${item.quantity}`
+          );
+        }
+
+        // Decrement stock immediately to prevent overselling
+        await this.productRepository.decrement(
+          { id: product.id },
+          'stockQuantity',
+          item.quantity
         );
+
+        // Track the new stock quantity for WebSocket broadcast
+        const newStockQuantity = availableStock - item.quantity;
+        stockUpdates.push({ 
+          productId: product.id, 
+          stockQuantity: newStockQuantity 
+        });
       }
-
-      // Decrement stock immediately to prevent overselling
-      await this.productRepository.decrement(
-        { id: product.id },
-        'stockQuantity',
-        item.quantity
-      );
-
-      // Track the new stock quantity for WebSocket broadcast
-      const newStockQuantity = product.stockQuantity - item.quantity;
-      stockUpdates.push({ 
-        productId: product.id, 
-        stockQuantity: newStockQuantity 
-      });
     }
 
     // Emit stock updates via WebSocket

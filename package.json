@@ -40,6 +40,7 @@
     "@nestjs/platform-express": "^10.4.20",
     "@nestjs/platform-socket.io": "^10.4.20",
     "@nestjs/swagger": "^7.4.2",
+    "@nestjs/throttler": "^6.5.0",
     "@nestjs/typeorm": "^10.0.1",
     "@nestjs/websockets": "^10.4.20",
     "@types/adm-zip": "^0.5.7",

@@ -3,21 +3,73 @@ Write-Host "=====================================" -ForegroundColor Cyan
 Write-Host "  Restarting Marketplace Services" -ForegroundColor Cyan
 Write-Host "=====================================" -ForegroundColor Cyan
 
-# Check if RESET_DB environment variable is set
-if ($env:RESET_DB -eq "true") {
-    Write-Host "`n🔄 RESET_DB enabled - Reinitializing database..." -ForegroundColor Magenta
-    Write-Host "Running: npm install && npm run build && node initialsetup/init-database.js --force && npm run seed" -ForegroundColor Yellow
+# Check if BUILD_MODE is enabled
+$buildMode = $env:BUILD_MODE -eq "true"
+$resetDb = $env:RESET_DB -eq "true"
+
+if ($buildMode) {
+    Write-Host "`n🔨 BUILD MODE ENABLED - Building projects..." -ForegroundColor Magenta
+    
+    # Build Backend
+    Write-Host "`n📦 Building Backend..." -ForegroundColor Yellow
+    $backendPath = $PSScriptRoot
+    Set-Location $backendPath
     
     npm install
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "❌ npm install failed" -ForegroundColor Red
+        Write-Host "❌ Backend npm install failed" -ForegroundColor Red
         exit 1
     }
     
     npm run build
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "❌ Build failed" -ForegroundColor Red
+        Write-Host "❌ Backend build failed" -ForegroundColor Red
         exit 1
+    }
+    Write-Host "✅ Backend built successfully!" -ForegroundColor Green
+    
+    # Build Frontend
+    Write-Host "`n📦 Building Frontend..." -ForegroundColor Yellow
+    $webPath = Join-Path (Split-Path $PSScriptRoot) "marketplace-web"
+    Set-Location $webPath
+    
+    npm install
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "❌ Frontend npm install failed" -ForegroundColor Red
+        exit 1
+    }
+    
+    npm run build
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "❌ Frontend build failed" -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "✅ Frontend built successfully!" -ForegroundColor Green
+    
+    # Return to backend directory
+    Set-Location $backendPath
+    
+    Write-Host "`n✅ All builds complete!" -ForegroundColor Green
+    Write-Host "`nTo disable build mode next time, run: `$env:BUILD_MODE=`"false`"" -ForegroundColor Yellow
+}
+
+# Check if RESET_DB environment variable is set
+if ($resetDb) {
+    Write-Host "`n🔄 RESET_DB enabled - Reinitializing database..." -ForegroundColor Magenta
+    
+    if (-not $buildMode) {
+        Write-Host "Running: npm install && npm run build" -ForegroundColor Yellow
+        npm install
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "❌ npm install failed" -ForegroundColor Red
+            exit 1
+        }
+        
+        npm run build
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "❌ Build failed" -ForegroundColor Red
+            exit 1
+        }
     }
     
     node initialsetup/init-database.js --force
@@ -34,8 +86,13 @@ if ($env:RESET_DB -eq "true") {
     
     Write-Host "✅ Database reset complete!" -ForegroundColor Green
     Write-Host "`nTo disable database reset, run: `$env:RESET_DB=`"false`"" -ForegroundColor Yellow
-    Write-Host "Or simply restart PowerShell to clear the variable`n" -ForegroundColor Yellow
 }
+
+# Determine which mode to run (dev or prod)
+$runMode = if ($buildMode) { "start:prod" } else { "dev" }
+$modeLabel = if ($buildMode) { "PRODUCTION" } else { "DEVELOPMENT" }
+
+Write-Host "`n🚀 Starting services in $modeLabel mode..." -ForegroundColor Cyan
 
 # Kill processes on ports 3000 and 3001
 Write-Host "`nStopping existing services..." -ForegroundColor Yellow
@@ -59,28 +116,37 @@ foreach ($port in $ports) {
 Start-Sleep -Seconds 2
 
 # Start backend
-Write-Host "`nStarting Backend (Port 3001)..." -ForegroundColor Green
+Write-Host "`nStarting Backend (Port 3001) in $modeLabel mode..." -ForegroundColor Green
 $backendPath = $PSScriptRoot
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$backendPath'; Write-Host 'Starting Backend Server...' -ForegroundColor Green; npm run dev"
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$backendPath'; Write-Host 'Starting Backend Server ($modeLabel)...' -ForegroundColor Green; npm run $runMode"
 
 Start-Sleep -Seconds 5
 
-# Start web
-Write-Host "Starting Web App (Port 3000)..." -ForegroundColor Green
+# Start web (always use 'dev' for Next.js, or 'start' for production)
+$webRunMode = if ($buildMode) { "start" } else { "dev" }
+Write-Host "Starting Web App (Port 3000) in $modeLabel mode..." -ForegroundColor Green
 $webPath = Join-Path (Split-Path $PSScriptRoot) "marketplace-web"
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$webPath'; Write-Host 'Starting Web Server...' -ForegroundColor Green; npm run dev"
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$webPath'; Write-Host 'Starting Web Server ($modeLabel)...' -ForegroundColor Green; npm run $webRunMode"
 
 Write-Host "`n=====================================" -ForegroundColor Cyan
-Write-Host "✅ Services Starting..." -ForegroundColor Green
+Write-Host "✅ Services Starting in $modeLabel mode..." -ForegroundColor Green
 Write-Host "=====================================" -ForegroundColor Cyan
 Write-Host "`nURLs:" -ForegroundColor White
 Write-Host "  Backend API: " -NoNewline; Write-Host "http://localhost:3001" -ForegroundColor Cyan
 Write-Host "  Web App:     " -NoNewline; Write-Host "http://localhost:3000" -ForegroundColor Cyan
-Write-Host "  API Docs:    " -NoNewline; Write-Host "http://localhost:3001/api" -ForegroundColor Cyan
+Write-Host "  API Docs:    " -NoNewline; Write-Host "http://localhost:3001/api/docs" -ForegroundColor Cyan
 Write-Host "`nCheck the new terminal windows for server logs" -ForegroundColor Yellow
 Write-Host "Press Ctrl+C in those windows to stop the servers" -ForegroundColor Yellow
 
-if ($env:RESET_DB -eq "true") {
-    Write-Host "`n💡 Tip: Database was reset. To skip reset next time:" -ForegroundColor Cyan
-    Write-Host "   `$env:RESET_DB=`"false`"" -ForegroundColor Gray
+Write-Host "`n💡 Usage Tips:" -ForegroundColor Cyan
+if ($buildMode) {
+    Write-Host "   Currently in BUILD mode (production builds + production servers)" -ForegroundColor Gray
+    Write-Host "   To switch to dev mode: `$env:BUILD_MODE=`"false`" or restart PowerShell" -ForegroundColor Gray
+} else {
+    Write-Host "   Currently in DEV mode (development servers with hot reload)" -ForegroundColor Gray
+    Write-Host "   To enable build mode: `$env:BUILD_MODE=`"true`"" -ForegroundColor Gray
+}
+
+if ($resetDb) {
+    Write-Host "   Database was reset. To skip reset: `$env:RESET_DB=`"false`"" -ForegroundColor Gray
 }

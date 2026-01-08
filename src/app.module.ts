@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule, TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { SnakeNamingStrategy } from 'typeorm-naming-strategies';
+import { ThrottlerModule } from '@nestjs/throttler';
 
 // Common
 import { CommonModule } from './common/common.module';
@@ -41,8 +42,14 @@ import { ReferralsModule } from './modules/referrals/referrals.module';
     // Configuration
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: '.env',
+      envFilePath: process.env.NODE_ENV === 'production' ? '.env' : '.env.local',
     }),
+
+    // Rate Limiting (Security)
+    ThrottlerModule.forRoot([{
+      ttl: 60000, // 60 seconds
+      limit: 100, // 100 requests per minute per IP
+    }]),
 
     // Common services (global)
     CommonModule,
@@ -128,6 +135,12 @@ import { ReferralsModule } from './modules/referrals/referrals.module';
     InvoicesModule,
     StockModule,
     ReferralsModule,
+  ],
+  providers: [
+    {
+      provide: 'APP_GUARD',
+      useClass: require('@nestjs/throttler').ThrottlerGuard,
+    },
   ],
 })
 export class AppModule {}
