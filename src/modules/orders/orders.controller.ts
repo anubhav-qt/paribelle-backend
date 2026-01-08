@@ -99,6 +99,16 @@ export class OrdersController {
     return this.ordersService.rejectReturn(id, body.reason);
   }
 
+  @Post(':orderId/returns/approve-all')
+  approveAllReturns(@Param('orderId') orderId: string) {
+    return this.ordersService.approveAllReturns(orderId);
+  }
+
+  @Post(':orderId/returns/reject-all')
+  rejectAllReturns(@Param('orderId') orderId: string, @Body() body: { reason: string }) {
+    return this.ordersService.rejectAllReturns(orderId, body.reason);
+  }
+
   @Post('returns/:returnId/approve')
   approveItemReturn(@Param('returnId') returnId: string) {
     return this.ordersService.approveItemReturn(returnId);

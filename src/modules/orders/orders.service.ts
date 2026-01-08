@@ -1068,11 +1068,15 @@ export class OrdersService {
     const returnNumber = `RET-${dateStr}-${randomNum}`;
 
     // Calculate refund amounts
+    // Note: orderItem.price is the price per unit that customer paid
+    // We should refund exactly what they paid, not add tax on top
     const itemPrice = parseFloat(orderItem.price.toString());
-    const refundAmount = itemPrice * quantity;
-    const taxRate = 0.18; // Assuming 18% GST, adjust as needed
-    const refundTax = refundAmount * taxRate;
-    const refundTotal = refundAmount + refundTax;
+    const refundTotal = itemPrice * quantity;
+    
+    // Split the refund into base amount and tax (assuming 18% GST is included in price)
+    // If price includes tax: base = total / 1.18, tax = total - base
+    const refundAmount = refundTotal / 1.18;
+    const refundTax = refundTotal - refundAmount;
 
     // Get vendor ID from the order
     const vendorId = order.vendorId || orderItem.product?.vendorId;
@@ -1125,6 +1129,96 @@ export class OrdersService {
       success: true,
       message: 'Return request submitted successfully',
       data: returnRecord[0]
+    };
+  }
+
+  /**
+   * Approve all return requests for an order
+   */
+  async approveAllReturns(orderId: string) {
+    // Get all requested returns for this order
+    const returns = await this.dataSource.query(
+      `SELECT * FROM returns WHERE order_id = $1 AND status = 'requested'`,
+      [orderId]
+    );
+
+    if (!returns || returns.length === 0) {
+      throw new NotFoundException('No pending return requests found for this order');
+    }
+
+    // Approve all returns
+    await this.dataSource.query(
+      `UPDATE returns 
+       SET status = 'approved', approved_at = $1, updated_at = $2 
+       WHERE order_id = $3 AND status = 'requested'`,
+      [new Date(), new Date(), orderId]
+    );
+
+    // Update order status to RETURN_APPROVED
+    await this.orderRepository.update(
+      { id: orderId },
+      { status: OrderStatus.RETURN_APPROVED }
+    );
+
+    // Emit WebSocket event
+    const order = await this.orderRepository.findOne({ where: { id: orderId } });
+    if (order) {
+      this.marketplaceGateway.emitOrderStatusUpdate(
+        orderId,
+        OrderStatus.RETURN_APPROVED,
+        order.userId
+      );
+    }
+
+    return {
+      success: true,
+      message: `${returns.length} return request(s) approved. Customer can now ship items back.`,
+      approvedCount: returns.length
+    };
+  }
+
+  /**
+   * Reject all return requests for an order
+   */
+  async rejectAllReturns(orderId: string, reason: string) {
+    // Get all requested returns for this order
+    const returns = await this.dataSource.query(
+      `SELECT * FROM returns WHERE order_id = $1 AND status = 'requested'`,
+      [orderId]
+    );
+
+    if (!returns || returns.length === 0) {
+      throw new NotFoundException('No pending return requests found for this order');
+    }
+
+    // Reject all returns
+    await this.dataSource.query(
+      `UPDATE returns 
+       SET status = 'rejected', rejected_at = $1, rejection_reason = $2, updated_at = $3 
+       WHERE order_id = $4 AND status = 'requested'`,
+      [new Date(), reason, new Date(), orderId]
+    );
+
+    // Update order status back to DELIVERED
+    await this.orderRepository.update(
+      { id: orderId },
+      { status: OrderStatus.DELIVERED }
+    );
+
+    // Emit WebSocket event
+    const order = await this.orderRepository.findOne({ where: { id: orderId } });
+    if (order) {
+      this.marketplaceGateway.emitOrderStatusUpdate(
+        orderId,
+        OrderStatus.DELIVERED,
+        order.userId
+      );
+    }
+
+    return {
+      success: true,
+      message: `${returns.length} return request(s) rejected.`,
+      rejectedCount: returns.length
     };
   }
 
