@@ -1354,7 +1354,7 @@ export class OrdersService {
    */
   async confirmItemReturnReceived(returnId: string, refundNow: boolean = true) {
     const result = await this.dataSource.query(
-      `SELECT r.*, oi.product_id, oi.quantity as item_quantity 
+      `SELECT r.*, oi.product_id, oi.variant_id, oi.quantity as item_quantity 
        FROM returns r
        LEFT JOIN order_items oi ON r.order_item_id = oi.id
        WHERE r.id = $1`,
@@ -1371,24 +1371,53 @@ export class OrdersService {
       throw new BadRequestException('Return must be approved before confirming receipt');
     }
 
-    // Restore inventory for the returned items
-    if (returnItem.product_id && returnItem.quantity > 0) {
-      await this.productRepository.increment(
-        { id: returnItem.product_id },
-        'stockQuantity',
-        returnItem.quantity
-      );
-      
-      // Get updated product stock and broadcast via WebSocket
-      const product = await this.productRepository.findOne({ 
-        where: { id: returnItem.product_id } 
-      });
-      if (product) {
-        this.marketplaceGateway.emitStockUpdate(
-          product.id,
-          product.stockQuantity
+    // Restore inventory for the returned items (only the quantity being returned, not all items)
+    if (returnItem.quantity > 0) {
+      // Check if this is a variant or a simple product
+      if (returnItem.variant_id) {
+        // Update variant stock
+        await this.dataSource.query(
+          `UPDATE product_variants 
+           SET stock_quantity = COALESCE(stock_quantity, 0) + $1 
+           WHERE id = $2`,
+          [returnItem.quantity, returnItem.variant_id]
         );
-        console.log(`[confirmItemReturnReceived] Restored ${returnItem.quantity} units to product ${product.id}. New stock: ${product.stockQuantity}`);
+        
+        // Get updated variant stock and broadcast via WebSocket
+        const variantResult = await this.dataSource.query(
+          `SELECT pv.*, p.id as product_id 
+           FROM product_variants pv
+           JOIN products p ON pv.product_id = p.id
+           WHERE pv.id = $1`,
+          [returnItem.variant_id]
+        );
+        if (variantResult && variantResult.length > 0) {
+          const variant = variantResult[0];
+          this.marketplaceGateway.emitStockUpdate(
+            variant.product_id,
+            variant.stock_quantity
+          );
+          console.log(`[confirmItemReturnReceived] Restored ${returnItem.quantity} units to variant ${returnItem.variant_id}. New stock: ${variant.stock_quantity}`);
+        }
+      } else if (returnItem.product_id) {
+        // Update product stock
+        await this.productRepository.increment(
+          { id: returnItem.product_id },
+          'stockQuantity',
+          returnItem.quantity
+        );
+        
+        // Get updated product stock and broadcast via WebSocket
+        const product = await this.productRepository.findOne({ 
+          where: { id: returnItem.product_id } 
+        });
+        if (product) {
+          this.marketplaceGateway.emitStockUpdate(
+            product.id,
+            product.stockQuantity
+          );
+          console.log(`[confirmItemReturnReceived] Restored ${returnItem.quantity} units to product ${product.id}. New stock: ${product.stockQuantity}`);
+        }
       }
     }
 
