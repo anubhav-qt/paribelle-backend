@@ -1394,16 +1394,31 @@ export class OrdersService {
     );
 
     if (refundNow) {
-      // Create credit note for both customer and vendor invoices (partial refund)
+      // Create partial credit note for the specific returned items
       try {
-        console.log(`[confirmItemReturnReceived] Creating credit note for return ${returnItem.return_number}`);
-        await this.invoicesService.createCreditNote(
-          returnItem.order_id, 
+        console.log(`[confirmItemReturnReceived] Creating partial credit note for return ${returnItem.return_number}`);
+        
+        // Get order to calculate commission
+        const order = await this.orderRepository.findOne({
+          where: { id: returnItem.order_id },
+          relations: ['vendor'],
+        });
+        
+        const commissionRate = order?.commissionRate || order?.vendor?.commissionRate || 10;
+        const returnedAmount = Number(returnItem.refund_amount) || 0;
+        const returnedTax = Number(returnItem.refund_tax) || 0;
+        const returnedCommission = (returnedAmount + returnedTax) * (commissionRate / 100);
+        
+        await this.invoicesService.createPartialCreditNote(
+          returnItem.order_id,
+          returnedAmount,
+          returnedTax,
+          returnedCommission,
           `Item return: ${returnItem.product_name} (Qty: ${returnItem.quantity}) - ${returnItem.reason}`
         );
-        console.log(`[confirmItemReturnReceived] Credit note created for customer and vendor invoices`);
+        console.log(`[confirmItemReturnReceived] Partial credit note created for returned items`);
       } catch (error) {
-        console.error('Failed to create credit note for item return:', error);
+        console.error('Failed to create partial credit note for item return:', error);
         // Don't fail the entire operation if credit note fails
       }
 

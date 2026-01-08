@@ -944,6 +944,156 @@ export class InvoicesService {
   }
 
   /**
+   * Create partial credit note for specific returned items
+   */
+  async createPartialCreditNote(
+    orderId: string, 
+    returnedItemAmount: number,
+    returnedItemTax: number,
+    returnedCommission: number,
+    reason: string
+  ): Promise<void> {
+    const order = await this.orderRepository.findOne({
+      where: { id: orderId },
+      relations: ['user', 'vendor', 'items', 'items.product', 'invoices'],
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    this.logger.log(`Creating partial credit notes for order ${order.orderNumber}. Amount: ${returnedItemAmount}, Tax: ${returnedItemTax}`);
+
+    const existingInvoices = order.invoices || [];
+
+    // Create partial credit note for customer (refund returned items)
+    const customerInvoice = existingInvoices.find(inv => inv.type === InvoiceType.CUSTOMER);
+    if (customerInvoice) {
+      try {
+        const refundSubtotal = -returnedItemAmount;
+        const refundTax = -returnedItemTax;
+        const refundTotal = refundSubtotal + refundTax;
+        
+        const creditNote = this.invoiceRepository.create({
+          invoiceNumber: `CN-${customerInvoice.invoiceNumber}-${Date.now().toString().slice(-6)}`,
+          type: InvoiceType.CUSTOMER,
+          status: InvoiceStatus.PAID,
+          orderId: order.id,
+          customerId: order.userId,
+          vendorId: order.vendorId,
+          invoiceDate: new Date(),
+          dueDate: new Date(),
+          subtotal: refundSubtotal,
+          tax: refundTax,
+          discount: 0,
+          shippingCost: 0,
+          total: refundTotal,
+          paidAmount: refundTotal,
+          paidAt: new Date(),
+          billingName: customerInvoice.billingName,
+          billingEmail: customerInvoice.billingEmail,
+          billingPhone: customerInvoice.billingPhone,
+          billingAddress: customerInvoice.billingAddress,
+          billingCity: customerInvoice.billingCity,
+          billingState: customerInvoice.billingState,
+          billingPostalCode: customerInvoice.billingPostalCode,
+          billingCountry: customerInvoice.billingCountry,
+          shippingName: customerInvoice.shippingName,
+          shippingEmail: customerInvoice.shippingEmail,
+          shippingPhone: customerInvoice.shippingPhone,
+          shippingAddress: customerInvoice.shippingAddress,
+          shippingCity: customerInvoice.shippingCity,
+          shippingState: customerInvoice.shippingState,
+          shippingPostalCode: customerInvoice.shippingPostalCode,
+          shippingCountry: customerInvoice.shippingCountry,
+          notes: `PARTIAL CREDIT NOTE - ${reason}`,
+          terms: `Partial refund for returned items from invoice ${customerInvoice.invoiceNumber}.`,
+        });
+        await this.invoiceRepository.save(creditNote);
+        this.logger.log(`Customer partial credit note created: ${creditNote.invoiceNumber}`);
+      } catch (error) {
+        this.logger.error(`Failed to create customer partial credit note:`, error);
+      }
+    }
+
+    // Create partial credit note for vendor (deduct returned item value)
+    const vendorInvoice = existingInvoices.find(inv => inv.type === InvoiceType.VENDOR);
+    if (vendorInvoice) {
+      try {
+        const vendorReturnAmount = -(returnedItemAmount + returnedItemTax - returnedCommission);
+        
+        const creditNote = this.invoiceRepository.create({
+          invoiceNumber: `CN-${vendorInvoice.invoiceNumber}-${Date.now().toString().slice(-6)}`,
+          type: InvoiceType.VENDOR,
+          status: InvoiceStatus.PENDING,
+          orderId: order.id,
+          vendorId: order.vendorId,
+          invoiceDate: new Date(),
+          dueDate: new Date(),
+          subtotal: -returnedItemAmount,
+          tax: -returnedItemTax,
+          discount: 0,
+          shippingCost: 0,
+          total: -(returnedItemAmount + returnedItemTax),
+          commissionAmount: returnedCommission,
+          commissionRate: vendorInvoice.commissionRate,
+          payoutAmount: vendorReturnAmount,
+          billingName: vendorInvoice.billingName,
+          billingEmail: vendorInvoice.billingEmail,
+          billingPhone: vendorInvoice.billingPhone,
+          billingAddress: vendorInvoice.billingAddress,
+          billingCity: vendorInvoice.billingCity,
+          billingState: vendorInvoice.billingState,
+          billingPostalCode: vendorInvoice.billingPostalCode,
+          billingCountry: vendorInvoice.billingCountry,
+          gstNumber: vendorInvoice.gstNumber,
+          panNumber: vendorInvoice.panNumber,
+          notes: `PARTIAL CREDIT NOTE - ${reason}. Vendor returns product value minus commission.`,
+          terms: `Partial deduction for returned items from invoice ${vendorInvoice.invoiceNumber}.`,
+        });
+        await this.invoiceRepository.save(creditNote);
+        
+        if (order.vendorId) {
+          await this.updateVendorBalance(order.vendorId);
+        }
+        
+        this.logger.log(`Vendor partial credit note created: ${creditNote.invoiceNumber}`);
+      } catch (error) {
+        this.logger.error(`Failed to create vendor partial credit note:`, error);
+      }
+    }
+
+    // Create partial credit note for platform (reverse commission on returned items)
+    const platformInvoice = existingInvoices.find(inv => inv.type === InvoiceType.PLATFORM);
+    if (platformInvoice) {
+      try {
+        const creditNote = this.invoiceRepository.create({
+          invoiceNumber: `CN-${platformInvoice.invoiceNumber}-${Date.now().toString().slice(-6)}`,
+          type: InvoiceType.PLATFORM,
+          status: InvoiceStatus.PAID,
+          orderId: order.id,
+          vendorId: order.vendorId,
+          invoiceDate: new Date(),
+          dueDate: new Date(),
+          subtotal: -returnedCommission,
+          tax: 0,
+          total: -returnedCommission,
+          commissionAmount: -returnedCommission,
+          commissionRate: platformInvoice.commissionRate,
+          notes: `PARTIAL CREDIT NOTE - ${reason}. Platform commission reversal for returned items.`,
+          terms: `Partial commission reversal from invoice ${platformInvoice.invoiceNumber}.`,
+        });
+        await this.invoiceRepository.save(creditNote);
+        this.logger.log(`Platform partial credit note created: ${creditNote.invoiceNumber}`);
+      } catch (error) {
+        this.logger.error(`Failed to create platform partial credit note:`, error);
+      }
+    }
+
+    this.logger.log(`Partial credit notes creation completed for order ${order.orderNumber}`);
+  }
+
+  /**
    * Create registration invoice for vendor
    */
   async createRegistrationInvoice(
