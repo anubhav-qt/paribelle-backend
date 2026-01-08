@@ -420,8 +420,14 @@ export class InvoicesService {
   async sendInvoice(id: string, sendInvoiceDto?: SendInvoiceDto): Promise<void> {
     const invoice = await this.findOne(id);
 
+    // Generate PDF if it doesn't exist
     if (!invoice.pdfUrl) {
-      throw new Error('Invoice PDF not generated');
+      this.logger.log(`Generating PDF for invoice ${invoice.invoiceNumber}...`);
+      const pdfBuffer = await this.invoicePdfService.generateInvoicePdf(invoice.id);
+      const pdfUrl = await this.savePdf(invoice.id, pdfBuffer);
+      invoice.pdfUrl = pdfUrl;
+      await this.invoiceRepository.save(invoice);
+      this.logger.log(`PDF generated: ${pdfUrl}`);
     }
 
     let recipientEmail: string;
