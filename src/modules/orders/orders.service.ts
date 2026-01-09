@@ -1224,11 +1224,27 @@ export class OrdersService {
       const randomNum = Math.floor(1000 + Math.random() * 9000);
       const returnNumber = `RET-${dateStr}-${randomNum}`;
 
-      // Calculate refund amounts
+      // Calculate refund amounts based on product's actual GST rate and price type
       const itemPrice = parseFloat(orderItem.price.toString());
-      const refundTotal = itemPrice * item.quantity;
-      const refundAmount = refundTotal / 1.18;
-      const refundTax = refundTotal - refundAmount;
+      const product = orderItem.product;
+      const gstRate = product?.gstRate || 18; // Default to 18% if not found
+      const priceType = product?.priceType || 'mrp_with_gst';
+
+      let refundAmount: number;
+      let refundTax: number;
+      let refundTotal: number;
+
+      if (priceType === 'mrp_with_gst') {
+        // Price is tax-inclusive
+        refundTotal = itemPrice * item.quantity;
+        refundAmount = refundTotal / (1 + gstRate / 100);
+        refundTax = refundTotal - refundAmount;
+      } else {
+        // Price is tax-exclusive
+        refundAmount = itemPrice * item.quantity;
+        refundTax = refundAmount * (gstRate / 100);
+        refundTotal = refundAmount + refundTax;
+      }
 
       // Insert return record
       const insertQuery = `

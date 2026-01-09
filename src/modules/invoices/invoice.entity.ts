@@ -11,6 +11,7 @@ import {
 import { Order } from '../orders/order.entity';
 import { Vendor } from '../vendors/vendor.entity';
 import { User } from '../users/user.entity';
+import { InvoiceItem } from './invoice-item.entity';
 
 export enum InvoiceType {
   CUSTOMER = 'customer', // Invoice sent to customer
@@ -187,6 +188,9 @@ export class Invoice {
 
   @Column({ name: 'user_id', nullable: true })
   customerId: string;
+
+  @OneToMany(() => InvoiceItem, invoiceItem => invoiceItem.invoice)
+  items: InvoiceItem[];
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

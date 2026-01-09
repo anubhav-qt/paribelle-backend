@@ -22,22 +22,30 @@ export class InvoicePdfService {
    * Generate PDF for invoice
    */
   async generateInvoicePdf(invoiceId: string): Promise<Buffer> {
-    // Load invoice with order and order items
+    // Load invoice with order and order items, AND invoice items
     const invoice = await this.invoiceRepository.findOne({
       where: { id: invoiceId },
-      relations: ['order', 'order.items', 'order.items.product', 'vendor', 'customer'],
+      relations: ['order', 'order.items', 'order.items.product', 'vendor', 'customer', 'items'],
     });
 
     if (!invoice) {
       throw new NotFoundException('Invoice not found');
     }
 
-    // Use order items directly
-    const items = invoice.order?.items || [];
+    // Conditionally select items based on invoice type
+    let items: any[];
+    if (invoice.invoiceNumber?.startsWith('CN-') && invoice.items && invoice.items.length > 0) {
+      // For credit notes, use invoice_items (only returned items)
+      items = invoice.items;
+      this.logger.log(`Generating PDF for credit note ${invoiceId} with ${items.length} returned items from invoice_items`);
+    } else {
+      // For regular invoices, use order.items (all items)
+      items = invoice.order?.items || [];
+      this.logger.log(`Generating PDF for invoice ${invoiceId} with ${items.length} items from order`);
+    }
 
-    this.logger.log(`Generating PDF for invoice ${invoiceId} with ${items.length} items from order`);
     if (items.length === 0) {
-      this.logger.warn(`No order items found for invoice ${invoiceId}`);
+      this.logger.warn(`No items found for invoice ${invoiceId}`);
     }
 
     // Create PDF

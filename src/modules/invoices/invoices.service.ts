@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Invoice, InvoiceType, InvoiceStatus } from './invoice.entity';
+import { InvoiceItem } from './invoice-item.entity';
 import { VendorBalance } from './vendor-balance.entity';
 import { Order } from '../orders/order.entity';
 import { Vendor } from '../vendors/vendor.entity';
@@ -18,6 +19,8 @@ export class InvoicesService {
   constructor(
     @InjectRepository(Invoice)
     private invoiceRepository: Repository<Invoice>,
+    @InjectRepository(InvoiceItem)
+    private invoiceItemRepository: Repository<InvoiceItem>,
     @InjectRepository(VendorBalance)
     private vendorBalanceRepository: Repository<VendorBalance>,
     @InjectRepository(Order)
@@ -1034,6 +1037,22 @@ export class InvoicesService {
         });
         await this.invoiceRepository.save(creditNote);
         
+        // Create invoice_items for returned items
+        if (returnedItems && returnedItems.length > 0) {
+          for (const returnItem of returnedItems) {
+            const invoiceItem = this.invoiceItemRepository.create({
+              invoiceId: creditNote.id,
+              name: returnItem.product_name,
+              description: `Return - ${returnItem.reason || 'Customer return'}`,
+              quantity: -returnItem.quantity,
+              unitPrice: parseFloat(returnItem.original_price),
+              taxAmount: -parseFloat(returnItem.refund_tax || '0'),
+              total: -parseFloat(returnItem.refund_total),
+            });
+            await this.invoiceItemRepository.save(invoiceItem);
+          }
+        }
+        
         this.logger.log(`Customer partial credit note created: ${creditNote.invoiceNumber}`);
       } catch (error) {
         this.logger.error(`Failed to create customer partial credit note:`, error);
@@ -1076,6 +1095,22 @@ export class InvoicesService {
           terms: `Partial deduction for returned items from invoice ${vendorInvoice.invoiceNumber}.`,
         });
         await this.invoiceRepository.save(creditNote);
+        
+        // Create invoice_items for returned items
+        if (returnedItems && returnedItems.length > 0) {
+          for (const returnItem of returnedItems) {
+            const invoiceItem = this.invoiceItemRepository.create({
+              invoiceId: creditNote.id,
+              name: returnItem.product_name,
+              description: `Return - ${returnItem.reason || 'Customer return'}`,
+              quantity: -returnItem.quantity,
+              unitPrice: parseFloat(returnItem.original_price),
+              taxAmount: -parseFloat(returnItem.refund_tax || '0'),
+              total: -parseFloat(returnItem.refund_total),
+            });
+            await this.invoiceItemRepository.save(invoiceItem);
+          }
+        }
         
         if (order.vendorId) {
           await this.updateVendorBalance(order.vendorId);

@@ -776,8 +776,27 @@ CREATE TABLE invoices (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Note: Invoice items are loaded directly from order_items table via relations
--- No separate invoice_items table needed to avoid data duplication
+-- Invoice Items Table (for credit notes showing specific returned items)
+CREATE TABLE invoice_items (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    invoice_id UUID NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+    product_id UUID REFERENCES products(id) ON DELETE SET NULL,
+    
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    quantity INTEGER NOT NULL,
+    unit_price DECIMAL(10, 2) NOT NULL,
+    total DECIMAL(10, 2) NOT NULL,
+    
+    -- Tax details
+    tax_amount DECIMAL(10, 2) DEFAULT 0,
+    tax_rate DECIMAL(5, 2) DEFAULT 0,
+    hsn_code VARCHAR(20),
+    
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_invoice_items_invoice_id ON invoice_items(invoice_id);
 
 -- Vendor Balances Table (aggregate tracking for performance)
 CREATE TABLE vendor_balances (
