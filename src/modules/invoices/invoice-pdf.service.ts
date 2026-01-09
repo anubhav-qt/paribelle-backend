@@ -784,7 +784,7 @@ export class InvoicePdfService {
   private formatCurrency(amount: number): string {
     // Handle invalid inputs
     if (amount === null || amount === undefined || isNaN(amount)) {
-      return '₹0.00';
+      return 'Rs. 0.00';
     }
     
     // Format manually to avoid locale-specific thousand separators (like single quotes)
@@ -800,6 +800,6 @@ export class InvoicePdfService {
     }
     const formattedInteger = otherNumbers.replace(/\B(?=(\d{2})+(?!\d))/g, ',') + lastThree;
     
-    return `₹${amount < 0 ? '-' : ''}${formattedInteger}.${decimalPart}`;
+    return `Rs. ${amount < 0 ? '-' : ''}${formattedInteger}.${decimalPart}`;
   }
 }
