@@ -51,6 +51,22 @@ export class InvoicesService {
   }
 
   /**
+   * Generate notes with returned items details
+   */
+  private generateReturnItemsNotes(returnedItems: any[], reason: string): string {
+    if (!returnedItems || returnedItems.length === 0) {
+      return `PARTIAL CREDIT NOTE - ${reason}`;
+    }
+    
+    let notes = `PARTIAL CREDIT NOTE - ${reason}\n\nReturned Items:\n`;
+    returnedItems.forEach((item, index) => {
+      notes += `${index + 1}. ${item.product_name} - Qty: ${item.quantity} - ₹${parseFloat(item.refund_amount || 0).toFixed(2)}\n`;
+    });
+    
+    return notes;
+  }
+
+  /**
    * Calculate due date (default: 30 days from invoice date)
    */
   private calculateDueDate(invoiceDate: Date, days: number = 30): Date {
@@ -957,7 +973,8 @@ export class InvoicesService {
     returnedItemAmount: number,
     returnedItemTax: number,
     returnedCommission: number,
-    reason: string
+    reason: string,
+    returnedItems?: any[]
   ): Promise<void> {
     const order = await this.orderRepository.findOne({
       where: { id: orderId },
@@ -1012,10 +1029,11 @@ export class InvoicesService {
           shippingState: customerInvoice.shippingState,
           shippingPostalCode: customerInvoice.shippingPostalCode,
           shippingCountry: customerInvoice.shippingCountry,
-          notes: `PARTIAL CREDIT NOTE - ${reason}`,
+          notes: this.generateReturnItemsNotes(returnedItems || [], reason),
           terms: `Partial refund for returned items from invoice ${customerInvoice.invoiceNumber}.`,
         });
         await this.invoiceRepository.save(creditNote);
+        
         this.logger.log(`Customer partial credit note created: ${creditNote.invoiceNumber}`);
       } catch (error) {
         this.logger.error(`Failed to create customer partial credit note:`, error);

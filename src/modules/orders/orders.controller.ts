@@ -99,6 +99,23 @@ export class OrdersController {
     return this.ordersService.rejectReturn(id, body.reason);
   }
 
+  @Post(':orderId/returns/bulk-request')
+  requestBulkReturns(
+    @Param('orderId') orderId: string,
+    @Request() req,
+    @Body() body: { 
+      items: Array<{
+        orderItemId: string;
+        quantity: number;
+        reason: string;
+        customerNotes?: string;
+        images?: string[];
+      }>
+    }
+  ) {
+    return this.ordersService.requestBulkReturns(orderId, req.user.id, body.items);
+  }
+
   @Post(':orderId/returns/approve-all')
   approveAllReturns(@Param('orderId') orderId: string) {
     return this.ordersService.approveAllReturns(orderId);

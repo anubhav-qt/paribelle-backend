@@ -1133,6 +1133,159 @@ export class OrdersService {
   }
 
   /**
+   * Request returns for multiple items in a single transaction
+   */
+  async requestBulkReturns(
+    orderId: string,
+    userId: string,
+    items: Array<{
+      orderItemId: string;
+      quantity: number;
+      reason: string;
+      customerNotes?: string;
+      images?: string[];
+    }>
+  ) {
+    try {
+      console.log('[requestBulkReturns] Starting bulk return request', { orderId, userId, itemsCount: items.length });
+      
+      // Validate request
+      if (!items || items.length === 0) {
+        throw new BadRequestException('No items provided for return');
+      }
+
+    // Fetch order once
+    const order = await this.orderRepository.findOne({
+      where: { id: orderId, userId },
+      relations: ['items', 'items.product', 'items.product.vendor', 'user'],
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    if (order.status !== OrderStatus.DELIVERED) {
+      throw new BadRequestException('Only delivered orders can be returned');
+    }
+
+    // Check vendor return policy (from first item)
+    const vendor = order.items[0]?.product?.vendor;
+    let returnPolicyDays = 7;
+    let allowReturns = true;
+
+    if (vendor) {
+      returnPolicyDays = vendor.returnPolicyDays ?? 7;
+      allowReturns = vendor.allowReturns ?? true;
+
+      if (!allowReturns) {
+        throw new BadRequestException('This vendor does not accept returns');
+      }
+
+      if (returnPolicyDays === 0) {
+        throw new BadRequestException('Returns are not allowed for this vendor');
+      }
+    }
+
+    // Check return window
+    const deliveredDate = order.deliveredAt;
+    if (deliveredDate) {
+      const daysSinceDelivery = Math.floor((Date.now() - deliveredDate.getTime()) / (1000 * 60 * 60 * 24));
+      if (daysSinceDelivery > returnPolicyDays) {
+        throw new BadRequestException(
+          `Return window has expired (${returnPolicyDays} days from delivery). Order was delivered ${daysSinceDelivery} days ago.`
+        );
+      }
+    }
+
+    // Get vendor ID
+    const vendorId = order.vendorId || order.items[0]?.product?.vendorId;
+    if (!vendorId) {
+      throw new BadRequestException('Vendor information not found for this order');
+    }
+
+    // Process all return requests
+    const returnRecords: any[] = [];
+    const date = new Date();
+    const dateStr = date.toISOString().split('T')[0].replace(/-/g, '');
+
+    for (const item of items) {
+      // Find the order item
+      const orderItem = order.items.find(oi => oi.id === item.orderItemId);
+      if (!orderItem) {
+        throw new NotFoundException(`Order item ${item.orderItemId} not found`);
+      }
+
+      // Validate quantity
+      if (item.quantity <= 0 || item.quantity > orderItem.quantity) {
+        throw new BadRequestException(`Invalid return quantity for item ${orderItem.productName}`);
+      }
+
+      // Generate unique return number
+      const randomNum = Math.floor(1000 + Math.random() * 9000);
+      const returnNumber = `RET-${dateStr}-${randomNum}`;
+
+      // Calculate refund amounts
+      const itemPrice = parseFloat(orderItem.price.toString());
+      const refundTotal = itemPrice * item.quantity;
+      const refundAmount = refundTotal / 1.18;
+      const refundTax = refundTotal - refundAmount;
+
+      // Insert return record
+      const insertQuery = `
+        INSERT INTO returns (
+          return_number, order_id, order_item_id, user_id, vendor_id,
+          product_name, quantity, original_quantity, original_price,
+          refund_amount, refund_tax, refund_total,
+          reason, customer_notes, images, status,
+          requested_at, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+        RETURNING *
+      `;
+
+      const returnRecord = await this.dataSource.query(insertQuery, [
+        returnNumber,
+        orderId,
+        orderItem.id,
+        userId,
+        vendorId,
+        orderItem.productName,
+        item.quantity,
+        orderItem.quantity,
+        itemPrice,
+        refundAmount.toFixed(2),
+        refundTax.toFixed(2),
+        refundTotal.toFixed(2),
+        item.reason,
+        item.customerNotes || null,
+        item.images ? JSON.stringify(item.images) : null,
+        'requested',
+        new Date(),
+        new Date(),
+        new Date()
+      ]);
+
+      returnRecords.push(returnRecord[0]);
+    }
+
+    // Update order status to RETURN_REQUESTED
+    order.status = OrderStatus.RETURN_REQUESTED;
+    await this.orderRepository.save(order);
+
+    // Emit event
+    this.marketplaceGateway.emitOrderStatusUpdate(order.id, OrderStatus.RETURN_REQUESTED, order.userId);
+
+    return {
+      success: true,
+      message: `${returnRecords.length} return request(s) submitted successfully`,
+      data: returnRecords
+    };
+    } catch (error) {
+      console.error('[requestBulkReturns] Error:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Approve all return requests for an order
    */
   async approveAllReturns(orderId: string) {
@@ -1226,9 +1379,12 @@ export class OrdersService {
    * Confirm all approved returns - restore stock and create single credit note
    */
   async confirmAllReturns(orderId: string) {
-    // Get all approved returns for this order
+    // Get all approved returns for this order with order item details
     const returns = await this.dataSource.query(
-      `SELECT * FROM returns WHERE order_id = $1 AND status = 'approved'`,
+      `SELECT r.*, oi.product_id, oi.variant_id 
+       FROM returns r 
+       JOIN order_items oi ON r.order_item_id = oi.id
+       WHERE r.order_id = $1 AND r.status = 'approved'`,
       [orderId]
     );
 
@@ -1248,20 +1404,51 @@ export class OrdersService {
 
     // Restore stock for each return item
     for (const returnItem of returns) {
+      console.log(`[confirmAllReturns] Processing return item:`, {
+        id: returnItem.id,
+        product_id: returnItem.product_id,
+        variant_id: returnItem.variant_id,
+        quantity: returnItem.quantity
+      });
+
       // Check if it's a variant or regular product
       if (returnItem.variant_id) {
-        await this.dataSource.query(
-          `UPDATE product_variants SET stock_quantity = stock_quantity + $1 WHERE id = $2`,
+        const result = await this.dataSource.query(
+          `UPDATE product_variants SET stock_quantity = stock_quantity + $1 WHERE id = $2 RETURNING stock_quantity`,
           [returnItem.quantity, returnItem.variant_id]
         );
-        console.log(`[confirmAllReturns] Restored ${returnItem.quantity} units to variant ${returnItem.variant_id}`);
+        console.log(`[confirmAllReturns] Restored ${returnItem.quantity} units to variant ${returnItem.variant_id}. New stock: ${result[0]?.stock_quantity}`);
+        
+        // Emit WebSocket for variant's product
+        if (returnItem.product_id) {
+          const product = await this.productRepository.findOne({
+            where: { id: returnItem.product_id }
+          });
+          if (product) {
+            this.marketplaceGateway.emitStockUpdate(
+              product.id,
+              product.stockQuantity
+            );
+          }
+        }
       } else if (returnItem.product_id) {
         await this.productRepository.increment(
           { id: returnItem.product_id },
           'stockQuantity',
           returnItem.quantity
         );
-        console.log(`[confirmAllReturns] Restored ${returnItem.quantity} units to product ${returnItem.product_id}`);
+        
+        // Get updated product stock and broadcast via WebSocket
+        const product = await this.productRepository.findOne({
+          where: { id: returnItem.product_id }
+        });
+        if (product) {
+          this.marketplaceGateway.emitStockUpdate(
+            product.id,
+            product.stockQuantity
+          );
+          console.log(`[confirmAllReturns] Restored ${returnItem.quantity} units to product ${returnItem.product_id}. New stock: ${product.stockQuantity}`);
+        }
       }
 
       // Update return status to received
@@ -1271,19 +1458,6 @@ export class OrdersService {
          WHERE id = $3`,
         [new Date(), new Date(), returnItem.id]
       );
-
-      // Emit WebSocket stock update
-      if (returnItem.product_id) {
-        const product = await this.productRepository.findOne({
-          where: { id: returnItem.product_id }
-        });
-        if (product) {
-          this.marketplaceGateway.emitStockUpdate(
-            product.id,
-            product.stockQuantity
-          );
-        }
-      }
     }
 
     // Update order status to RETURNED
@@ -1310,7 +1484,8 @@ export class OrdersService {
         totalRefundAmount,
         totalRefundTax,
         returnedCommission,
-        `Return of ${returns.length} item(s)`
+        `Return of ${returns.length} item(s)`,
+        returns  // Pass the actual returned items
       );
       console.log(`[confirmAllReturns] Created consolidated credit note for order ${orderId}`);
     } catch (error) {

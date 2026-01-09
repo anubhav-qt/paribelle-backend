@@ -538,12 +538,13 @@ CREATE TABLE order_items (
 -- Payments Table
 CREATE TABLE payments (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    transaction_id VARCHAR(255) UNIQUE NOT NULL,
     order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     amount DECIMAL(10, 2) NOT NULL,
     currency VARCHAR(10) DEFAULT 'INR',
     status VARCHAR(50) NOT NULL DEFAULT 'pending',
-    payment_method VARCHAR(50) NOT NULL,
+    method VARCHAR(50) NOT NULL,
     
     -- Payment Gateway Details
     gateway VARCHAR(50),
@@ -552,11 +553,20 @@ CREATE TABLE payments (
     gateway_signature VARCHAR(255),
     gateway_response JSONB,
     
+    -- Refund details
+    refunded_amount DECIMAL(10, 2) DEFAULT 0,
+    refund_transaction_id VARCHAR(255),
+    
+    -- Payment metadata
+    metadata JSONB,
+    
     -- Additional Info
     failure_reason TEXT,
     notes TEXT,
     
     -- Dates
+    authorized_at TIMESTAMP,
+    captured_at TIMESTAMP,
     paid_at TIMESTAMP,
     refunded_at TIMESTAMP,
     

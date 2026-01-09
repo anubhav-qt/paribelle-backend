@@ -251,6 +251,117 @@ async function createDatabase() {
     }
     console.log('');
     
+    // Add transaction_id to payments table
+    print('🔧 Adding transaction_id to payments table...', 'yellow');
+    const paymentTransactionIdPath = path.join(__dirname, '..', 'add-payment-transaction-id.sql');
+    if (fs.existsSync(paymentTransactionIdPath)) {
+      const paymentTransactionIdSql = fs.readFileSync(paymentTransactionIdPath, 'utf8');
+      await client.query(paymentTransactionIdSql);
+      print('✅ Payment transaction_id field added', 'green');
+    } else {
+      // Fallback: inline SQL
+      await client.query(`
+        DO $$ 
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns 
+                WHERE table_name = 'payments' 
+                AND column_name = 'transaction_id'
+            ) THEN
+                ALTER TABLE payments 
+                ADD COLUMN transaction_id VARCHAR UNIQUE;
+                
+                -- Generate transaction IDs for existing payments
+                UPDATE payments 
+                SET transaction_id = 'TXN-' || UPPER(SUBSTRING(MD5(RANDOM()::TEXT || id::TEXT) FROM 1 FOR 12))
+                WHERE transaction_id IS NULL;
+                
+                -- Make it NOT NULL after populating existing rows
+                ALTER TABLE payments 
+                ALTER COLUMN transaction_id SET NOT NULL;
+                
+                RAISE NOTICE 'Added transaction_id column to payments table';
+            END IF;
+        END $$;
+      `);
+      print('✅ Payment transaction_id field added (inline)', 'green');
+    }
+    console.log('');
+    
+    // Fix payments table schema to match entity
+    print('🔧 Fixing payments table schema...', 'yellow');
+    const fixPaymentsPath = path.join(__dirname, '..', 'fix-payments-schema.sql');
+    if (fs.existsSync(fixPaymentsPath)) {
+      const fixPaymentsSql = fs.readFileSync(fixPaymentsPath, 'utf8');
+      await client.query(fixPaymentsSql);
+      print('✅ Payments table schema fixed', 'green');
+    } else {
+      // Fallback: inline SQL
+      await client.query(`
+        DO $$ 
+        BEGIN
+            -- Add method column (enum type)
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns 
+                WHERE table_name = 'payments' AND column_name = 'method'
+            ) THEN
+                ALTER TABLE payments ADD COLUMN method VARCHAR(50);
+                -- Copy data from payment_method if it exists
+                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payments' AND column_name = 'payment_method') THEN
+                    UPDATE payments SET method = payment_method;
+                ELSE
+                    UPDATE payments SET method = 'cod' WHERE method IS NULL;
+                END IF;
+                ALTER TABLE payments ALTER COLUMN method SET NOT NULL;
+            END IF;
+
+            -- Add refunded_amount if not exists
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns 
+                WHERE table_name = 'payments' AND column_name = 'refunded_amount'
+            ) THEN
+                ALTER TABLE payments ADD COLUMN refunded_amount DECIMAL(10, 2) DEFAULT 0;
+            END IF;
+
+            -- Add refund_transaction_id if not exists
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns 
+                WHERE table_name = 'payments' AND column_name = 'refund_transaction_id'
+            ) THEN
+                ALTER TABLE payments ADD COLUMN refund_transaction_id VARCHAR(255);
+            END IF;
+
+            -- Add authorized_at if not exists
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns 
+                WHERE table_name = 'payments' AND column_name = 'authorized_at'
+            ) THEN
+                ALTER TABLE payments ADD COLUMN authorized_at TIMESTAMP;
+            END IF;
+
+            -- Add captured_at if not exists
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns 
+                WHERE table_name = 'payments' AND column_name = 'captured_at'
+            ) THEN
+                ALTER TABLE payments ADD COLUMN captured_at TIMESTAMP;
+            END IF;
+
+            -- Add metadata if not exists
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns 
+                WHERE table_name = 'payments' AND column_name = 'metadata'
+            ) THEN
+                ALTER TABLE payments ADD COLUMN metadata JSONB;
+            END IF;
+
+            RAISE NOTICE 'Payments table schema updated successfully';
+        END $$;
+      `);
+      print('✅ Payments table schema fixed (inline)', 'green');
+    }
+    console.log('');
+    
     // Add default marketplace pages (Privacy, Terms, Cookie)
     print('🔧 Creating default marketplace pages...', 'yellow');
     await client.query(`
