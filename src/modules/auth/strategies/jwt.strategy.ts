@@ -28,6 +28,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('User not found');
     }
     
+    // Check if email is verified for non-Google users
+    if (!user.emailVerifiedAt && !user.email.includes('google')) {
+      throw new UnauthorizedException('Please verify your email before logging in. Check your inbox for the verification link.');
+    }
+    
     return user;
   }
 }

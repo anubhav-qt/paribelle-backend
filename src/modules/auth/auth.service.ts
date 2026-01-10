@@ -9,9 +9,12 @@ import { UsersService } from '../users/users.service';
 import { Vendor, VendorStatus } from '../vendors/vendor.entity';
 import { SimpleEmailService } from '../simple-email/simple-email.service';
 import { ReferralsService } from '../referrals/referrals.service';
+import { Logger } from '@nestjs/common';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private usersService: UsersService,
     private jwtService: JwtService,
@@ -245,11 +248,38 @@ export class AuthService {
 
     // Link vendor to user
     user.vendorId = vendor.id;
+    
+    // Generate email verification token
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+    user.emailVerificationToken = verificationToken;
+    user.emailVerificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
     await this.usersRepository.save(user);
+
+    // Send verification email
+    try {
+      await this.emailService.sendVerificationEmail(user.email, verificationToken);
+      this.logger.log(`Verification email sent to vendor: ${user.email}`);
+    } catch (error) {
+      this.logger.error(`Failed to send verification email to vendor ${user.email}:`, error);
+      // Don't fail registration if email fails
+    }
+
+    // Send vendor welcome email
+    try {
+      await this.emailService.sendVendorWelcomeEmail(
+        user.email,
+        vendorData.firstName,
+        vendor.storeName,
+      );
+      this.logger.log(`Welcome email sent to vendor: ${user.email}`);
+    } catch (error) {
+      this.logger.error(`Failed to send welcome email to vendor ${user.email}:`, error);
+      // Don't fail registration if email fails
+    }
 
     const { password, ...userResult } = user;
     return {
-      message: 'Vendor registration successful. Your account is pending approval.',
+      message: 'Vendor registration successful. Your account is pending approval. Please check your email to verify your account.',
       vendor: {
         id: vendor.id,
         storeName: vendor.storeName,

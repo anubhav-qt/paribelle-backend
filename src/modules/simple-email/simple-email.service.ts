@@ -1017,4 +1017,229 @@ Thank you for shopping with us!
       throw new Error('Failed to send return approval email');
     }
   }
+
+  async sendVendorWelcomeEmail(email: string, firstName: string, storeName: string) {
+    const appName = this.configService.get('APP_NAME') || 'GaliCart';
+    const appUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
+    const dashboardLink = `${appUrl}/vendor/dashboard`;
+
+    try {
+      await this.transporter.sendMail({
+        from: this.configService.get('SMTP_FROM') || this.configService.get('SMTP_USER'),
+        to: email,
+        subject: `Welcome to ${appName} - Vendor Registration Received`,
+        html: `
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <meta charset="utf-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <style>
+                body {
+                  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+                  line-height: 1.6;
+                  color: #333;
+                  margin: 0;
+                  padding: 0;
+                  background-color: #f4f4f4;
+                }
+                .container {
+                  max-width: 600px;
+                  margin: 40px auto;
+                  background: white;
+                  border-radius: 8px;
+                  overflow: hidden;
+                  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                }
+                .header {
+                  background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+                  padding: 40px 20px;
+                  text-align: center;
+                  color: white;
+                }
+                .header h1 {
+                  margin: 0;
+                  font-size: 28px;
+                  font-weight: 600;
+                }
+                .icon {
+                  font-size: 48px;
+                  margin-bottom: 10px;
+                }
+                .content {
+                  padding: 40px 30px;
+                }
+                .content h2 {
+                  margin-top: 0;
+                  color: #333;
+                  font-size: 24px;
+                }
+                .content p {
+                  margin: 16px 0;
+                  color: #666;
+                  font-size: 16px;
+                }
+                .store-info {
+                  background: #e0f2fe;
+                  padding: 20px;
+                  border-radius: 6px;
+                  margin: 24px 0;
+                  border-left: 4px solid #0284c7;
+                }
+                .store-info strong {
+                  color: #0369a1;
+                  font-size: 18px;
+                }
+                .status-badge {
+                  display: inline-block;
+                  padding: 8px 16px;
+                  background: #fef3c7;
+                  color: #92400e;
+                  border-radius: 20px;
+                  font-weight: 600;
+                  font-size: 14px;
+                  margin: 16px 0;
+                }
+                .button {
+                  display: inline-block;
+                  padding: 14px 32px;
+                  background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+                  color: white !important;
+                  text-decoration: none;
+                  border-radius: 6px;
+                  font-weight: 600;
+                  font-size: 16px;
+                  margin: 24px 0;
+                  transition: transform 0.2s;
+                }
+                .button:hover {
+                  transform: translateY(-2px);
+                }
+                .next-steps {
+                  background: #f8f9fa;
+                  padding: 20px;
+                  border-radius: 6px;
+                  margin: 24px 0;
+                }
+                .next-steps h3 {
+                  margin-top: 0;
+                  color: #333;
+                  font-size: 18px;
+                }
+                .next-steps ul {
+                  margin: 12px 0;
+                  padding-left: 20px;
+                }
+                .next-steps li {
+                  margin: 8px 0;
+                  color: #666;
+                }
+                .footer {
+                  padding: 30px;
+                  text-align: center;
+                  background: #f8f9fa;
+                  color: #666;
+                  font-size: 14px;
+                  border-top: 1px solid #e9ecef;
+                }
+                .footer a {
+                  color: #0284c7;
+                  text-decoration: none;
+                }
+                .divider {
+                  border: 0;
+                  border-top: 1px solid #e9ecef;
+                  margin: 24px 0;
+                }
+              </style>
+            </head>
+            <body>
+              <div class="container">
+                <div class="header">
+                  <div class="icon">🏪</div>
+                  <h1>${appName}</h1>
+                </div>
+                <div class="content">
+                  <h2>Welcome to ${appName}! 🎉</h2>
+                  <p>Hi ${firstName},</p>
+                  <p>Thank you for registering as a vendor on ${appName}! We're excited to have you join our marketplace community.</p>
+                  
+                  <div class="store-info">
+                    <strong>Store Name:</strong> ${storeName}
+                  </div>
+                  
+                  <p>Your vendor account has been created with the following status:</p>
+                  <div style="text-align: center;">
+                    <span class="status-badge">⏳ PENDING APPROVAL</span>
+                  </div>
+                  
+                  <hr class="divider">
+                  
+                  <div class="next-steps">
+                    <h3>📋 What Happens Next?</h3>
+                    <ul>
+                      <li><strong>Email Verification:</strong> Please verify your email address using the verification link sent in a separate email.</li>
+                      <li><strong>Admin Review:</strong> Our team will review your vendor application within 24-48 hours.</li>
+                      <li><strong>Account Activation:</strong> Once approved, you'll receive an email and can start listing your products.</li>
+                      <li><strong>Dashboard Access:</strong> You can log in to your dashboard now to explore the interface.</li>
+                    </ul>
+                  </div>
+                  
+                  <div style="text-align: center;">
+                    <a href="${dashboardLink}" class="button">Go to Vendor Dashboard</a>
+                  </div>
+                  
+                  <hr class="divider">
+                  
+                  <p style="font-size: 14px; color: #666;">
+                    <strong>Need Help Getting Started?</strong><br>
+                    Check out our vendor documentation or contact our support team for assistance.
+                  </p>
+                  
+                  <p style="font-size: 14px; color: #999; margin-top: 24px;">
+                    <strong>Note:</strong> If you didn't register as a vendor on ${appName}, please contact our support team immediately.
+                  </p>
+                </div>
+                <div class="footer">
+                  <p>© ${new Date().getFullYear()} ${appName}. All rights reserved.</p>
+                  <p>
+                    Need help? <a href="${appUrl}/contact">Contact Support</a>
+                  </p>
+                </div>
+              </div>
+            </body>
+          </html>
+        `,
+        text: `
+Welcome to ${appName}!
+
+Hi ${firstName},
+
+Thank you for registering as a vendor on ${appName}! We're excited to have you join our marketplace community.
+
+Store Name: ${storeName}
+Status: PENDING APPROVAL
+
+What Happens Next?
+
+1. Email Verification: Please verify your email address using the verification link sent in a separate email.
+2. Admin Review: Our team will review your vendor application within 24-48 hours.
+3. Account Activation: Once approved, you'll receive an email and can start listing your products.
+4. Dashboard Access: You can log in to your dashboard now to explore the interface.
+
+Visit your vendor dashboard: ${dashboardLink}
+
+Need help getting started? Check out our vendor documentation or contact our support team for assistance.
+
+© ${new Date().getFullYear()} ${appName}. All rights reserved.
+        `,
+      });
+
+      this.logger.log(`Vendor welcome email sent to ${email}`);
+      return true;
+    } catch (error) {
+      this.logger.error(`Failed to send vendor welcome email to ${email}:`, error);
+      throw new Error('Failed to send vendor welcome email');
+    }
+  }
 }
