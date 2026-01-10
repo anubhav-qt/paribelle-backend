@@ -255,16 +255,21 @@ export class AuthService {
     user.emailVerificationTokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
     await this.usersRepository.save(user);
 
-    // Send verification email
+    // Send verification email - CRITICAL: Must succeed for registration to complete
     try {
       await this.emailService.sendVerificationEmail(user.email, verificationToken);
       this.logger.log(`Verification email sent to vendor: ${user.email}`);
     } catch (error) {
       this.logger.error(`Failed to send verification email to vendor ${user.email}:`, error);
-      // Don't fail registration if email fails
+      // Rollback: Delete vendor and user since verification email failed
+      await this.vendorsRepository.delete(vendor.id);
+      await this.usersRepository.delete(user.id);
+      throw new BadRequestException(
+        'Failed to send verification email. Please check your email address and try again, or contact support if the problem persists.',
+      );
     }
 
-    // Send vendor welcome email
+    // Send vendor welcome email - non-critical, can fail without affecting registration
     try {
       await this.emailService.sendVendorWelcomeEmail(
         user.email,
@@ -274,7 +279,7 @@ export class AuthService {
       this.logger.log(`Welcome email sent to vendor: ${user.email}`);
     } catch (error) {
       this.logger.error(`Failed to send welcome email to vendor ${user.email}:`, error);
-      // Don't fail registration if email fails
+      // Don't fail registration if welcome email fails
     }
 
     const { password, ...userResult } = user;

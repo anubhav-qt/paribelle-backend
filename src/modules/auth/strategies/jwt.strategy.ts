@@ -29,7 +29,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     }
     
     // Check if email is verified for non-Google users
-    if (!user.emailVerifiedAt && !user.email.includes('google')) {
+    // Google OAuth users have emails ending with @gmail.com or containing 'googleusercontent'
+    const isGoogleUser = user.email.endsWith('@gmail.com') || user.email.includes('googleusercontent');
+    if (!user.emailVerifiedAt && !isGoogleUser) {
       throw new UnauthorizedException('Please verify your email before logging in. Check your inbox for the verification link.');
     }
     

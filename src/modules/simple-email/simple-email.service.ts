@@ -19,6 +19,9 @@ export class SimpleEmailService {
         user: this.configService.get('SMTP_USER'),
         pass: this.configService.get('SMTP_PASSWORD'),
       },
+      connectionTimeout: 10000, // 10 seconds timeout
+      greetingTimeout: 10000,
+      socketTimeout: 10000,
     });
   }
 
@@ -27,8 +30,11 @@ export class SimpleEmailService {
     const appUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
     const verificationLink = `${appUrl}/verify-email?token=${token}`;
 
+    this.logger.log(`Attempting to send verification email to: ${email}`);
+    this.logger.log(`SMTP Config - Host: ${this.configService.get('SMTP_HOST')}, Port: ${this.configService.get('SMTP_PORT')}, From: ${this.configService.get('SMTP_FROM')}`);
+
     try {
-      await this.transporter.sendMail({
+      const info = await this.transporter.sendMail({
         from: this.configService.get('SMTP_FROM') || this.configService.get('SMTP_USER'),
         to: email,
         subject: `Verify Your Email - ${appName}`,
@@ -168,10 +174,18 @@ If you didn't create an account with ${appName}, you can safely ignore this emai
         `,
       });
 
-      this.logger.log(`Verification email sent to ${email}`);
+      this.logger.log(`✅ Email sent successfully! Message ID: ${info.messageId}`);
+      this.logger.log(`Response: ${JSON.stringify(info.response)}`);
+      this.logger.log(`Accepted: ${info.accepted}, Rejected: ${info.rejected}`);
       return true;
     } catch (error) {
-      this.logger.error(`Failed to send verification email to ${email}:`, error);
+      this.logger.error(`❌ Failed to send verification email to ${email}:`, error.message);
+      if (error.response) {
+        this.logger.error(`SMTP Response: ${error.response}`);
+      }
+      if (error.responseCode) {
+        this.logger.error(`Response Code: ${error.responseCode}`);
+      }
       throw new Error('Failed to send verification email');
     }
   }
