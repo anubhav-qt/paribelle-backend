@@ -81,8 +81,9 @@ export class OrdersService {
       throw new NotFoundException('One or more products not found');
     }
 
-    // Validate stock availability and reserve stock
+    // Phase 1: Validate stock availability for ALL products first
     const stockUpdates: Array<{ productId: string; stockQuantity: number }> = [];
+    const productsToDecrement: Array<{ product: any; quantity: number }> = [];
     
     for (const item of items) {
       const product = products.find(p => p.id === item.productId);
@@ -102,13 +103,9 @@ export class OrdersService {
           );
         }
 
-        // Decrement stock immediately to prevent overselling
-        await this.productRepository.decrement(
-          { id: product.id },
-          'stockQuantity',
-          item.quantity
-        );
-
+        // Track products that need stock decrement (do this only after ALL validations pass)
+        productsToDecrement.push({ product, quantity: item.quantity });
+        
         // Track the new stock quantity for WebSocket broadcast
         const newStockQuantity = availableStock - item.quantity;
         stockUpdates.push({ 
@@ -116,6 +113,15 @@ export class OrdersService {
           stockQuantity: newStockQuantity 
         });
       }
+    }
+
+    // Phase 2: All validations passed, now decrement stock for all products
+    for (const { product, quantity } of productsToDecrement) {
+      await this.productRepository.decrement(
+        { id: product.id },
+        'stockQuantity',
+        quantity
+      );
     }
 
     // Emit stock updates via WebSocket
