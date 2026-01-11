@@ -430,6 +430,28 @@ export class ProductsService {
   async create(productData: any): Promise<Product> {
     const { categoryIds, newFilterOptions, categoryId, variations, variants, variantOptions, ...data } = productData;
     
+    // CRITICAL: Validate vendor can create products
+    // Vendors must complete setup and KYC before adding products
+    if (data.vendorId) {
+      const vendor = await this.productsRepository.manager.findOne('vendors', {
+        where: { id: data.vendorId },
+      });
+      
+      if (!vendor) {
+        throw new BadRequestException('Vendor not found');
+      }
+      
+      // Check if vendor has completed basic setup
+      if (!vendor.storeName || !vendor.contactEmail || !vendor.contactPhone) {
+        throw new BadRequestException('Please complete your store setup before adding products. Go to Vendor Settings to complete your profile.');
+      }
+      
+      // Check KYC status
+      if (vendor.kycStatus !== 'approved') {
+        throw new BadRequestException(`KYC verification required. Your KYC status is: ${vendor.kycStatus}. Please complete KYC verification before adding products.`);
+      }
+    }
+    
     // Ensure GST fields have default values if not provided
     if (!data.priceType) {
       data.priceType = 'mrp_with_gst'; // Default to tax-inclusive pricing

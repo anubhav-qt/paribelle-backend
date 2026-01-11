@@ -112,10 +112,13 @@ export class AuthService {
     googleId: string;
     picture?: string;
   }) {
+    console.log('[GoogleLogin] Attempting login for:', googleData.email);
+    
     // Check if user exists
     let user = await this.usersService.findByEmail(googleData.email);
 
     if (!user) {
+      console.log('[GoogleLogin] User not found, creating new user');
       // Create new user from Google data
       const [firstName, ...lastNameParts] = googleData.name.split(' ');
       const lastName = lastNameParts.join(' ') || firstName;
@@ -134,19 +137,27 @@ export class AuthService {
         emailVerifiedAt: new Date(), // Auto-verify Google emails
         // You can add googleId and picture to user entity if needed
       });
-    } else if (!user.emailVerifiedAt) {
-      // If user exists but email not verified, verify it (they used Google)
-      user.emailVerifiedAt = new Date();
-      await this.usersRepository.save(user);
+      console.log('[GoogleLogin] New user created successfully');
+    } else {
+      console.log('[GoogleLogin] Existing user found');
+      if (!user.emailVerifiedAt) {
+        // If user exists but email not verified, verify it (they used Google)
+        user.emailVerifiedAt = new Date();
+        await this.usersRepository.save(user);
+        console.log('[GoogleLogin] Email verified for existing user');
+      }
     }
 
     const { password, ...result } = user;
+    const token = this.jwtService.sign({
+      email: result.email,
+      sub: result.id,
+      role: result.role,
+    });
+    
+    console.log('[GoogleLogin] Login successful, returning token and user');
     return {
-      token: this.jwtService.sign({
-        email: result.email,
-        sub: result.id,
-        role: result.role,
-      }),
+      token,
       user: result,
     };
   }
