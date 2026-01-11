@@ -20,6 +20,10 @@ services:
         fromDatabase:
           name: marketplace-db
           property: connectionString
+      - key: npm_config_sharp_binary_host
+        value: https://github.com/lovell/sharp-libvips/releases/download/
+      - key: npm_config_sharp_libvips_binary_host
+        value: https://github.com/lovell/sharp-libvips/releases/download/
 
 databases:
   # PostgreSQL Database
