@@ -107,6 +107,9 @@ export class VendorsService {
     
     console.log('VendorsService.update - Updating vendor:', id, 'with data:', vendorData);
     
+    // Check if status is changing from pending to active
+    const statusChangingToActive = vendor.status === 'pending' && vendorData.status === 'active';
+    
     // Clean up numeric fields - convert empty strings to null
     const cleanedData = { ...vendorData };
     const numericFields = ['shippingCost', 'freeShippingThreshold', 'commissionRate'];
@@ -130,7 +133,46 @@ export class VendorsService {
     const result = await this.vendorsRepository.update(id, cleanedData);
     console.log('VendorsService.update - Update result:', result);
     
+    // Send approval email if status changed to active
+    if (statusChangingToActive) {
+      const updatedVendor = await this.findOne(id);
+      if (updatedVendor) {
+        console.log('[Vendor] Status changed to active, sending approval email...');
+        // Send email asynchronously, don't block the update
+        this.sendVendorApprovalEmail(updatedVendor).catch(err => {
+          console.error('[Vendor] Failed to send approval email:', err);
+        });
+      }
+    }
+    
     return this.findOne(id);
+  }
+
+  /**
+   * Send vendor approval email
+   */
+  private async sendVendorApprovalEmail(vendor: Vendor): Promise<void> {
+    try {
+      // Load user relation if not already loaded
+      const vendorWithUser = vendor.user ? vendor : await this.vendorsRepository.findOne({
+        where: { id: vendor.id },
+        relations: ['user'],
+      });
+
+      if (!vendorWithUser || !vendorWithUser.user) {
+        console.error('[Vendor] Cannot send approval email - user not found');
+        return;
+      }
+
+      console.log(`[Vendor] Sending approval email to: ${vendorWithUser.user.email}`);
+      
+      // TODO: Implement actual email sending using SimpleEmailService
+      // For now, just log
+      console.log(`[Vendor] Approval email would be sent to: ${vendorWithUser.user.email}`);
+      console.log(`[Vendor] Store: ${vendorWithUser.storeName}`);
+    } catch (error) {
+      console.error('[Vendor] Error sending approval email:', error);
+    }
   }
 
   async updateVendorLocation(
