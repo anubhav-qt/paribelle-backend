@@ -345,8 +345,11 @@ export class KYCService {
 
       // Get admin email from config
       const adminEmail = this.configService.get('ADMIN_EMAIL') || this.configService.get('SMTP_FROM');
-      const frontendUrl = this.configService.get('FRONTEND_URL') || 'http://localhost:3000';
+      const frontendUrl = this.configService.get('FRONTEND_URL') || this.configService.get('APP_URL') || 'http://localhost:3000';
       const reviewUrl = `${frontendUrl}/admin/kyc-verification?vendorId=${vendor.id}`;
+      
+      console.log(`[KYC] Admin email: ${adminEmail}`);
+      console.log(`[KYC] Review URL: ${reviewUrl}`);
 
       // Send email with all documents attached
       await this.emailService.sendKYCDocumentsToAdmin(
