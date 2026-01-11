@@ -137,7 +137,12 @@ export class KYCService {
     await this.vendorRepository.save(vendor);
 
     // Send KYC documents to admin email and delete from Cloudinary
-    await this.emailDocumentsToAdmin(vendor, documents);
+    // Do this asynchronously to not block KYC submission
+    this.emailDocumentsToAdmin(vendor, documents).catch(error => {
+      console.error('[KYC] Failed to email documents to admin:', error);
+      console.error('[KYC] Error stack:', error.stack);
+      // Don't throw - KYC submission should succeed even if email fails
+    });
 
     return vendor;
   }
@@ -287,7 +292,14 @@ export class KYCService {
    */
   private async emailDocumentsToAdmin(vendor: Vendor, documents: KYCDocument[]): Promise<void> {
     try {
-      console.log(`[KYC] Preparing to email documents for vendor: ${vendor.businessName || vendor.storeName}`);
+      console.log(`[KYC] ===== Starting emailDocumentsToAdmin =====`);
+      console.log(`[KYC] Vendor: ${vendor.businessName || vendor.storeName}`);
+      console.log(`[KYC] Documents count: ${documents.length}`);
+      console.log(`[KYC] SMTP_HOST: ${this.configService.get('SMTP_HOST')}`);
+      console.log(`[KYC] ADMIN_EMAIL: ${this.configService.get('ADMIN_EMAIL')}`);
+      console.log(`[KYC] SMTP_FROM: ${this.configService.get('SMTP_FROM')}`);
+      console.log(`[KYC] FRONTEND_URL: ${this.configService.get('FRONTEND_URL')}`);
+      console.log(`[KYC] CLOUDINARY_CLOUD_NAME: ${this.configService.get('CLOUDINARY_CLOUD_NAME')}`);
       
       // Download all documents from Cloudinary as buffers
       const attachments: Array<{ filename: string; content: Buffer }> = [];
@@ -358,10 +370,14 @@ export class KYCService {
       }
 
       console.log(`[KYC] Successfully deleted ${publicIdsToDelete.length} documents from Cloudinary`);
+      console.log(`[KYC] ===== emailDocumentsToAdmin completed successfully =====`);
 
     } catch (error) {
-      console.error('[KYC] Error in emailDocumentsToAdmin:', error);
-      throw new BadRequestException('Failed to process KYC documents. Please try again.');
+      console.error('[KYC] ===== Error in emailDocumentsToAdmin =====');
+      console.error('[KYC] Error message:', error.message);
+      console.error('[KYC] Error stack:', error.stack);
+      console.error('[KYC] Error details:', JSON.stringify(error, null, 2));
+      // Don't throw - log error but don't block KYC submission
     }
   }
 
