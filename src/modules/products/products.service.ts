@@ -4,6 +4,7 @@ import { Repository, In } from 'typeorm';
 import { Product, ProductStatus } from './product.entity';
 import { ProductVariant } from './product-variant.entity';
 import { Category } from '../categories/category.entity';
+import { Vendor } from '../vendors/vendor.entity';
 import { CategoriesService } from '../categories/categories.service';
 import { FileCleanupService } from '../../common/services/file-cleanup.service';
 import { MarketplaceGateway } from '../stock/stock.gateway';
@@ -18,6 +19,8 @@ export class ProductsService {
     private productVariantsRepository: Repository<ProductVariant>,
     @InjectRepository(Category)
     private categoriesRepository: Repository<Category>,
+    @InjectRepository(Vendor)
+    private vendorsRepository: Repository<Vendor>,
     private categoriesService: CategoriesService,
     private fileCleanupService: FileCleanupService,
     private marketplaceGateway: MarketplaceGateway,
@@ -433,7 +436,7 @@ export class ProductsService {
     // CRITICAL: Validate vendor can create products
     // Vendors must complete setup and KYC before adding products
     if (data.vendorId) {
-      const vendor = await this.productsRepository.manager.findOne('vendors', {
+      const vendor = await this.vendorsRepository.findOne({
         where: { id: data.vendorId },
       });
       
