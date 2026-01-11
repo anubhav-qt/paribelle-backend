@@ -1256,4 +1256,245 @@ Need help getting started? Check out our vendor documentation or contact our sup
       throw new Error('Failed to send vendor welcome email');
     }
   }
+
+  /**
+   * Send KYC documents to admin email with attachments
+   */
+  async sendKYCDocumentsToAdmin(
+    adminEmail: string,
+    vendor: any,
+    reviewUrl: string,
+    attachments: Array<{ filename: string; content: Buffer }>,
+  ): Promise<boolean> {
+    const appName = this.configService.get('APP_NAME') || 'GaliCart';
+    const appUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
+
+    this.logger.log(`Sending KYC documents to admin: ${adminEmail} for vendor: ${vendor.storeName}`);
+
+    try {
+      await this.transporter.sendMail({
+        from: this.configService.get('SMTP_FROM') || this.configService.get('SMTP_USER'),
+        to: adminEmail,
+        subject: `🔔 New KYC Submission - ${vendor.businessName || vendor.storeName}`,
+        attachments,
+        html: `
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <meta charset="utf-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <style>
+                body {
+                  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+                  line-height: 1.6;
+                  color: #333;
+                  margin: 0;
+                  padding: 0;
+                  background-color: #f4f4f4;
+                }
+                .container {
+                  max-width: 600px;
+                  margin: 40px auto;
+                  background: white;
+                  border-radius: 8px;
+                  overflow: hidden;
+                  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                }
+                .header {
+                  background: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%);
+                  padding: 40px 20px;
+                  text-align: center;
+                  color: white;
+                }
+                .header h1 {
+                  margin: 0;
+                  font-size: 28px;
+                  font-weight: 600;
+                }
+                .content {
+                  padding: 40px 30px;
+                }
+                .content h2 {
+                  margin-top: 0;
+                  color: #333;
+                  font-size: 24px;
+                }
+                .info-box {
+                  background: #f8f9fa;
+                  border-left: 4px solid #f59e0b;
+                  padding: 16px 20px;
+                  margin: 24px 0;
+                  border-radius: 4px;
+                }
+                .info-box h3 {
+                  margin: 0 0 12px 0;
+                  color: #333;
+                  font-size: 18px;
+                }
+                .info-row {
+                  display: flex;
+                  margin: 8px 0;
+                  font-size: 14px;
+                }
+                .info-label {
+                  font-weight: 600;
+                  color: #666;
+                  min-width: 140px;
+                }
+                .info-value {
+                  color: #333;
+                }
+                .button {
+                  display: inline-block;
+                  padding: 14px 32px;
+                  background: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%);
+                  color: white !important;
+                  text-decoration: none;
+                  border-radius: 6px;
+                  font-weight: 600;
+                  font-size: 16px;
+                  margin: 24px 0;
+                  transition: transform 0.2s;
+                }
+                .button:hover {
+                  transform: translateY(-2px);
+                }
+                .attachments {
+                  background: #fff3cd;
+                  border: 1px solid #ffc107;
+                  border-radius: 6px;
+                  padding: 16px;
+                  margin: 24px 0;
+                }
+                .attachments h4 {
+                  margin: 0 0 12px 0;
+                  color: #856404;
+                }
+                .attachments ul {
+                  margin: 0;
+                  padding-left: 20px;
+                }
+                .attachments li {
+                  color: #856404;
+                  margin: 4px 0;
+                }
+                .footer {
+                  padding: 30px;
+                  text-align: center;
+                  background: #f8f9fa;
+                  color: #666;
+                  font-size: 14px;
+                  border-top: 1px solid #e9ecef;
+                }
+                .divider {
+                  border: 0;
+                  border-top: 1px solid #e9ecef;
+                  margin: 24px 0;
+                }
+              </style>
+            </head>
+            <body>
+              <div class="container">
+                <div class="header">
+                  <h1>🔔 ${appName} Admin</h1>
+                </div>
+                <div class="content">
+                  <h2>New KYC Submission</h2>
+                  <p>A vendor has submitted KYC documents for verification. Please review the details below and the attached documents.</p>
+                  
+                  <div class="info-box">
+                    <h3>Vendor Information</h3>
+                    <div class="info-row">
+                      <span class="info-label">Store Name:</span>
+                      <span class="info-value">${vendor.storeName}</span>
+                    </div>
+                    <div class="info-row">
+                      <span class="info-label">Business Name:</span>
+                      <span class="info-value">${vendor.businessName || 'Not provided'}</span>
+                    </div>
+                    <div class="info-row">
+                      <span class="info-label">Email:</span>
+                      <span class="info-value">${vendor.user?.email || 'N/A'}</span>
+                    </div>
+                    <div class="info-row">
+                      <span class="info-label">Phone:</span>
+                      <span class="info-value">${vendor.contactPhone || 'N/A'}</span>
+                    </div>
+                    <div class="info-row">
+                      <span class="info-label">PAN Number:</span>
+                      <span class="info-value">${vendor.panNumber || 'Not provided'}</span>
+                    </div>
+                    <div class="info-row">
+                      <span class="info-label">GST Number:</span>
+                      <span class="info-value">${vendor.gstNumber || 'Not provided'}</span>
+                    </div>
+                    <div class="info-row">
+                      <span class="info-label">Submitted At:</span>
+                      <span class="info-value">${new Date().toLocaleString()}</span>
+                    </div>
+                  </div>
+
+                  <div class="attachments">
+                    <h4>📎 Attached Documents (${attachments.length})</h4>
+                    <ul>
+                      ${attachments.map(att => `<li>${att.filename}</li>`).join('')}
+                    </ul>
+                    <p style="margin: 12px 0 0 0; font-size: 13px; color: #856404;">
+                      <strong>Note:</strong> These documents have been automatically deleted from cloud storage after being attached to this email.
+                    </p>
+                  </div>
+                  
+                  <div style="text-align: center;">
+                    <a href="${reviewUrl}" class="button">Review KYC Submission</a>
+                  </div>
+                  
+                  <hr class="divider">
+                  
+                  <p style="font-size: 14px; color: #666;">
+                    <strong>Action Required:</strong><br>
+                    Please review the attached documents and either approve or reject this KYC submission through the admin dashboard.
+                  </p>
+                </div>
+                <div class="footer">
+                  <p>© ${new Date().getFullYear()} ${appName}. All rights reserved.</p>
+                  <p>This is an automated notification from ${appName} Marketplace</p>
+                </div>
+              </div>
+            </body>
+          </html>
+        `,
+        text: `
+New KYC Submission - ${appName}
+
+A vendor has submitted KYC documents for verification.
+
+VENDOR INFORMATION:
+- Store Name: ${vendor.storeName}
+- Business Name: ${vendor.businessName || 'Not provided'}
+- Email: ${vendor.user?.email || 'N/A'}
+- Phone: ${vendor.contactPhone || 'N/A'}
+- PAN Number: ${vendor.panNumber || 'Not provided'}
+- GST Number: ${vendor.gstNumber || 'Not provided'}
+- Submitted At: ${new Date().toLocaleString()}
+
+ATTACHED DOCUMENTS (${attachments.length}):
+${attachments.map((att, i) => `${i + 1}. ${att.filename}`).join('\n')}
+
+Note: These documents have been automatically deleted from cloud storage after being attached to this email.
+
+Review KYC Submission: ${reviewUrl}
+
+Please review the attached documents and either approve or reject this KYC submission through the admin dashboard.
+
+© ${new Date().getFullYear()} ${appName}. All rights reserved.
+        `,
+      });
+
+      this.logger.log(`KYC documents sent to admin: ${adminEmail}`);
+      return true;
+    } catch (error) {
+      this.logger.error(`Failed to send KYC documents to admin ${adminEmail}:`, error);
+      throw new Error('Failed to send KYC documents email');
+    }
+  }
 }

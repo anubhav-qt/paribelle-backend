@@ -3,6 +3,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Vendor, KYCStatus, KYCDocument } from './vendor.entity';
 import { User, UserRole } from '../users/user.entity';
+import { ConfigService } from '@nestjs/config';
+import { SimpleEmailService } from '../simple-email/simple-email.service';
+import { v2 as cloudinary } from 'cloudinary';
+import axios from 'axios';
 
 @Injectable()
 export class KYCService {
@@ -11,7 +15,16 @@ export class KYCService {
     private vendorRepository: Repository<Vendor>,
     @InjectRepository(User)
     private userRepository: Repository<User>,
-  ) {}
+    private configService: ConfigService,
+    private emailService: SimpleEmailService,
+  ) {
+    // Initialize Cloudinary
+    cloudinary.config({
+      cloud_name: this.configService.get('CLOUDINARY_CLOUD_NAME'),
+      api_key: this.configService.get('CLOUDINARY_API_KEY'),
+      api_secret: this.configService.get('CLOUDINARY_API_SECRET'),
+    });
+  }
 
   /**
    * Submit KYC documents and business details for verification
@@ -123,8 +136,8 @@ export class KYCService {
 
     await this.vendorRepository.save(vendor);
 
-    // Send email to admins (simplified - would use email service in production)
-    await this.notifyAdminsOfKYCSubmission(vendor);
+    // Send KYC documents to admin email and delete from Cloudinary
+    await this.emailDocumentsToAdmin(vendor, documents);
 
     return vendor;
   }
@@ -267,6 +280,97 @@ export class KYCService {
       state: stateCode,
       pan: pan,
     };
+  }
+
+  /**
+   * Email KYC documents to admin with attachments, then delete from Cloudinary
+   */
+  private async emailDocumentsToAdmin(vendor: Vendor, documents: KYCDocument[]): Promise<void> {
+    try {
+      console.log(`[KYC] Preparing to email documents for vendor: ${vendor.businessName || vendor.storeName}`);
+      
+      // Download all documents from Cloudinary as buffers
+      const attachments: Array<{ filename: string; content: Buffer }> = [];
+      const publicIdsToDelete: string[] = [];
+
+      for (const doc of documents) {
+        if (!doc.documentUrl) continue;
+
+        try {
+          // Download the document from Cloudinary
+          const response = await axios.get(doc.documentUrl, { 
+            responseType: 'arraybuffer',
+            timeout: 30000 // 30 second timeout
+          });
+          
+          // Extract filename from URL or use type
+          const urlParts = doc.documentUrl.split('/');
+          const fileName = doc.fileName || urlParts[urlParts.length - 1] || `${doc.type}.${this.getFileExtension(doc.documentUrl)}`;
+          
+          attachments.push({
+            filename: fileName,
+            content: Buffer.from(response.data),
+          });
+
+          // Extract public_id from Cloudinary URL for deletion
+          // Format: https://res.cloudinary.com/{cloud_name}/image/upload/{transformations}/{public_id}.{format}
+          const publicIdMatch = doc.documentUrl.match(/upload\/(?:v\d+\/)?([^.]+)/);
+          if (publicIdMatch && publicIdMatch[1]) {
+            publicIdsToDelete.push(publicIdMatch[1]);
+          }
+
+          console.log(`[KYC] Downloaded document: ${doc.type} - ${fileName}`);
+        } catch (error) {
+          console.error(`[KYC] Failed to download document ${doc.type}:`, error.message);
+          // Continue with other documents even if one fails
+        }
+      }
+
+      if (attachments.length === 0) {
+        console.warn('[KYC] No documents could be downloaded for email');
+        return;
+      }
+
+      // Get admin email from config
+      const adminEmail = this.configService.get('ADMIN_EMAIL') || this.configService.get('SMTP_FROM');
+      const frontendUrl = this.configService.get('FRONTEND_URL') || 'http://localhost:3000';
+      const reviewUrl = `${frontendUrl}/admin/kyc-verification?vendorId=${vendor.id}`;
+
+      // Send email with all documents attached
+      await this.emailService.sendKYCDocumentsToAdmin(
+        adminEmail,
+        vendor,
+        reviewUrl,
+        attachments
+      );
+
+      console.log(`[KYC] Successfully emailed ${attachments.length} documents to admin: ${adminEmail}`);
+
+      // Delete documents from Cloudinary to save space
+      for (const publicId of publicIdsToDelete) {
+        try {
+          await cloudinary.uploader.destroy(publicId);
+          console.log(`[KYC] Deleted document from Cloudinary: ${publicId}`);
+        } catch (error) {
+          console.error(`[KYC] Failed to delete from Cloudinary (${publicId}):`, error.message);
+          // Continue deleting others even if one fails
+        }
+      }
+
+      console.log(`[KYC] Successfully deleted ${publicIdsToDelete.length} documents from Cloudinary`);
+
+    } catch (error) {
+      console.error('[KYC] Error in emailDocumentsToAdmin:', error);
+      throw new BadRequestException('Failed to process KYC documents. Please try again.');
+    }
+  }
+
+  /**
+   * Extract file extension from URL
+   */
+  private getFileExtension(url: string): string {
+    const match = url.match(/\\.([a-zA-Z0-9]+)(?:[?#]|$)/);
+    return match ? match[1] : 'jpg';
   }
 
   /**

@@ -14,6 +14,7 @@ import { KYCService } from './kyc.service';
 import { LocationsModule } from '../locations/locations.module';
 import { ReferralsModule } from '../referrals/referrals.module';
 import { InvoicesModule } from '../invoices/invoices.module';
+import { SimpleEmailModule } from '../simple-email/simple-email.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { InvoicesModule } from '../invoices/invoices.module';
     LocationsModule,
     ReferralsModule,
     InvoicesModule,
+    SimpleEmailModule,
   ],
   controllers: [VendorsController, VendorPagesController, KYCController],
   providers: [VendorsService, VendorPagesService, KYCService],
