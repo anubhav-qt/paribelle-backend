@@ -1,8 +1,44 @@
 #!/usr/bin/env pwsh
 param(
     [switch]$ResetDB,
-    [switch]$Build
+    [switch]$Build,
+    [switch]$Help
 )
+
+if ($Help) {
+    Write-Host "=====================================" -ForegroundColor Cyan
+    Write-Host "  Marketplace Restart Script Help" -ForegroundColor Cyan
+    Write-Host "=====================================" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "USAGE:" -ForegroundColor Yellow
+    Write-Host "  .\restart-services.ps1 [options]"
+    Write-Host ""
+    Write-Host "OPTIONS:" -ForegroundColor Yellow
+    Write-Host "  -ResetDB                          Reset database (init + seed)" -ForegroundColor White
+    Write-Host "  -Build                            Build in production mode" -ForegroundColor White
+    Write-Host "  -Help                             Show this help message" -ForegroundColor White
+    Write-Host ""
+    Write-Host "ENVIRONMENT VARIABLES:" -ForegroundColor Yellow
+    Write-Host "  `$env:RESET_DB=`"true`"                Reset DB on every restart"
+    Write-Host "  `$env:BUILD_MODE=`"true`"              Always use production builds"
+    Write-Host ""
+    Write-Host "EXAMPLES:" -ForegroundColor Yellow
+    Write-Host "  .\restart-services.ps1                # Start in dev mode"
+    Write-Host "  .\restart-services.ps1 -ResetDB       # Reset database and start"
+    Write-Host "  .\restart-services.ps1 -Build         # Build and start in production"
+    Write-Host "  .\restart-services.ps1 -ResetDB -Build  # Both options"
+    Write-Host ""
+    Write-Host "SERVICES:" -ForegroundColor Yellow
+    Write-Host "  Backend API:  http://localhost:3001"
+    Write-Host "  Web App:      http://localhost:3000"
+    Write-Host "  API Docs:     http://localhost:3001/api/docs"
+    Write-Host ""
+    Write-Host "MODES:" -ForegroundColor Yellow
+    Write-Host "  Development:  Fast restart, hot reload, npm run dev"
+    Write-Host "  Production:   Full build, optimized, npm run start/start:prod"
+    Write-Host ""
+    exit 0
+}
 
 Write-Host "=====================================" -ForegroundColor Cyan
 Write-Host "  Restarting Marketplace Services" -ForegroundColor Cyan
