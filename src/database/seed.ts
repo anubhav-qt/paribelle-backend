@@ -3,6 +3,7 @@ import { Category } from '../modules/categories/category.entity';
 import { Product, ProductStatus } from '../modules/products/product.entity';
 import { Vendor, VendorStatus, KYCStatus } from '../modules/vendors/vendor.entity';
 import { User, UserRole, UserStatus } from '../modules/users/user.entity';
+import { Review } from '../modules/reviews/review.entity';
 import * as bcrypt from 'bcrypt';
 
 // Use unbuffered output for cloud environments
@@ -15,13 +16,7 @@ export async function seedData(dataSource: DataSource) {
   const vendorRepository = dataSource.getRepository(Vendor);
   const categoryRepository = dataSource.getRepository(Category);
   const productRepository = dataSource.getRepository(Product);
-
-  // Check if data already exists
-  const existingProducts = await productRepository.count();
-  if (existingProducts > 0) {
-    log('✅ Seed data already exists, skipping...');
-    return;
-  }
+  const reviewRepository = dataSource.getRepository(Review);
 
   log('🌱 Seeding database...');
 
@@ -138,14 +133,14 @@ export async function seedData(dataSource: DataSource) {
       priceType: 'mrp_with_gst',
       gstRate: 18,
       sku: 'ELEC-001',
-      stockQuantity: 0,
+      stockQuantity: 50,
       status: ProductStatus.ACTIVE,
       featuredImage: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500',
       images: ['https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500'],
       vendorId: vendor.id,
       categories: [electronics],
       averageRating: 4.5,
-      reviewCount: 128,
+      reviewCount: 0,
     },
     {
       name: 'Smart Watch Pro',
@@ -157,14 +152,14 @@ export async function seedData(dataSource: DataSource) {
       priceType: 'mrp_with_gst',
       gstRate: 18,
       sku: 'ELEC-002',
-      stockQuantity: 0,
+      stockQuantity: 50,
       status: ProductStatus.ACTIVE,
       featuredImage: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=500',
       images: ['https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=500'],
       vendorId: vendor.id,
       categories: [electronics],
       averageRating: 4.7,
-      reviewCount: 89,
+      reviewCount: 0,
     },
     {
       name: 'Portable Bluetooth Speaker',
@@ -175,14 +170,14 @@ export async function seedData(dataSource: DataSource) {
       priceType: 'mrp_with_gst',
       gstRate: 18,
       sku: 'ELEC-003',
-      stockQuantity: 0,
+      stockQuantity: 50,
       status: ProductStatus.ACTIVE,
       featuredImage: 'https://images.unsplash.com/photo-1608043152269-423dbba4e7e1?w=500',
       images: ['https://images.unsplash.com/photo-1608043152269-423dbba4e7e1?w=500'],
       vendorId: vendor.id,
       categories: [electronics],
       averageRating: 4.3,
-      reviewCount: 56,
+      reviewCount: 0,
     },
     {
       name: '4K Webcam',
@@ -194,14 +189,14 @@ export async function seedData(dataSource: DataSource) {
       priceType: 'mrp_with_gst',
       gstRate: 18,
       sku: 'ELEC-004',
-      stockQuantity: 0,
+      stockQuantity: 50,
       status: ProductStatus.ACTIVE,
       featuredImage: 'https://images.unsplash.com/photo-1588423771073-b8903fbb85b5?w=500',
       images: ['https://images.unsplash.com/photo-1588423771073-b8903fbb85b5?w=500'],
       vendorId: vendor.id,
       categories: [electronics],
       averageRating: 4.6,
-      reviewCount: 73,
+      reviewCount: 0,
     },
     {
       name: 'Wireless Gaming Mouse',
@@ -213,14 +208,14 @@ export async function seedData(dataSource: DataSource) {
       priceType: 'mrp_with_gst',
       gstRate: 18,
       sku: 'ELEC-005',
-      stockQuantity: 0,
+      stockQuantity: 50,
       status: ProductStatus.ACTIVE,
       featuredImage: 'https://images.unsplash.com/photo-1527814050087-3793815479db?w=500',
       images: ['https://images.unsplash.com/photo-1527814050087-3793815479db?w=500'],
       vendorId: vendor.id,
       categories: [electronics],
       averageRating: 4.4,
-      reviewCount: 91,
+      reviewCount: 0,
     },
     {
       name: 'USB-C Hub 7-in-1',
@@ -231,14 +226,14 @@ export async function seedData(dataSource: DataSource) {
       priceType: 'mrp_with_gst',
       gstRate: 18,
       sku: 'ELEC-006',
-      stockQuantity: 0,
+      stockQuantity: 50,
       status: ProductStatus.ACTIVE,
       featuredImage: 'https://images.unsplash.com/photo-1625948515291-69613efd103f?w=500',
       images: ['https://images.unsplash.com/photo-1625948515291-69613efd103f?w=500'],
       vendorId: vendor.id,
       categories: [electronics],
       averageRating: 4.5,
-      reviewCount: 156,
+      reviewCount: 0,
     },
     {
       name: 'Mechanical Keyboard RGB',
@@ -250,14 +245,14 @@ export async function seedData(dataSource: DataSource) {
       priceType: 'mrp_with_gst',
       gstRate: 18,
       sku: 'ELEC-007',
-      stockQuantity: 0,
+      stockQuantity: 50,
       status: ProductStatus.ACTIVE,
       featuredImage: 'https://images.unsplash.com/photo-1587829741301-dc798b83add3?w=500',
       images: ['https://images.unsplash.com/photo-1587829741301-dc798b83add3?w=500'],
       vendorId: vendor.id,
       categories: [electronics],
       averageRating: 4.8,
-      reviewCount: 203,
+      reviewCount: 0,
     },
     {
       name: 'Wireless Charging Pad',
@@ -268,14 +263,14 @@ export async function seedData(dataSource: DataSource) {
       priceType: 'mrp_with_gst',
       gstRate: 18,
       sku: 'ELEC-008',
-      stockQuantity: 0,
+      stockQuantity: 50,
       status: ProductStatus.ACTIVE,
       featuredImage: 'https://images.unsplash.com/photo-1591290619762-d0e5d477c4f8?w=500',
       images: ['https://images.unsplash.com/photo-1591290619762-d0e5d477c4f8?w=500'],
       vendorId: vendor.id,
       categories: [electronics],
       averageRating: 4.3,
-      reviewCount: 84,
+      reviewCount: 0,
     },
     {
       name: 'Action Camera 4K',
@@ -287,14 +282,14 @@ export async function seedData(dataSource: DataSource) {
       priceType: 'mrp_with_gst',
       gstRate: 18,
       sku: 'ELEC-009',
-      stockQuantity: 0,
+      stockQuantity: 50,
       status: ProductStatus.ACTIVE,
       featuredImage: 'https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=500',
       images: ['https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=500'],
       vendorId: vendor.id,
       categories: [electronics, sports],
       averageRating: 4.6,
-      reviewCount: 127,
+      reviewCount: 0,
     },
     {
       name: 'Portable Power Bank 20000mAh',
@@ -305,14 +300,14 @@ export async function seedData(dataSource: DataSource) {
       priceType: 'mrp_with_gst',
       gstRate: 18,
       sku: 'ELEC-010',
-      stockQuantity: 0,
+      stockQuantity: 50,
       status: ProductStatus.ACTIVE,
       featuredImage: 'https://images.unsplash.com/photo-1609091839311-d5365f9ff1c5?w=500',
       images: ['https://images.unsplash.com/photo-1609091839311-d5365f9ff1c5?w=500'],
       vendorId: vendor.id,
       categories: [electronics],
       averageRating: 4.4,
-      reviewCount: 198,
+      reviewCount: 0,
     },
     {
       name: 'Smart LED Light Bulbs 4-Pack',
@@ -324,14 +319,14 @@ export async function seedData(dataSource: DataSource) {
       priceType: 'mrp_with_gst',
       gstRate: 18,
       sku: 'ELEC-011',
-      stockQuantity: 0,
+      stockQuantity: 50,
       status: ProductStatus.ACTIVE,
       featuredImage: 'https://images.unsplash.com/photo-1563089145-599997674d42?w=500',
       images: ['https://images.unsplash.com/photo-1563089145-599997674d42?w=500'],
       vendorId: vendor.id,
       categories: [electronics, home],
       averageRating: 4.5,
-      reviewCount: 142,
+      reviewCount: 0,
     },
     {
       name: 'Laptop Stand Aluminum',
@@ -349,7 +344,7 @@ export async function seedData(dataSource: DataSource) {
       vendorId: vendor.id,
       categories: [electronics],
       averageRating: 4.7,
-      reviewCount: 165,
+      reviewCount: 0,
     },
     {
       name: 'Noise Cancelling Earbuds',
@@ -361,14 +356,14 @@ export async function seedData(dataSource: DataSource) {
       priceType: 'mrp_with_gst',
       gstRate: 18,
       sku: 'ELEC-013',
-      stockQuantity: 0,
+      stockQuantity: 50,
       status: ProductStatus.ACTIVE,
       featuredImage: 'https://images.unsplash.com/photo-1590658165737-15a047b7a0b8?w=500',
       images: ['https://images.unsplash.com/photo-1590658165737-15a047b7a0b8?w=500'],
       vendorId: vendor.id,
       categories: [electronics],
       averageRating: 4.6,
-      reviewCount: 187,
+      reviewCount: 0,
     },
     {
       name: 'HD Monitor 27-inch',
@@ -380,14 +375,14 @@ export async function seedData(dataSource: DataSource) {
       priceType: 'mrp_with_gst',
       gstRate: 18,
       sku: 'ELEC-014',
-      stockQuantity: 0,
+      stockQuantity: 50,
       status: ProductStatus.ACTIVE,
       featuredImage: 'https://images.unsplash.com/photo-1527443224154-c4a3942d3acf?w=500',
       images: ['https://images.unsplash.com/photo-1527443224154-c4a3942d3acf?w=500'],
       vendorId: vendor.id,
       categories: [electronics],
       averageRating: 4.7,
-      reviewCount: 94,
+      reviewCount: 0,
     },
     {
       name: 'Ring Light with Tripod',
@@ -405,7 +400,7 @@ export async function seedData(dataSource: DataSource) {
       vendorId: vendor.id,
       categories: [electronics],
       averageRating: 4.4,
-      reviewCount: 112,
+      reviewCount: 0,
     },
 
     // Fashion (18 products)
@@ -419,14 +414,14 @@ export async function seedData(dataSource: DataSource) {
       priceType: 'mrp_with_gst',
       gstRate: 18,
       sku: 'FASH-001',
-      stockQuantity: 0,
+      stockQuantity: 50,
       status: ProductStatus.ACTIVE,
       featuredImage: 'https://images.unsplash.com/photo-1551028719-00167b16eac5?w=500',
       images: ['https://images.unsplash.com/photo-1551028719-00167b16eac5?w=500'],
       vendorId: vendor.id,
       categories: [fashion],
       averageRating: 4.6,
-      reviewCount: 34,
+      reviewCount: 0,
     },
     {
       name: 'Leather Crossbody Bag',
@@ -437,14 +432,14 @@ export async function seedData(dataSource: DataSource) {
       priceType: 'mrp_with_gst',
       gstRate: 18,
       sku: 'FASH-002',
-      stockQuantity: 0,
+      stockQuantity: 50,
       status: ProductStatus.ACTIVE,
       featuredImage: 'https://images.unsplash.com/photo-1590874103328-eac38a683ce7?w=500',
       images: ['https://images.unsplash.com/photo-1590874103328-eac38a683ce7?w=500'],
       vendorId: vendor.id,
       categories: [fashion],
       averageRating: 4.8,
-      reviewCount: 67,
+      reviewCount: 0,
     },
     {
       name: 'Running Sneakers',
@@ -456,14 +451,14 @@ export async function seedData(dataSource: DataSource) {
       priceType: 'mrp_with_gst',
       gstRate: 18,
       sku: 'FASH-003',
-      stockQuantity: 0,
+      stockQuantity: 50,
       status: ProductStatus.ACTIVE,
       featuredImage: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=500',
       images: ['https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=500'],
       vendorId: vendor.id,
       categories: [fashion, sports],
       averageRating: 4.4,
-      reviewCount: 92,
+      reviewCount: 0,
     },
     // Home & Living
     {
@@ -475,14 +470,14 @@ export async function seedData(dataSource: DataSource) {
       priceType: 'mrp_with_gst',
       gstRate: 18,
       sku: 'HOME-001',
-      stockQuantity: 0,
+      stockQuantity: 50,
       status: ProductStatus.ACTIVE,
       featuredImage: 'https://images.unsplash.com/photo-1603006905003-be475563bc59?w=500',
       images: ['https://images.unsplash.com/photo-1603006905003-be475563bc59?w=500'],
       vendorId: vendor.id,
       categories: [home],
       averageRating: 4.5,
-      reviewCount: 145,
+      reviewCount: 0,
     },
     {
       name: 'Modern Table Lamp',
@@ -494,14 +489,14 @@ export async function seedData(dataSource: DataSource) {
       priceType: 'mrp_with_gst',
       gstRate: 18,
       sku: 'HOME-002',
-      stockQuantity: 0,
+      stockQuantity: 50,
       status: ProductStatus.ACTIVE,
       featuredImage: 'https://images.unsplash.com/photo-1507473885765-e6ed057f782c?w=500',
       images: ['https://images.unsplash.com/photo-1507473885765-e6ed057f782c?w=500'],
       vendorId: vendor.id,
       categories: [home],
       averageRating: 4.2,
-      reviewCount: 38,
+      reviewCount: 0,
     },
     // Books
     {
@@ -513,14 +508,14 @@ export async function seedData(dataSource: DataSource) {
       priceType: 'mrp_with_gst',
       gstRate: 18,
       sku: 'BOOK-001',
-      stockQuantity: 0,
+      stockQuantity: 50,
       status: ProductStatus.ACTIVE,
       featuredImage: 'https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=500',
       images: ['https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=500'],
       vendorId: vendor.id,
       categories: [books],
       averageRating: 4.9,
-      reviewCount: 234,
+      reviewCount: 0,
     },
     {
       name: 'Mindfulness Journal',
@@ -531,14 +526,14 @@ export async function seedData(dataSource: DataSource) {
       priceType: 'mrp_with_gst',
       gstRate: 18,
       sku: 'BOOK-002',
-      stockQuantity: 0,
+      stockQuantity: 50,
       status: ProductStatus.ACTIVE,
       featuredImage: 'https://images.unsplash.com/photo-1531346878377-a5be20888e57?w=500',
       images: ['https://images.unsplash.com/photo-1531346878377-a5be20888e57?w=500'],
       vendorId: vendor.id,
       categories: [books],
       averageRating: 4.6,
-      reviewCount: 78,
+      reviewCount: 0,
     },
     // Sports
     {
@@ -551,14 +546,14 @@ export async function seedData(dataSource: DataSource) {
       priceType: 'mrp_with_gst',
       gstRate: 18,
       sku: 'SPORT-001',
-      stockQuantity: 0,
+      stockQuantity: 50,
       status: ProductStatus.ACTIVE,
       featuredImage: 'https://images.unsplash.com/photo-1601925260368-ae2f83cf8b7f?w=500',
       images: ['https://images.unsplash.com/photo-1601925260368-ae2f83cf8b7f?w=500'],
       vendorId: vendor.id,
       categories: [sports],
       averageRating: 4.7,
-      reviewCount: 112,
+      reviewCount: 0,
     },
     {
       name: 'Resistance Bands Set',
@@ -569,21 +564,23 @@ export async function seedData(dataSource: DataSource) {
       priceType: 'mrp_with_gst',
       gstRate: 18,
       sku: 'SPORT-002',
-      stockQuantity: 0,
+      stockQuantity: 50,
       status: ProductStatus.ACTIVE,
       featuredImage: 'https://images.unsplash.com/photo-1598289431512-b97b0917affc?w=500',
       images: ['https://images.unsplash.com/photo-1598289431512-b97b0917affc?w=500'],
       vendorId: vendor.id,
       categories: [sports],
       averageRating: 4.5,
-      reviewCount: 67,
+      reviewCount: 0,
     },
   ];
 
   log(`📦 Inserting ${products.length} products...`);
   let count = 0;
+  const savedProducts: Product[] = [];
   for (const productData of products) {
-    await productRepository.save(productData);
+    const savedProduct = await productRepository.save(productData);
+    savedProducts.push(savedProduct);
     count++;
     if (count % 5 === 0) {
       log(`   - ${count}/${products.length} products inserted...`);
@@ -591,8 +588,107 @@ export async function seedData(dataSource: DataSource) {
   }
   log(`   - ${count}/${products.length} products inserted`);
 
+  // Create some sample reviews for testing
+  log('💬 Creating sample reviews...');
+  const reviewComments = [
+    'Excellent product! Highly recommended. Quality exceeded my expectations.',
+    'Good quality but a bit pricey. Still worth it though.',
+    'Not what I expected, could be better. The description was misleading.',
+    'Amazing! Worth every penny. Will definitely buy again.',
+    'Decent product for the price. Does what it says.',
+    'Love it! Will buy again. Fast shipping and great packaging.',
+    'Quality could be improved. Had some minor defects.',
+    'Perfect! Exactly what I needed. Very satisfied with this purchase.',
+    'Great value for money. Better than similar products I\'ve tried.',
+    'Disappointed with the quality. Expected more for the price.',
+    'Outstanding! This product changed my life.',
+    'Good product, but delivery was slow.',
+    'Exactly as described. Very happy with my purchase.',
+    'Solid build quality. Works perfectly.',
+    'Would give 10 stars if I could! Absolutely love it.',
+    'Average product. Nothing special but gets the job done.',
+    'Impressed with the attention to detail.',
+    'Not bad, but I\'ve seen better alternatives.',
+    'Fantastic! Already recommended to friends.',
+    'Met my expectations. No complaints.',
+  ];
+
+  const reviewerNames = [
+    { firstName: 'John', lastName: 'Smith' },
+    { firstName: 'Sarah', lastName: 'Johnson' },
+    { firstName: 'Michael', lastName: 'Williams' },
+    { firstName: 'Emily', lastName: 'Brown' },
+    { firstName: 'David', lastName: 'Jones' },
+    { firstName: 'Lisa', lastName: 'Garcia' },
+    { firstName: 'James', lastName: 'Miller' },
+    { firstName: 'Maria', lastName: 'Davis' },
+  ];
+
+  // Create additional test customer users for reviews
+  const reviewerUsers: User[] = [customerUser];
+  for (const name of reviewerNames) {
+    const hashedPassword = await bcrypt.hash('test123', 10);
+    const user = await userRepository.save({
+      email: `${name.firstName.toLowerCase()}.${name.lastName.toLowerCase()}@test.com`,
+      password: hashedPassword,
+      firstName: name.firstName,
+      lastName: name.lastName,
+      role: UserRole.CUSTOMER,
+      emailVerifiedAt: new Date(),
+      status: UserStatus.ACTIVE,
+    } as User) as User;
+    reviewerUsers.push(user);
+  }
+
+  let reviewCount = 0;
+  // Add reviews to most products (80% will have reviews)
+  for (let i = 0; i < savedProducts.length; i++) {
+    const product = savedProducts[i];
+    
+    // 80% of products get reviews, 20% have no reviews
+    if (Math.random() > 0.2) {
+      const numReviews = Math.floor(Math.random() * 8) + 2; // 2-9 reviews per product
+      
+      for (let j = 0; j < numReviews; j++) {
+        // Weighted random rating (more 4s and 5s)
+        const rand = Math.random();
+        let rating;
+        if (rand < 0.5) rating = 5;
+        else if (rand < 0.8) rating = 4;
+        else if (rand < 0.95) rating = 3;
+        else rating = Math.floor(Math.random() * 2) + 1; // 1-2 for remaining 5%
+        
+        const comment = reviewComments[Math.floor(Math.random() * reviewComments.length)];
+        const reviewer = reviewerUsers[Math.floor(Math.random() * reviewerUsers.length)];
+        
+        const review = reviewRepository.create({
+          userId: reviewer.id,
+          productId: product.id,
+          rating,
+          comment,
+          isVerifiedPurchase: Math.random() > 0.25, // 75% verified
+          isApproved: true,
+          images: [],
+        });
+        await reviewRepository.save(review);
+        reviewCount++;
+      }
+      
+      // Update product with correct review count and average rating
+      const productReviews = await reviewRepository.find({ where: { productId: product.id } });
+      const avgRating = productReviews.reduce((sum, r) => sum + r.rating, 0) / productReviews.length;
+      
+      await productRepository.update(product.id, {
+        reviewCount: productReviews.length,
+        averageRating: Math.round(avgRating * 10) / 10,
+      });
+    }
+  }
+
   log('✅ Seed data created successfully!');
   log(`   - ${products.length} products created`);
+  log(`   - ${reviewCount} reviews created`);
   log(`   - 5 categories created`);
   log(`   - 1 vendor created`);
 }
+

@@ -113,12 +113,14 @@ if ($resetDb) {
         }
     }
     
-    node initialsetup/init-database.js --force
+    Write-Host "Running database reset (drop + recreate from entities)..." -ForegroundColor Yellow
+    npx ts-node -r tsconfig-paths/register src/database/reset-database.ts --force
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "❌ Database initialization failed" -ForegroundColor Red
+        Write-Host "❌ Database reset failed" -ForegroundColor Red
         exit 1
     }
     
+    Write-Host "Running seed data..." -ForegroundColor Yellow
     npm run seed
     if ($LASTEXITCODE -ne 0) {
         Write-Host "❌ Seeding failed" -ForegroundColor Red

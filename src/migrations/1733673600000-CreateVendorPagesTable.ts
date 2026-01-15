@@ -13,7 +13,7 @@ export class CreateVendorPagesTable1733673600000 implements MigrationInterface {
             default: 'uuid_generate_v4()',
           },
           {
-            name: 'vendorId',
+            name: 'vendor_id',
             type: 'uuid',
           },
           {
@@ -111,8 +111,8 @@ export class CreateVendorPagesTable1733673600000 implements MigrationInterface {
     await queryRunner.createIndex(
       'vendor_pages',
       new TableIndex({
-        name: 'IDX_vendor_pages_vendorId',
-        columnNames: ['vendorId'],
+        name: 'IDX_vendor_pages_vendor_id',
+        columnNames: ['vendor_id'],
       }),
     );
 
@@ -127,8 +127,8 @@ export class CreateVendorPagesTable1733673600000 implements MigrationInterface {
     await queryRunner.createIndex(
       'vendor_pages',
       new TableIndex({
-        name: 'IDX_vendor_pages_vendorId_slug',
-        columnNames: ['vendorId', 'slug'],
+        name: 'IDX_vendor_pages_vendor_id_slug',
+        columnNames: ['vendor_id', 'slug'],
         isUnique: true,
       }),
     );
@@ -137,7 +137,7 @@ export class CreateVendorPagesTable1733673600000 implements MigrationInterface {
     await queryRunner.createForeignKey(
       'vendor_pages',
       new TableForeignKey({
-        columnNames: ['vendorId'],
+        columnNames: ['vendor_id'],
         referencedColumnNames: ['id'],
         referencedTableName: 'vendors',
         onDelete: 'CASCADE',
