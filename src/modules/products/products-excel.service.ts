@@ -161,6 +161,12 @@ export class ProductsExcelService {
           { header: 'SAC Code', key: 'sacCode', width: 15 },
           { header: 'GST Rate (%)', key: 'gstRate', width: 12 },
           { header: 'Price Type', key: 'priceType', width: 25 },
+          { header: 'Product Type', key: 'productType', width: 15 },
+          { header: 'Booking Duration', key: 'bookingDuration', width: 15 },
+          { header: 'Booking Duration Unit', key: 'bookingDurationUnit', width: 20 },
+          { header: 'Booking Buffer Time', key: 'bookingBufferTime', width: 18 },
+          { header: 'Booking Available Days', key: 'bookingAvailableDays', width: 35 },
+          { header: 'Booking Time Slots', key: 'bookingTimeSlots', width: 30 },
           { header: 'MRP', key: 'mrp', width: 12 },
           { header: 'Base Price', key: 'basePrice', width: 12 },
           { header: 'GST Amount', key: 'gstAmount', width: 12 },
@@ -275,12 +281,33 @@ export class ProductsExcelService {
             sacCode: sacCodeDisplay,
             gstRate: product.gstRate || '', // Will be auto-filled below if empty
             priceType: product.priceType || '',
+            productType: product.productType || 'physical',
+            bookingDuration: '',
+            bookingDurationUnit: '',
+            bookingBufferTime: '',
+            bookingAvailableDays: '',
+            bookingTimeSlots: '',
             mrp: product.mrp || '',
             basePrice: product.basePrice || '',
             gstAmount: product.gstAmount || '',
             costPerItem: product.costPerItem || '',
             _id: product.id, // Hidden ID for updates
           };
+
+          // Add booking attributes if this is a booking product
+          if (product.productType === 'booking' && product.attributes?.booking) {
+            const booking = product.attributes.booking;
+            rowData.bookingDuration = booking.duration || '';
+            rowData.bookingDurationUnit = booking.durationUnit || '';
+            rowData.bookingBufferTime = booking.bufferTime || '';
+            rowData.bookingAvailableDays = Array.isArray(booking.availableDays) 
+              ? booking.availableDays.join(',') 
+              : '';
+            rowData.bookingTimeSlots = Array.isArray(booking.timeSlots)
+              ? booking.timeSlots.map(slot => `${slot.start}-${slot.end}`).join(',')
+              : '';
+            console.log(`  → Exported booking attributes: ${JSON.stringify(booking)}`);
+          }
 
           // Auto-populate GST rate from HSN/SAC code if not already set
           if (!rowData.gstRate && (product.hsnCode || product.sacCode)) {
@@ -1118,6 +1145,14 @@ export class ProductsExcelService {
           const gstAmount = parseFloat(row.getCell('gstAmount').value?.toString() || '0') || null;
           const costPerItem = parseFloat(row.getCell('costPerItem').value?.toString() || '0') || null;
 
+          // Read Product Type and Booking fields
+          const productType = row.getCell('productType')?.value?.toString().trim().toLowerCase() || 'physical';
+          const bookingDuration = row.getCell('bookingDuration')?.value?.toString().trim();
+          const bookingDurationUnit = row.getCell('bookingDurationUnit')?.value?.toString().trim();
+          const bookingBufferTime = row.getCell('bookingBufferTime')?.value?.toString().trim();
+          const bookingAvailableDays = row.getCell('bookingAvailableDays')?.value?.toString().trim();
+          const bookingTimeSlots = row.getCell('bookingTimeSlots')?.value?.toString().trim();
+
           // Auto-populate GST rate from HSN/SAC code if not provided
           if (!gstRate && (hsnCode || sacCode)) {
             const codeToLookup = hsnCode || sacCode;
@@ -1162,6 +1197,35 @@ export class ProductsExcelService {
             }
           });
 
+          // Add booking attributes if product is a booking type
+          if (productType === 'booking' && bookingDuration && bookingDurationUnit) {
+            attributes.booking = {
+              duration: parseInt(bookingDuration) || 60,
+              durationUnit: bookingDurationUnit || 'minutes',
+              bufferTime: parseInt(bookingBufferTime || '0') || 0,
+              availableDays: bookingAvailableDays ? bookingAvailableDays.split(',').map(d => d.trim().toLowerCase()) : ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
+              timeSlots: [],
+            };
+
+            // Parse time slots
+            if (bookingTimeSlots) {
+              const slots = bookingTimeSlots.split(',').map(s => s.trim());
+              slots.forEach(slot => {
+                const [start, end] = slot.split('-').map(t => t.trim());
+                if (start && end) {
+                  attributes.booking.timeSlots.push({ start, end });
+                }
+              });
+            }
+
+            // Default time slot if none provided
+            if (attributes.booking.timeSlots.length === 0) {
+              attributes.booking.timeSlots.push({ start: '09:00', end: '17:00' });
+            }
+
+            console.log(`Row ${rowNumber}: Parsed booking attributes:`, JSON.stringify(attributes.booking));
+          }
+
           // Prepare product data
           const productData: any = {
             name,
@@ -1172,7 +1236,7 @@ export class ProductsExcelService {
             stockQuantity,
             sku: `${vendorId.substring(0, 8)}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             status,
-            productType: 'physical',
+            productType: productType === 'booking' ? 'booking' : 'physical',
             vendorId,
             categories: category ? [category] : [],
             attributes: Object.keys(attributes).length > 0 ? attributes : null,
