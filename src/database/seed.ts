@@ -1,6 +1,6 @@
 import { DataSource } from 'typeorm';
 import { Category } from '../modules/categories/category.entity';
-import { Product, ProductStatus } from '../modules/products/product.entity';
+import { Product, ProductStatus, ProductType } from '../modules/products/product.entity';
 import { Vendor, VendorStatus, KYCStatus } from '../modules/vendors/vendor.entity';
 import { User, UserRole, UserStatus } from '../modules/users/user.entity';
 import { Review } from '../modules/reviews/review.entity';
@@ -68,6 +68,25 @@ export async function seedData(dataSource: DataSource) {
     log('✅ Created customer user: test@marketplace.com');
   }
 
+  // Create platform vendor (for admin-created products)
+  let platformVendor = await vendorRepository.findOne({ where: { id: '00000000-0000-0000-0000-000000000001' } });
+  if (!platformVendor) {
+    platformVendor = await vendorRepository.save({
+      id: '00000000-0000-0000-0000-000000000001',
+      userId: superAdminUser.id,
+      user: superAdminUser,
+      storeName: 'Marketplace',
+      slug: 'marketplace-platform',
+      contactEmail: 'admin@marketplace.com',
+      description: 'Official marketplace products managed by administrators',
+      status: VendorStatus.ACTIVE,
+      kycStatus: KYCStatus.APPROVED,
+      commissionRate: 0,
+      shippingCost: 0,
+    }) as Vendor;
+    log('✅ Created platform vendor');
+  }
+
   // Create vendor (check if exists first)
   let vendor = await vendorRepository.findOne({ where: { slug: 'demo-store' } });
   if (!vendor) {
@@ -121,7 +140,7 @@ export async function seedData(dataSource: DataSource) {
   });
 
   // Create products
-  const products = [
+  const products: Partial<Product>[] = [
     // Electronics (15 products)
     {
       name: 'Wireless Bluetooth Headphones',
@@ -234,6 +253,106 @@ export async function seedData(dataSource: DataSource) {
       categories: [electronics],
       averageRating: 4.5,
       reviewCount: 0,
+<<<<<<< HEAD
+=======
+    },
+    // Booking Products
+    {
+      name: 'Conference Room - Premium (Full Day)',
+      slug: 'conference-room-premium-full-day',
+      description: 'Book our premium conference room for a full day. Seats up to 20 people. Includes projector, whiteboard, high-speed WiFi, and complimentary refreshments. Available Monday to Friday, 9 AM to 6 PM.',
+      shortDescription: 'Premium conference room, seats 20',
+      price: 2500,
+      compareAtPrice: 3500,
+      priceType: 'mrp_with_gst',
+      gstRate: 18,
+      sacCode: '998599',
+      sku: 'CONF-ROOM-001',
+      stockQuantity: 0,
+      status: ProductStatus.ACTIVE,
+      productType: ProductType.BOOKING,
+      featuredImage: 'https://images.unsplash.com/photo-1497366216548-37526070297c?w=500',
+      images: ['https://images.unsplash.com/photo-1497366216548-37526070297c?w=500'],
+      vendorId: vendor.id,
+      categories: [electronics],
+      averageRating: 4.8,
+      reviewCount: 0,
+      attributes: {
+        booking: {
+          duration: 1,
+          durationUnit: 'days',
+          bufferTime: 0,
+          availableDays: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
+          timeSlots: [{ start: '09:00', end: '18:00' }],
+        },
+      },
+    },
+    {
+      name: 'Photography Session - Professional',
+      slug: 'photography-session-professional',
+      description: 'Professional photography session with experienced photographer. Perfect for portraits, events, or product photography. 2-hour session includes basic editing and 50 high-resolution photos delivered within 7 days.',
+      shortDescription: '2-hour professional photo session',
+      price: 5000,
+      compareAtPrice: 7000,
+      priceType: 'mrp_with_gst',
+      gstRate: 18,
+      sacCode: '998599',
+      sku: 'PHOTO-001',
+      stockQuantity: 0,
+      status: ProductStatus.ACTIVE,
+      productType: ProductType.BOOKING,
+      featuredImage: 'https://images.unsplash.com/photo-1554048612-b6a482bc67e5?w=500',
+      images: ['https://images.unsplash.com/photo-1554048612-b6a482bc67e5?w=500'],
+      vendorId: vendor.id,
+      categories: [electronics],
+      averageRating: 4.9,
+      reviewCount: 0,
+      attributes: {
+        booking: {
+          duration: 2,
+          durationUnit: 'hours',
+          bufferTime: 30,
+          availableDays: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'],
+          timeSlots: [
+            { start: '09:00', end: '12:00' },
+            { start: '14:00', end: '18:00' },
+          ],
+        },
+      },
+    },
+    {
+      name: 'Business Consultation - 1 Hour',
+      slug: 'business-consultation-1-hour',
+      description: 'One-on-one business consultation with expert advisor. Get personalized guidance on strategy, marketing, operations, or finance. Session conducted via video call or in-person.',
+      shortDescription: '1-hour expert business consultation',
+      price: 1500,
+      compareAtPrice: 2500,
+      priceType: 'mrp_with_gst',
+      gstRate: 18,
+      sacCode: '998314',
+      sku: 'CONSULT-001',
+      stockQuantity: 0,
+      status: ProductStatus.ACTIVE,
+      productType: ProductType.BOOKING,
+      featuredImage: 'https://images.unsplash.com/photo-1556761175-4b46a572b786?w=500',
+      images: ['https://images.unsplash.com/photo-1556761175-4b46a572b786?w=500'],
+      vendorId: vendor.id,
+      categories: [electronics],
+      averageRating: 4.7,
+      reviewCount: 0,
+      attributes: {
+        booking: {
+          duration: 1,
+          durationUnit: 'hours',
+          bufferTime: 15,
+          availableDays: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
+          timeSlots: [
+            { start: '09:00', end: '12:00' },
+            { start: '14:00', end: '17:00' },
+          ],
+        },
+      },
+>>>>>>> Mobile-backend
     },
     {
       name: 'Mechanical Keyboard RGB',

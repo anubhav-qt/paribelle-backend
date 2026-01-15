@@ -71,19 +71,26 @@ async function bootstrap() {
         origin: (origin, callback) => {
             const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || [];
             
+            // Debug logging
+            console.log('CORS Request from origin:', origin);
+            console.log('Allowed origins:', allowedOrigins);
+            
             // Allow requests with no origin (like mobile apps or curl requests)
             if (!origin) {
+                console.log('✓ Allowing request with no origin');
                 return callback(null, true);
             }
             
             // Check if origin matches any allowed origin exactly
             if (allowedOrigins.includes(origin)) {
+                console.log('✓ Origin matches allowed list');
                 return callback(null, true);
             }
             
             // Check if origin matches subdomain pattern (*.localhost:3000)
             const subdomainPattern = /^http:\/\/[\w-]+\.localhost:3000$/;
             if (subdomainPattern.test(origin)) {
+                console.log('✓ Origin matches subdomain pattern');
                 return callback(null, true);
             }
             
@@ -92,20 +99,24 @@ async function bootstrap() {
                 ? new RegExp(`^https?://[\\w-]+\\.${process.env.PRODUCTION_DOMAIN.replace('.', '\\.')}$`)
                 : null;
             if (prodPattern && prodPattern.test(origin)) {
+                console.log('✓ Origin matches production pattern');
                 return callback(null, true);
             }
             
             // Allow all Vercel preview and production deployments
             const vercelPattern = /^https:\/\/[\w-]+\.vercel\.app$/;
             if (vercelPattern.test(origin)) {
+                console.log('✓ Origin matches Vercel pattern');
                 return callback(null, true);
             }
             
             // If ALLOWED_ORIGINS is not set, allow all
             if (allowedOrigins.length === 0) {
+                console.log('✓ No allowed origins set, allowing all');
                 return callback(null, true);
             }
             
+            console.log('✗ Origin not allowed by CORS');
             callback(new Error('Not allowed by CORS'));
         },
         credentials: true,

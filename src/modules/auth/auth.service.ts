@@ -40,15 +40,29 @@ export class AuthService {
   }
 
   async login(user: any) {
+    // For vendor_admin users, fetch their vendor ID
+    let vendorId: string | null = null;
+    if (user.role === 'vendor_admin') {
+      const vendor = await this.vendorsRepository.findOne({
+        where: { userId: user.id },
+      });
+      if (vendor) {
+        vendorId = vendor.id;
+      }
+    }
+
     const payload = { 
       email: user.email, 
       sub: user.id, 
       role: user.role,
-      ...(user.vendorId && { vendorId: user.vendorId })
+      ...(vendorId && { vendorId })
     };
     return {
       access_token: this.jwtService.sign(payload),
-      user: user,
+      user: {
+        ...user,
+        ...(vendorId && { vendorId }),
+      },
     };
   }
 
@@ -149,16 +163,32 @@ export class AuthService {
     }
 
     const { password, ...result } = user;
+    
+    // For vendor_admin users, fetch their vendor ID
+    let vendorId: string | null = null;
+    if (result.role === 'vendor_admin') {
+      const vendor = await this.vendorsRepository.findOne({
+        where: { userId: result.id },
+      });
+      if (vendor) {
+        vendorId = vendor.id;
+      }
+    }
+    
     const token = this.jwtService.sign({
       email: result.email,
       sub: result.id,
       role: result.role,
+      ...(vendorId && { vendorId }),
     });
     
     console.log('[GoogleLogin] Login successful, returning token and user');
     return {
       token,
-      user: result,
+      user: {
+        ...result,
+        ...(vendorId && { vendorId }),
+      },
     };
   }
 

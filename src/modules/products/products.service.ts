@@ -433,9 +433,13 @@ export class ProductsService {
   async create(productData: any): Promise<Product> {
     const { categoryIds, newFilterOptions, categoryId, variations, variants, variantOptions, ...data } = productData;
     
+    // Platform vendor ID for products created by super admin
+    const PLATFORM_VENDOR_ID = '00000000-0000-0000-0000-000000000001';
+    
     // CRITICAL: Validate vendor can create products
     // Vendors must complete setup and KYC before adding products
-    if (data.vendorId) {
+    // Skip validation for platform vendor (super admin products)
+    if (data.vendorId && data.vendorId !== PLATFORM_VENDOR_ID) {
       const vendor = await this.vendorsRepository.findOne({
         where: { id: data.vendorId },
       });
