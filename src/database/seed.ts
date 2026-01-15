@@ -1,6 +1,6 @@
 import { DataSource } from 'typeorm';
 import { Category } from '../modules/categories/category.entity';
-import { Product, ProductStatus } from '../modules/products/product.entity';
+import { Product, ProductStatus, ProductType } from '../modules/products/product.entity';
 import { Vendor, VendorStatus, KYCStatus } from '../modules/vendors/vendor.entity';
 import { User, UserRole, UserStatus } from '../modules/users/user.entity';
 import { Review } from '../modules/reviews/review.entity';
@@ -140,7 +140,7 @@ export async function seedData(dataSource: DataSource) {
   });
 
   // Create products
-  const products = [
+  const products: Partial<Product>[] = [
     // Electronics (15 products)
     {
       name: 'Wireless Bluetooth Headphones',
@@ -268,7 +268,7 @@ export async function seedData(dataSource: DataSource) {
       sku: 'CONF-ROOM-001',
       stockQuantity: 0,
       status: ProductStatus.ACTIVE,
-      productType: 'booking',
+      productType: ProductType.BOOKING,
       featuredImage: 'https://images.unsplash.com/photo-1497366216548-37526070297c?w=500',
       images: ['https://images.unsplash.com/photo-1497366216548-37526070297c?w=500'],
       vendorId: vendor.id,
@@ -298,7 +298,7 @@ export async function seedData(dataSource: DataSource) {
       sku: 'PHOTO-001',
       stockQuantity: 0,
       status: ProductStatus.ACTIVE,
-      productType: 'booking',
+      productType: ProductType.BOOKING,
       featuredImage: 'https://images.unsplash.com/photo-1554048612-b6a482bc67e5?w=500',
       images: ['https://images.unsplash.com/photo-1554048612-b6a482bc67e5?w=500'],
       vendorId: vendor.id,
@@ -331,7 +331,7 @@ export async function seedData(dataSource: DataSource) {
       sku: 'CONSULT-001',
       stockQuantity: 0,
       status: ProductStatus.ACTIVE,
-      productType: 'booking',
+      productType: ProductType.BOOKING,
       featuredImage: 'https://images.unsplash.com/photo-1556761175-4b46a572b786?w=500',
       images: ['https://images.unsplash.com/photo-1556761175-4b46a572b786?w=500'],
       vendorId: vendor.id,
