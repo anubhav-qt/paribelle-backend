@@ -117,11 +117,7 @@ if ($resetDb) {
     Write-Host "Running database reset (drop + recreate from entities)..." -ForegroundColor Yellow
     npx ts-node -r tsconfig-paths/register src/database/reset-database.ts --force
     if ($LASTEXITCODE -ne 0) {
-<<<<<<< HEAD
         Write-Host "❌ Database reset failed" -ForegroundColor Red
-=======
-        Write-Host "Database initialization failed" -ForegroundColor Red
->>>>>>> Mobile-backend
         exit 1
     }
     

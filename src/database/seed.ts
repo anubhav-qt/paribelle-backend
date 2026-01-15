@@ -253,8 +253,6 @@ export async function seedData(dataSource: DataSource) {
       categories: [electronics],
       averageRating: 4.5,
       reviewCount: 0,
-<<<<<<< HEAD
-=======
     },
     // Booking Products
     {
@@ -352,7 +350,6 @@ export async function seedData(dataSource: DataSource) {
           ],
         },
       },
->>>>>>> Mobile-backend
     },
     {
       name: 'Mechanical Keyboard RGB',
