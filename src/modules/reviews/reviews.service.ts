@@ -474,7 +474,7 @@ export class ReviewsService {
   }
 
   // Helper methods
-  private async updateProductRating(productId: string): Promise<void> {
+  async updateProductRating(productId: string): Promise<void> {
     const result = await this.reviewRepository
       .createQueryBuilder('review')
       .select('AVG(review.rating)', 'average')

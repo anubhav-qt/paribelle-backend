@@ -193,6 +193,13 @@ export class ReviewsController {
     );
   }
 
+  // Recalculate product rating (admin utility)
+  @Post('products/:productId/recalculate')
+  async recalculateProductRating(@Param('productId') productId: string) {
+    await this.reviewsService.updateProductRating(productId);
+    return { message: 'Product rating recalculated successfully' };
+  }
+
   // Order Reviews
   @Get('orders/:orderId/items')
   @UseGuards(JwtAuthGuard)
