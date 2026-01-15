@@ -362,6 +362,65 @@ async function createDatabase() {
     }
     console.log('');
     
+    // Add missing columns to reviews table
+    print('🔧 Adding missing columns to reviews table...', 'yellow');
+    await client.query(`
+      DO $$ 
+      BEGIN
+          -- Add is_verified_purchase if not exists
+          IF NOT EXISTS (
+              SELECT 1 FROM information_schema.columns 
+              WHERE table_name = 'reviews' AND column_name = 'is_verified_purchase'
+          ) THEN
+              ALTER TABLE reviews ADD COLUMN is_verified_purchase BOOLEAN DEFAULT false;
+          END IF;
+
+          -- Add is_approved if not exists
+          IF NOT EXISTS (
+              SELECT 1 FROM information_schema.columns 
+              WHERE table_name = 'reviews' AND column_name = 'is_approved'
+          ) THEN
+              ALTER TABLE reviews ADD COLUMN is_approved BOOLEAN DEFAULT true;
+          END IF;
+
+          -- Add vendor_response if not exists
+          IF NOT EXISTS (
+              SELECT 1 FROM information_schema.columns 
+              WHERE table_name = 'reviews' AND column_name = 'vendor_response'
+          ) THEN
+              ALTER TABLE reviews ADD COLUMN vendor_response TEXT;
+          END IF;
+
+          -- Add vendor_response_date if not exists
+          IF NOT EXISTS (
+              SELECT 1 FROM information_schema.columns 
+              WHERE table_name = 'reviews' AND column_name = 'vendor_response_date'
+          ) THEN
+              ALTER TABLE reviews ADD COLUMN vendor_response_date TIMESTAMP;
+          END IF;
+
+          -- Add order_item_id if not exists
+          IF NOT EXISTS (
+              SELECT 1 FROM information_schema.columns 
+              WHERE table_name = 'reviews' AND column_name = 'order_item_id'
+          ) THEN
+              ALTER TABLE reviews ADD COLUMN order_item_id UUID REFERENCES order_items(id);
+          END IF;
+
+          -- Add images if not exists (simple-array stored as TEXT)
+          IF NOT EXISTS (
+              SELECT 1 FROM information_schema.columns 
+              WHERE table_name = 'reviews' AND column_name = 'images'
+          ) THEN
+              ALTER TABLE reviews ADD COLUMN images TEXT;
+          END IF;
+
+          RAISE NOTICE 'Reviews table schema updated successfully';
+      END $$;
+    `);
+    print('✅ Reviews table schema updated (inline)', 'green');
+    console.log('');
+    
     // Add default marketplace pages (Privacy, Terms, Cookie)
     print('🔧 Creating default marketplace pages...', 'yellow');
     await client.query(`
