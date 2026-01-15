@@ -41,7 +41,7 @@ export class AuthService {
 
   async login(user: any) {
     // For vendor_admin users, fetch their vendor ID
-    let vendorId = null;
+    let vendorId: string | null = null;
     if (user.role === 'vendor_admin') {
       const vendor = await this.vendorsRepository.findOne({
         where: { userId: user.id },
@@ -165,7 +165,7 @@ export class AuthService {
     const { password, ...result } = user;
     
     // For vendor_admin users, fetch their vendor ID
-    let vendorId = null;
+    let vendorId: string | null = null;
     if (result.role === 'vendor_admin') {
       const vendor = await this.vendorsRepository.findOne({
         where: { userId: result.id },
