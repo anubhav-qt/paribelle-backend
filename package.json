@@ -5,7 +5,7 @@
   "scripts": {
     "prebuild": "rimraf dist",
     "build": "nest build",
-    "build:prod": "NODE_OPTIONS='--max-old-space-size=2048' nest build",
+    "build:prod": "nest build",
     "postinstall": "npm install --include=optional sharp",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
