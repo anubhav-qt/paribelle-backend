@@ -5,13 +5,15 @@ services:
     env: node
     region: frankfurt
     plan: free
-    buildCommand: npm ci --legacy-peer-deps --include=optional && npm run build && ls -la dist/
-    startCommand: node dist/main.js
+    buildCommand: npm ci --legacy-peer-deps --include=optional && npm run build && ls -la && ls -la dist/
+    startCommand: npm run start:prod
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
-        value: 3001
+        value: 10000
+      - key: ALLOWED_ORIGINS
+        value: https://your-frontend-domain.com
       - key: JWT_SECRET
         generateValue: true
       - key: JWT_EXPIRATION
