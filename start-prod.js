@@ -13,22 +13,39 @@ console.log('======================================\n');
 const fs = require('fs');
 const path = require('path');
 
-const mainPath = path.join(process.cwd(), 'dist', 'main.js');
-console.log('Checking for main.js at:', mainPath);
+// Try multiple possible locations for dist/main.js
+const possiblePaths = [
+  path.join(process.cwd(), 'dist', 'main.js'),           // Current directory
+  path.join(__dirname, 'dist', 'main.js'),               // Same as script location
+  path.join(process.cwd(), '..', 'dist', 'main.js'),     // Parent directory
+];
 
-if (!fs.existsSync(mainPath)) {
-  console.error('❌ FATAL: dist/main.js does not exist!');
+let mainPath = null;
+for (const checkPath of possiblePaths) {
+  console.log('Checking for main.js at:', checkPath);
+  if (fs.existsSync(checkPath)) {
+    mainPath = checkPath;
+    console.log('✅ dist/main.js found at:', mainPath);
+    break;
+  }
+}
+
+if (!mainPath) {
+  console.error('❌ FATAL: dist/main.js does not exist in any expected location!');
+  console.error('Checked locations:');
+  possiblePaths.forEach(p => console.error('  -', p));
   console.error('Build may have failed. Check build logs.');
+  console.error('\n📂 Current directory contents:');
+  console.error(fs.readdirSync(process.cwd()));
   process.exit(1);
 }
 
-console.log('✅ dist/main.js found');
 console.log('📦 File size:', fs.statSync(mainPath).size, 'bytes');
 console.log('\n🔵 Loading application...\n');
 
 // Load the main application
 try {
-  require('./dist/main.js');
+  require(mainPath);
 } catch (error) {
   console.error('\n❌ FATAL ERROR loading application:');
   console.error('Message:', error.message);
