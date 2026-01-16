@@ -1,27 +1,12 @@
 services:
   # Backend API
-services:
-  # Backend API
   - type: web
     name: marketplace-backend
     env: node
     region: frankfurt
     plan: free
-    buildCommand: |
-      echo "📦 Installing dependencies..."
-      npm ci --legacy-peer-deps --include=optional || exit 1
-      echo "🔨 Building application..."
-      NODE_OPTIONS="--max-old-space-size=512" npm run build || exit 1
-      echo "📂 Checking dist folder..."
-      ls -la
-      if [ -d "dist" ]; then
-        echo "✅ dist folder created"
-        ls -la dist/
-      else
-        echo "❌ dist folder not created!"
-        exit 1
-      fi
-    startCommand: npm run start:prod
+    buildCommand: npm ci --legacy-peer-deps && npm run build
+    startCommand: node dist/main.js
     envVars:
       - key: NODE_ENV
         value: production
