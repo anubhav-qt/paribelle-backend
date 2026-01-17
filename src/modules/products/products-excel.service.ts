@@ -1586,8 +1586,11 @@ export class ProductsExcelService {
     // Write file
     fs.writeFileSync(filePath, file.buffer);
 
-    // Return full URL for storage (backend serves static files)
-    const backendUrl = process.env.BACKEND_URL || 'http://localhost:3001';
-    return `${backendUrl}/uploads/products/${vendorId}/${filename}`;
+    // Return path with backend URL
+    // Use BACKEND_URL from env (for production) or construct from API_URL
+    // If neither is set, fall back to relative path
+    const backendUrl = process.env.BACKEND_URL || process.env.API_URL || '';
+    const imagePath = `/uploads/products/${vendorId}/${filename}`;
+    return backendUrl ? `${backendUrl}${imagePath}` : imagePath;
   }
 }
