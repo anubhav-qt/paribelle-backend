@@ -1586,11 +1586,7 @@ export class ProductsExcelService {
     // Write file
     fs.writeFileSync(filePath, file.buffer);
 
-    // Return path with backend URL
-    // Use BACKEND_URL from env (for production) or construct from API_URL
-    // If neither is set, fall back to relative path
-    const backendUrl = process.env.BACKEND_URL || process.env.API_URL || '';
-    const imagePath = `/uploads/products/${vendorId}/${filename}`;
-    return backendUrl ? `${backendUrl}${imagePath}` : imagePath;
+    // Return relative path for storage
+    return `/uploads/products/${vendorId}/${filename}`;
   }
 }
