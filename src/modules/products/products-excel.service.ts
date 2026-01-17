@@ -1414,7 +1414,9 @@ export class ProductsExcelService {
     // Write file
     fs.writeFileSync(filePath, file.buffer);
 
-    // Return relative path for storage
-    return `/uploads/products/${vendorId}/${filename}`;
+    // Return full URL with backend domain
+    // Use API_URL from environment (e.g., https://api.paribelle.in)
+    const backendUrl = process.env.API_URL || 'http://localhost:3001';
+    return `${backendUrl}/uploads/products/${vendorId}/${filename}`;
   }
 }
