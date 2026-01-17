@@ -7,6 +7,7 @@ import { ProductVariant } from './product-variant.entity';
 import { Category } from '../categories/category.entity';
 import { Vendor } from '../vendors/vendor.entity';
 import { HsnCode } from './hsn-code.entity';
+import { CloudinaryService } from '../../common/services/cloudinary.service';
 import * as fs from 'fs';
 import * as path from 'path';
 import archiver from 'archiver';
@@ -38,6 +39,7 @@ export class ProductsExcelService {
     private vendorsRepository: Repository<Vendor>,
     @InjectRepository(HsnCode)
     private hsnCodeRepository: Repository<HsnCode>,
+    private cloudinaryService: CloudinaryService,
   ) {}
 
   /**
@@ -1278,8 +1280,8 @@ export class ProductsExcelService {
             for (const filename of imageFilenames) {
               const imageFile = imageMap.get(filename.toLowerCase());
               if (imageFile) {
-                // Save the image to the uploads directory
-                const uploadPath = this.saveUploadedImage(imageFile, finalVendorId);
+                // Save the image (Cloudinary or local filesystem)
+                const uploadPath = await this.saveUploadedImage(imageFile, finalVendorId);
                 productImages.push(uploadPath);
               } else {
                 errors.push(`Sheet "${sheetName}", Row ${rowNumber}: Image "${filename}" not found in uploaded files`);
@@ -1571,22 +1573,37 @@ export class ProductsExcelService {
     };
   }
 
-  private saveUploadedImage(file: MulterFile, vendorId: string): string {
-    // Create uploads directory if it doesn't exist
-    const uploadsDir = path.join(process.cwd(), 'public', 'uploads', 'products', vendorId);
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
+  private async saveUploadedImage(file: MulterFile, vendorId: string): Promise<string> {
+    try {
+      // Try Cloudinary first if configured
+      if (this.cloudinaryService.isEnabled()) {
+        const folder = `marketplace/products/${vendorId}`;
+        const result = await this.cloudinaryService.uploadImage(file.buffer, folder, {
+          maxWidth: 1920,
+          quality: 85,
+          format: 'jpeg',
+        });
+        console.log(`✅ Image uploaded to Cloudinary: ${result.secure_url}`);
+        return result.secure_url;
+      }
+
+      // Fallback to local filesystem (development only)
+      console.warn('⚠️ Cloudinary not configured, saving to local filesystem');
+      const uploadsDir = path.join(process.cwd(), 'public', 'uploads', 'products', vendorId);
+      if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+      }
+
+      const ext = path.extname(file.originalname);
+      const filename = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}${ext}`;
+      const filePath = path.join(uploadsDir, filename);
+
+      fs.writeFileSync(filePath, file.buffer);
+
+      return `/uploads/products/${vendorId}/${filename}`;
+    } catch (error) {
+      console.error(`❌ Error saving image ${file.originalname}:`, error);
+      throw new Error(`Failed to save image: ${error.message}`);
     }
-
-    // Generate unique filename
-    const ext = path.extname(file.originalname);
-    const filename = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}${ext}`;
-    const filePath = path.join(uploadsDir, filename);
-
-    // Write file
-    fs.writeFileSync(filePath, file.buffer);
-
-    // Return relative path for storage
-    return `/uploads/products/${vendorId}/${filename}`;
   }
 }
