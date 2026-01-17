@@ -128,4 +128,33 @@ export class SettingsController {
     await this.settingsService.deleteSetting(key);
     return { message: 'Setting deleted successfully' };
   }
+
+  @Get('admin/notification-email')
+  @ApiOperation({ summary: 'Get admin notification email' })
+  async getAdminNotificationEmail() {
+    const email = await this.settingsService.getAdminNotificationEmail();
+    return { 
+      key: 'admin_notification_email',
+      value: email,
+      description: 'Email address for receiving admin notifications (KYC, orders, alerts)'
+    };
+  }
+
+  @Post('admin/notification-email')
+  @ApiOperation({ summary: 'Set admin notification email' })
+  async setAdminNotificationEmail(@Body() body: { email: string }) {
+    if (!body.email || !body.email.includes('@')) {
+      return { 
+        success: false, 
+        message: 'Invalid email address' 
+      };
+    }
+    
+    const setting = await this.settingsService.setAdminNotificationEmail(body.email);
+    return { 
+      success: true,
+      message: 'Admin notification email updated successfully',
+      data: setting
+    };
+  }
 }

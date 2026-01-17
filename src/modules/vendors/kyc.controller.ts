@@ -3,6 +3,7 @@ import {
   Post,
   Get,
   Put,
+  Delete,
   Body,
   Param,
   UseGuards,
@@ -251,5 +252,20 @@ export class KYCController {
       success: result.valid,
       ...result,
     };
+  }
+
+  /**
+   * Delete vendor KYC documents from Cloudinary (Admin only)
+   * DELETE /api/v1/vendors/kyc/:vendorId/documents
+   * Manual action to cleanup storage after review
+   */
+  @Delete('kyc/:vendorId/documents')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async deleteKYCDocuments(@Param('vendorId') vendorId: string) {
+    const result = await this.kycService.deleteVendorKYCDocuments(vendorId);
+    
+    return result;
   }
 }

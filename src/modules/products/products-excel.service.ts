@@ -1049,20 +1049,19 @@ export class ProductsExcelService {
     vendorId: string | null,
     buffer: Buffer,
     imageFiles: MulterFile[],
-  ): Promise<{ created: number; updated: number; errors: string[] }> {
+  ): Promise<{ created: number; updated: number; errors: string[]; createdCategories?: string[] }> {
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(buffer as any);
 
-    // If vendorId is null (admin importing all), we need to handle this differently
-    // For now, throw an error as importing all products requires vendor specification in Excel
-    if (!vendorId) {
-      throw new Error('Import for all vendors requires vendor IDs to be specified in the Excel file');
+    // If vendorId is provided, validate it exists
+    let vendor: Vendor | null = null;
+    if (vendorId) {
+      vendor = await this.vendorsRepository.findOne({ where: { id: vendorId } });
+      if (!vendor) {
+        throw new Error('Vendor not found');
+      }
     }
-
-    const vendor = await this.vendorsRepository.findOne({ where: { id: vendorId } });
-    if (!vendor) {
-      throw new Error('Vendor not found');
-    }
+    // If vendorId is null, admin is importing - vendor will be from Excel or use platform vendor
 
     // Create a map of uploaded images by filename
     const imageMap = new Map<string, MulterFile>();
@@ -1081,6 +1080,7 @@ export class ProductsExcelService {
     let created = 0;
     let updated = 0;
     const errors: string[] = [];
+    const createdCategories: string[] = [];
     
     // First pass: Process product sheets to create/update products
     const processedProductIds = new Set<string>();
@@ -1093,16 +1093,70 @@ export class ProductsExcelService {
       if (sheetName === 'Instructions' || sheetName === 'Product Variants') continue;
 
       // Find the category for this sheet
-      const category = categoryMap.get(sheetName);
+      let category = categoryMap.get(sheetName);
       const isUncategorized = sheetName === 'Uncategorized';
       
+      // Auto-create category if not found (except for Uncategorized)
       if (!category && !isUncategorized) {
-        errors.push(`Sheet "${sheetName}": No matching category found`);
+        try {
+          console.log(`[Import] Creating new category: ${sheetName}`);
+          const slug = sheetName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+          const maxSortOrder = await this.categoriesRepository
+            .createQueryBuilder('category')
+            .select('MAX(category.sortOrder)', 'max')
+            .getRawOne();
+          
+          const newCategory = this.categoriesRepository.create({
+            name: sheetName,
+            slug: slug,
+            description: `Auto-created from Excel import`,
+            isActive: true,
+            sortOrder: (maxSortOrder?.max || 0) + 1,
+          });
+          
+          const savedCategories = await this.categoriesRepository.save(newCategory);
+          category = Array.isArray(savedCategories) ? savedCategories[0] : savedCategories;
+          if (category) {
+            categoryMap.set(sheetName, category);
+            createdCategories.push(sheetName);
+            console.log(`[Import] Created category: ${sheetName} (ID: ${category.id})`);
+          }
+        } catch (error) {
+          errors.push(`Sheet "${sheetName}": Failed to create category - ${error.message}`);
+          continue;
+        }
+      }
+      
+      if (!category && !isUncategorized) {
         continue;
       }
 
       // Get category-specific filters if available
       const categoryFilters = category?.filterConfig?.filters?.filter(f => f.id !== 'priceRange') || [];
+
+      // Build column map from header row
+      const headerRow = worksheet.getRow(1);
+      const columnMap = new Map<string, number>();
+      headerRow.eachCell((cell, colNumber) => {
+        const headerName = cell.value?.toString().trim();
+        if (headerName) {
+          // Map various header formats to canonical keys
+          const normalizedKey = headerName
+            .replace(/\s+\([^)]*\)/g, '') // Remove parentheses content like (comma-separated)
+            .replace(/\s+/g, '')  // Remove spaces
+            .toLowerCase();
+          columnMap.set(normalizedKey, colNumber);
+          
+          // Also map exact header name
+          columnMap.set(headerName, colNumber);
+        }
+      });
+
+      // Helper function to get cell value by header name
+      const getCellValue = (row: ExcelJS.Row, headerKey: string): any => {
+        const colIndex = columnMap.get(headerKey) || columnMap.get(headerKey.toLowerCase().replace(/\s+/g, ''));
+        return colIndex ? row.getCell(colIndex).value : null;
+      };
 
       // Collect all rows to process (skip header and reference rows)
       const rowsToProcess: { row: ExcelJS.Row; rowNumber: number }[] = [];
@@ -1117,41 +1171,53 @@ export class ProductsExcelService {
       const rowPromises = rowsToProcess.map(async ({ row, rowNumber }) => {
 
         try {
-          const _id = row.getCell('_id').value?.toString().trim();
-          const name = row.getCell('name').value?.toString().trim();
-          const description = row.getCell('description').value?.toString().trim();
-          const imagesCell = row.getCell('images').value?.toString().trim();
-          const price = parseFloat(row.getCell('price').value?.toString() || '0');
-          const compareAtPrice = parseFloat(row.getCell('compareAtPrice').value?.toString() || '0');
-          const stockQuantity = parseInt(row.getCell('stockQuantity').value?.toString() || '0');
-          const status = row.getCell('status').value?.toString().trim() || 'active';
+          // Try to get _id column if it exists (for updates), otherwise it's a new product
+          let _id: string | undefined;
+          try {
+            _id = getCellValue(row, '_ID')?.toString().trim();
+          } catch (e) {
+            // Column doesn't exist - this is fine for new imports
+            _id = undefined;
+          }
+          
+          const name = getCellValue(row, 'Product Name')?.toString().trim();
+          const description = getCellValue(row, 'Description')?.toString().trim();
+          const imagesCell = getCellValue(row, 'Images (comma-separated filenames)')?.toString().trim() || 
+                            getCellValue(row, 'Images')?.toString().trim();
+          const price = parseFloat(getCellValue(row, 'Price')?.toString() || '0');
+          const compareAtPrice = parseFloat(getCellValue(row, 'Compare At Price (Optional)')?.toString() || 
+                                           getCellValue(row, 'Compare At Price')?.toString() || '0');
+          const stockQuantity = parseInt(getCellValue(row, 'Stock Quantity')?.toString() || '0');
+          const status = getCellValue(row, 'Status (active/draft/archived)')?.toString().trim() || 
+                        getCellValue(row, 'Status')?.toString().trim() || 'active';
           
           // Read GST/Pricing fields
           // Extract just the code part if format is "code - description"
-          let hsnCode = row.getCell('hsnCode').value?.toString().trim() || null;
+          let hsnCode = getCellValue(row, 'HSN Code')?.toString().trim() || null;
           if (hsnCode && hsnCode.includes(' - ')) {
             hsnCode = hsnCode.split(' - ')[0].trim();
           }
           
-          let sacCode = row.getCell('sacCode').value?.toString().trim() || null;
+          let sacCode = getCellValue(row, 'SAC Code')?.toString().trim() || null;
           if (sacCode && sacCode.includes(' - ')) {
             sacCode = sacCode.split(' - ')[0].trim();
           }
           
-          let gstRate = parseFloat(row.getCell('gstRate').value?.toString() || '0');
-          const priceType = row.getCell('priceType').value?.toString().trim() || 'selling_price_without_gst';
-          const mrp = parseFloat(row.getCell('mrp').value?.toString() || '0') || null;
-          const basePrice = parseFloat(row.getCell('basePrice').value?.toString() || '0') || null;
-          const gstAmount = parseFloat(row.getCell('gstAmount').value?.toString() || '0') || null;
-          const costPerItem = parseFloat(row.getCell('costPerItem').value?.toString() || '0') || null;
+          let gstRate = parseFloat(getCellValue(row, 'GST Rate (%)')?.toString() || 
+                                  getCellValue(row, 'GST Rate')?.toString() || '0');
+          const priceType = getCellValue(row, 'Price Type')?.toString().trim() || 'selling_price_without_gst';
+          const mrp = parseFloat(getCellValue(row, 'MRP')?.toString() || '0') || null;
+          const basePrice = parseFloat(getCellValue(row, 'Base Price')?.toString() || '0') || null;
+          const gstAmount = parseFloat(getCellValue(row, 'GST Amount')?.toString() || '0') || null;
+          const costPerItem = parseFloat(getCellValue(row, 'Cost Per Item')?.toString() || '0') || null;
 
           // Read Product Type and Booking fields
-          const productType = row.getCell('productType')?.value?.toString().trim().toLowerCase() || 'physical';
-          const bookingDuration = row.getCell('bookingDuration')?.value?.toString().trim();
-          const bookingDurationUnit = row.getCell('bookingDurationUnit')?.value?.toString().trim();
-          const bookingBufferTime = row.getCell('bookingBufferTime')?.value?.toString().trim();
-          const bookingAvailableDays = row.getCell('bookingAvailableDays')?.value?.toString().trim();
-          const bookingTimeSlots = row.getCell('bookingTimeSlots')?.value?.toString().trim();
+          const productType = getCellValue(row, 'Product Type')?.toString().trim().toLowerCase() || 'physical';
+          const bookingDuration = getCellValue(row, 'Booking Duration')?.toString().trim();
+          const bookingDurationUnit = getCellValue(row, 'Booking Duration Unit')?.toString().trim();
+          const bookingBufferTime = getCellValue(row, 'Booking Buffer Time')?.toString().trim();
+          const bookingAvailableDays = getCellValue(row, 'Booking Available Days')?.toString().trim();
+          const bookingTimeSlots = getCellValue(row, 'Booking Time Slots')?.toString().trim();
 
           // Auto-populate GST rate from HSN/SAC code if not provided
           if (!gstRate && (hsnCode || sacCode)) {
@@ -1172,6 +1238,39 @@ export class ProductsExcelService {
           // Skip empty rows
           if (!name) return;
 
+          // Determine vendor ID for this product
+          let finalVendorId: string | null = vendorId;
+          if (!finalVendorId) {
+            // Get or create platform vendor for admin import
+            let platformVendor = await this.vendorsRepository.findOne({ where: { slug: 'marketplace-platform' } });
+            
+            if (!platformVendor) {
+              // Create platform vendor if it doesn't exist
+              try {
+                platformVendor = this.vendorsRepository.create({
+                  storeName: 'Platform Store',
+                  slug: 'marketplace-platform',
+                  businessName: 'Platform Business',
+                  contactEmail: 'platform@marketplace.com',
+                  contactPhone: '0000000000',
+                  status: 'active' as any,
+                  kycStatus: 'approved' as any,
+                });
+                platformVendor = await this.vendorsRepository.save(platformVendor);
+                console.log('[Import] Created platform vendor for admin imports');
+              } catch (err) {
+                errors.push(`Sheet "${sheetName}", Row ${rowNumber}: Failed to create platform vendor - ${err.message}`);
+                return;
+              }
+            }
+            
+            finalVendorId = platformVendor?.id || null;
+            if (!finalVendorId) {
+              errors.push(`Sheet "${sheetName}", Row ${rowNumber}: No vendor ID provided and platform vendor not available`);
+              return;
+            }
+          }
+
           // Process images
           const productImages: string[] = [];
           if (imagesCell) {
@@ -1180,7 +1279,7 @@ export class ProductsExcelService {
               const imageFile = imageMap.get(filename.toLowerCase());
               if (imageFile) {
                 // Save the image to the uploads directory
-                const uploadPath = this.saveUploadedImage(imageFile, vendorId);
+                const uploadPath = this.saveUploadedImage(imageFile, finalVendorId);
                 productImages.push(uploadPath);
               } else {
                 errors.push(`Sheet "${sheetName}", Row ${rowNumber}: Image "${filename}" not found in uploaded files`);
@@ -1234,10 +1333,10 @@ export class ProductsExcelService {
             price,
             compareAtPrice: compareAtPrice || null,
             stockQuantity,
-            sku: `${vendorId.substring(0, 8)}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            sku: `${finalVendorId.substring(0, 8)}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             status,
             productType: productType === 'booking' ? 'booking' : 'physical',
-            vendorId,
+            vendorId: finalVendorId,
             categories: category ? [category] : [],
             attributes: Object.keys(attributes).length > 0 ? attributes : null,
             images: productImages.length > 0 ? productImages : null,
@@ -1254,32 +1353,34 @@ export class ProductsExcelService {
 
           if (_id && _id.length > 0) {
             // Update existing product
-            this.productsRepository.findOne({ where: { id: _id } }).then(existingProduct => {
-              if (existingProduct && existingProduct.vendorId === vendorId) {
-                this.productsRepository.update(_id, productData).then(() => {
-                  // Update categories relationship
-                  if (category) {
-                    existingProduct.categories = [category];
-                    this.productsRepository.save(existingProduct);
-                  }
-                  updated++;
-                }).catch(err => {
-                  errors.push(`Sheet "${sheetName}", Row ${rowNumber}: Update failed - ${err.message}`);
-                });
+            try {
+              const existingProduct = await this.productsRepository.findOne({ where: { id: _id } });
+              if (existingProduct && (!vendorId || existingProduct.vendorId === finalVendorId)) {
+                await this.productsRepository.update(_id, productData);
+                // Update categories relationship
+                if (category) {
+                  existingProduct.categories = [category];
+                  await this.productsRepository.save(existingProduct);
+                }
+                updated++;
+                processedProductIds.add(_id);
               } else {
                 errors.push(`Sheet "${sheetName}", Row ${rowNumber}: Product not found or doesn't belong to vendor`);
               }
-            }).catch(err => {
-              errors.push(`Sheet "${sheetName}", Row ${rowNumber}: ${err.message}`);
-            });
+            } catch (err) {
+              errors.push(`Sheet "${sheetName}", Row ${rowNumber}: Update failed - ${err.message}`);
+            }
           } else {
             // Create new product
-            const product = this.productsRepository.create(productData);
-            this.productsRepository.save(product).then(() => {
+            try {
+              const product = this.productsRepository.create(productData);
+              const savedResult = await this.productsRepository.save(product);
+              const savedProduct = Array.isArray(savedResult) ? savedResult[0] : savedResult;
               created++;
-            }).catch(err => {
+              processedProductIds.add(savedProduct.id);
+            } catch (err) {
               errors.push(`Sheet "${sheetName}", Row ${rowNumber}: Create failed - ${err.message}`);
-            });
+            }
           }
 
         } catch (error) {
@@ -1298,6 +1399,23 @@ export class ProductsExcelService {
       let variantsCreated = 0;
       let variantsUpdated = 0;
 
+      // Build column map from header row for variants
+      const variantHeaderRow = variantsSheet.getRow(1);
+      const variantColumnMap = new Map<string, number>();
+      variantHeaderRow.eachCell((cell, colNumber) => {
+        const headerName = cell.value?.toString().trim();
+        if (headerName) {
+          const normalizedKey = headerName.replace(/\s+/g, '').toLowerCase();
+          variantColumnMap.set(normalizedKey, colNumber);
+          variantColumnMap.set(headerName, colNumber);
+        }
+      });
+
+      const getVariantCellValue = (row: ExcelJS.Row, headerKey: string): any => {
+        const colIndex = variantColumnMap.get(headerKey) || variantColumnMap.get(headerKey.toLowerCase().replace(/\s+/g, ''));
+        return colIndex ? row.getCell(colIndex).value : null;
+      };
+
       // Process each variant row
       const variantPromises: Promise<void>[] = [];
       
@@ -1305,18 +1423,29 @@ export class ProductsExcelService {
         if (rowNumber === 1) return; // Skip header
 
         try {
-          const productId = row.getCell('_productId').value?.toString().trim();
-          const variantId = row.getCell('_variantId').value?.toString().trim();
-          const sku = row.getCell('sku').value?.toString().trim();
-          const attributesStr = row.getCell('attributes').value?.toString().trim();
-          const price = parseFloat(row.getCell('price').value?.toString() || '0');
-          const compareAtPrice = parseFloat(row.getCell('compareAtPrice').value?.toString() || '0');
-          const stock = parseInt(row.getCell('stock').value?.toString() || '0');
-          const isActiveStr = row.getCell('isActive').value?.toString().trim()?.toUpperCase();
+          // Try to get hidden ID columns if they exist (for updates)
+          let productId: string | undefined;
+          let variantId: string | undefined;
+          try {
+            productId = getVariantCellValue(row, '_PRODUCT_ID')?.toString().trim();
+            variantId = getVariantCellValue(row, '_VARIANT_ID')?.toString().trim();
+          } catch (e) {
+            // Columns don't exist - this is fine for new imports
+            productId = undefined;
+            variantId = undefined;
+          }
+          
+          const sku = getVariantCellValue(row, 'SKU')?.toString().trim();
+          const productName = getVariantCellValue(row, 'Product Name')?.toString().trim();
+          const attributesStr = getVariantCellValue(row, 'Attributes')?.toString().trim();
+          const price = parseFloat(getVariantCellValue(row, 'Price')?.toString() || '0');
+          const compareAtPrice = parseFloat(getVariantCellValue(row, 'Compare At Price')?.toString() || '0');
+          const stock = parseInt(getVariantCellValue(row, 'Stock Quantity')?.toString() || '0');
+          const isActiveStr = getVariantCellValue(row, 'Is Active')?.toString().trim()?.toUpperCase();
           const isActive = isActiveStr === 'YES' || isActiveStr === 'TRUE';
 
-          if (!productId || !sku) {
-            errors.push(`Variants Sheet, Row ${rowNumber}: Missing product ID or SKU`);
+          if ((!productId && !productName) || !sku) {
+            errors.push(`Variants Sheet, Row ${rowNumber}: Missing product identifier or SKU`);
             return;
           }
 
@@ -1331,21 +1460,45 @@ export class ProductsExcelService {
             });
           }
 
-          const variantData: any = {
-            productId,
-            sku,
-            variantAttributes,
-            price,
-            stockQuantity: stock,
-            isActive,
-          };
-          
-          // Only add compareAtPrice if it has a value
-          if (compareAtPrice) {
-            variantData.compareAtPrice = compareAtPrice;
-          }
-
           const promise = (async () => {
+            // If no productId, look up by product name
+            let finalProductId = productId;
+            if (!finalProductId && productName) {
+              // Look up product by name - if no vendorId specified, search all vendors (admin import)
+              const whereCondition: any = { name: productName };
+              if (vendorId) {
+                whereCondition.vendorId = vendorId;
+              }
+              
+              console.log(`[Variants] Looking up product: "${productName}" with conditions:`, whereCondition);
+              const product = await this.productsRepository.findOne({
+                where: whereCondition
+              });
+              if (product) {
+                finalProductId = product.id;
+                console.log(`[Variants] Found product: ${product.id} (vendor: ${product.vendorId})`);
+              } else {
+                console.error(`[Variants] Product "${productName}" not found`);
+                errors.push(`Variants Sheet, Row ${rowNumber}: Product "${productName}" not found`);
+                return;
+              }
+            }
+
+            console.log(`[Variants] Creating variant with productId: ${finalProductId}, vendorId: ${vendorId}`);
+
+            const variantData: any = {
+              productId: finalProductId,
+              sku,
+              variantAttributes,
+              price,
+              stockQuantity: stock,
+              isActive,
+            };
+            
+            // Only add compareAtPrice if it has a value
+            if (compareAtPrice) {
+              variantData.compareAtPrice = compareAtPrice;
+            }
             if (variantId && variantId.length > 0) {
               // Update existing variant
               const existingVariant = await this.productVariantsRepository.findOne({
@@ -1353,7 +1506,7 @@ export class ProductsExcelService {
                 relations: ['product'],
               });
 
-              if (existingVariant && existingVariant.product.vendorId === vendorId) {
+              if (existingVariant && (!vendorId || existingVariant.product.vendorId === vendorId)) {
                 await this.productVariantsRepository.update(variantId, variantData);
                 variantsUpdated++;
                 console.log(`Updated variant: ${sku}`);
@@ -1364,21 +1517,30 @@ export class ProductsExcelService {
               // Create new variant
               // Verify the product exists and belongs to the vendor
               const product = await this.productsRepository.findOne({
-                where: { id: productId },
+                where: { id: finalProductId },
               });
 
-              if (product && product.vendorId === vendorId) {
+              console.log(`[Variants] Verifying product for variant creation:`, {
+                productFound: !!product,
+                productId: product?.id,
+                productVendorId: product?.vendorId,
+                importVendorId: vendorId,
+                isAdminImport: vendorId === null,
+              });
+
+              if (product && (!vendorId || product.vendorId === vendorId)) {
                 const newVariant = this.productVariantsRepository.create(variantData);
                 await this.productVariantsRepository.save(newVariant);
                 
                 // Update product to mark it has variants
-                if (!product.hasVariants) {
-                  await this.productsRepository.update(productId, { hasVariants: true });
+                if (!product.hasVariants && finalProductId) {
+                  await this.productsRepository.update(finalProductId, { hasVariants: true });
                 }
                 
                 variantsCreated++;
                 console.log(`Created variant: ${sku}`);
               } else {
+                console.error(`[Variants] Product verification failed - product: ${!!product}, vendorId: ${vendorId}, productVendorId: ${product?.vendorId}`);
                 errors.push(`Variants Sheet, Row ${rowNumber}: Product not found or doesn't belong to vendor`);
               }
             }
@@ -1396,7 +1558,17 @@ export class ProductsExcelService {
       console.log(`Variants processing complete: ${variantsCreated} created, ${variantsUpdated} updated`);
     }
 
-    return { created, updated, errors };
+    // Add info about created categories to result
+    if (createdCategories.length > 0) {
+      console.log(`[Import] Auto-created ${createdCategories.length} categories: ${createdCategories.join(', ')}`);
+    }
+
+    return { 
+      created, 
+      updated, 
+      errors,
+      createdCategories: createdCategories.length > 0 ? createdCategories : undefined
+    };
   }
 
   private saveUploadedImage(file: MulterFile, vendorId: string): string {
@@ -1414,7 +1586,8 @@ export class ProductsExcelService {
     // Write file
     fs.writeFileSync(filePath, file.buffer);
 
-    // Return relative path for storage
-    return `/uploads/products/${vendorId}/${filename}`;
+    // Return full URL for storage (backend serves static files)
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:3001';
+    return `${backendUrl}/uploads/products/${vendorId}/${filename}`;
   }
 }

@@ -633,7 +633,7 @@ export class ProductsService {
     // Get product with variants to delete associated images
     const product = await this.productsRepository.findOne({
       where: { id },
-      relations: ['variants'],
+      relations: ['productVariants'],
     });
 
     if (product) {
@@ -644,8 +644,8 @@ export class ProductsService {
       ]);
 
       // Delete variant images
-      if (product.variants && product.variants.length > 0) {
-        for (const variant of product.variants) {
+      if (product.productVariants && product.productVariants.length > 0) {
+        for (const variant of product.productVariants) {
           await this.fileCleanupService.deleteEntityImages(variant, ['images']);
         }
       }

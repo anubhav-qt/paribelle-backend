@@ -5,6 +5,7 @@ import { Vendor, KYCStatus, KYCDocument } from './vendor.entity';
 import { User, UserRole } from '../users/user.entity';
 import { ConfigService } from '@nestjs/config';
 import { SimpleEmailService } from '../simple-email/simple-email.service';
+import { SettingsService } from '../admin/settings.service';
 import { v2 as cloudinary } from 'cloudinary';
 import axios from 'axios';
 
@@ -17,6 +18,7 @@ export class KYCService {
     private userRepository: Repository<User>,
     private configService: ConfigService,
     private emailService: SimpleEmailService,
+    private settingsService: SettingsService,
   ) {
     // Initialize Cloudinary
     cloudinary.config({
@@ -343,12 +345,17 @@ export class KYCService {
         return;
       }
 
-      // Get admin email from config
-      const adminEmail = this.configService.get('ADMIN_EMAIL') || this.configService.get('SMTP_FROM');
+      // Get admin email from database settings (preferred) or fallback to env config
+      const adminEmailFromSettings = await this.settingsService.getAdminNotificationEmail();
+      const adminEmail = adminEmailFromSettings || 
+                        this.configService.get('ADMIN_EMAIL') || 
+                        this.configService.get('SMTP_FROM') || 
+                        'admin@example.com'; // Default fallback
+      
       const frontendUrl = this.configService.get('FRONTEND_URL') || this.configService.get('APP_URL') || 'http://localhost:3000';
       const reviewUrl = `${frontendUrl}/admin/kyc-verification?vendorId=${vendor.id}`;
       
-      console.log(`[KYC] Admin email: ${adminEmail}`);
+      console.log(`[KYC] Admin email: ${adminEmail} ${adminEmailFromSettings ? '(from settings)' : '(from env)'}`);
       console.log(`[KYC] Review URL: ${reviewUrl}`);
 
       // Send email with all documents attached
@@ -390,6 +397,164 @@ export class KYCService {
   private getFileExtension(url: string): string {
     const match = url.match(/\\.([a-zA-Z0-9]+)(?:[?#]|$)/);
     return match ? match[1] : 'jpg';
+  }
+
+  /**
+   * Delete KYC documents from Cloudinary (Manual admin action)
+   * Allows admin to manually cleanup documents after review/approval
+   */
+  async deleteVendorKYCDocuments(vendorId: string): Promise<{ success: boolean; message: string; deletedCount: number }> {
+    try {
+      console.log(`[KYC] ===== Starting manual deleteVendorKYCDocuments =====`);
+      console.log(`[KYC] Vendor ID: ${vendorId}`);
+
+      const vendor = await this.vendorRepository.findOne({
+        where: { id: vendorId },
+      });
+
+      if (!vendor) {
+        throw new NotFoundException('Vendor not found');
+      }
+
+      console.log(`[KYC] Vendor: ${vendor.businessName || vendor.storeName}`);
+
+      if (!vendor.kycDocuments || vendor.kycDocuments.length === 0) {
+        console.log('[KYC] No KYC documents to delete');
+        return {
+          success: true,
+          message: 'No KYC documents found to delete',
+          deletedCount: 0,
+        };
+      }
+
+      const publicIdsToDelete: string[] = [];
+
+      // Extract public IDs from document URLs
+      for (const doc of vendor.kycDocuments) {
+        if (!doc.documentUrl) continue;
+
+        try {
+          // Extract public_id from Cloudinary URL
+          // Format: https://res.cloudinary.com/{cloud_name}/image/upload/{transformations}/{public_id}.{format}
+          const publicIdMatch = doc.documentUrl.match(/upload\/(?:v\d+\/)?([^.]+)/);
+          if (publicIdMatch && publicIdMatch[1]) {
+            publicIdsToDelete.push(publicIdMatch[1]);
+          }
+        } catch (error) {
+          console.error(`[KYC] Failed to extract public_id from ${doc.type}:`, error.message);
+        }
+      }
+
+      if (publicIdsToDelete.length === 0) {
+        console.log('[KYC] No valid Cloudinary public IDs found to delete');
+        return {
+          success: true,
+          message: 'No valid Cloudinary URLs found in documents',
+          deletedCount: 0,
+        };
+      }
+
+      console.log(`[KYC] Deleting ${publicIdsToDelete.length} documents from Cloudinary...`);
+
+      // Delete documents from Cloudinary
+      let successCount = 0;
+      let failCount = 0;
+      const errors: string[] = [];
+
+      for (const publicId of publicIdsToDelete) {
+        try {
+          await cloudinary.uploader.destroy(publicId);
+          console.log(`[KYC] ✓ Deleted: ${publicId}`);
+          successCount++;
+        } catch (error) {
+          console.error(`[KYC] ✗ Failed to delete (${publicId}):`, error.message);
+          errors.push(`${publicId}: ${error.message}`);
+          failCount++;
+        }
+      }
+
+      console.log(`[KYC] Deletion complete - Success: ${successCount}, Failed: ${failCount}`);
+      console.log(`[KYC] ===== deleteVendorKYCDocuments completed =====`);
+
+      return {
+        success: successCount > 0,
+        message: failCount > 0 
+          ? `Deleted ${successCount} documents, ${failCount} failed: ${errors.join(', ')}`
+          : `Successfully deleted ${successCount} documents from Cloudinary`,
+        deletedCount: successCount,
+      };
+
+    } catch (error) {
+      console.error('[KYC] ===== Error in deleteVendorKYCDocuments =====');
+      console.error('[KYC] Error message:', error.message);
+      console.error('[KYC] Error stack:', error.stack);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete KYC documents from Cloudinary (Legacy private method)
+   * @deprecated Use deleteVendorKYCDocuments instead
+   */
+  private async deleteKYCDocumentsFromCloudinary(vendor: Vendor): Promise<void> {
+    try {
+      console.log(`[KYC] ===== Starting deleteKYCDocumentsFromCloudinary =====`);
+      console.log(`[KYC] Vendor: ${vendor.businessName || vendor.storeName}`);
+
+      if (!vendor.kycDocuments || vendor.kycDocuments.length === 0) {
+        console.log('[KYC] No KYC documents to delete');
+        return;
+      }
+
+      const publicIdsToDelete: string[] = [];
+
+      // Extract public IDs from document URLs
+      for (const doc of vendor.kycDocuments) {
+        if (!doc.documentUrl) continue;
+
+        try {
+          // Extract public_id from Cloudinary URL
+          // Format: https://res.cloudinary.com/{cloud_name}/image/upload/{transformations}/{public_id}.{format}
+          const publicIdMatch = doc.documentUrl.match(/upload\/(?:v\d+\/)?([^.]+)/);
+          if (publicIdMatch && publicIdMatch[1]) {
+            publicIdsToDelete.push(publicIdMatch[1]);
+          }
+        } catch (error) {
+          console.error(`[KYC] Failed to extract public_id from ${doc.type}:`, error.message);
+        }
+      }
+
+      if (publicIdsToDelete.length === 0) {
+        console.log('[KYC] No valid Cloudinary public IDs found to delete');
+        return;
+      }
+
+      console.log(`[KYC] Deleting ${publicIdsToDelete.length} documents from Cloudinary...`);
+
+      // Delete documents from Cloudinary
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const publicId of publicIdsToDelete) {
+        try {
+          await cloudinary.uploader.destroy(publicId);
+          console.log(`[KYC] ✓ Deleted: ${publicId}`);
+          successCount++;
+        } catch (error) {
+          console.error(`[KYC] ✗ Failed to delete (${publicId}):`, error.message);
+          failCount++;
+        }
+      }
+
+      console.log(`[KYC] Deletion complete - Success: ${successCount}, Failed: ${failCount}`);
+      console.log(`[KYC] ===== deleteKYCDocumentsFromCloudinary completed =====`);
+
+    } catch (error) {
+      console.error('[KYC] ===== Error in deleteKYCDocumentsFromCloudinary =====');
+      console.error('[KYC] Error message:', error.message);
+      console.error('[KYC] Error stack:', error.stack);
+      // Don't throw - just log the error
+    }
   }
 
   /**

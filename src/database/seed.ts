@@ -69,22 +69,23 @@ export async function seedData(dataSource: DataSource) {
   }
 
   // Create platform vendor (for admin-created products)
-  let platformVendor = await vendorRepository.findOne({ where: { id: '00000000-0000-0000-0000-000000000001' } });
+  let platformVendor = await vendorRepository.findOne({ where: { slug: 'marketplace-platform' } });
   if (!platformVendor) {
     platformVendor = await vendorRepository.save({
-      id: '00000000-0000-0000-0000-000000000001',
       userId: superAdminUser.id,
       user: superAdminUser,
-      storeName: 'Marketplace',
+      storeName: 'Platform Store',
       slug: 'marketplace-platform',
-      contactEmail: 'admin@marketplace.com',
+      businessName: 'Platform Business',
+      contactEmail: 'platform@marketplace.com',
+      contactPhone: '0000000000',
       description: 'Official marketplace products managed by administrators',
       status: VendorStatus.ACTIVE,
       kycStatus: KYCStatus.APPROVED,
       commissionRate: 0,
       shippingCost: 0,
     }) as Vendor;
-    log('✅ Created platform vendor');
+    log('✅ Created platform vendor (slug: marketplace-platform)');
   }
 
   // Create vendor (check if exists first)
