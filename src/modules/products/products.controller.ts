@@ -173,9 +173,27 @@ export class ProductsController {
         files.images || [],
       );
       
+      // Cleanup orphan images right after import (regardless of success/failure)
+      console.log('[Import] Cleaning up orphan images after import...');
+      try {
+        const cleanupResult = await this.productsService.cleanupOrphanImages(vendorId || undefined, true);
+        console.log(`[Import] Orphan cleanup: ${cleanupResult.deleted} images deleted out of ${cleanupResult.orphans.length} orphans found`);
+      } catch (cleanupError) {
+        console.error('[Import] Failed to cleanup orphan images:', cleanupError);
+        // Don't fail the import if cleanup fails
+      }
+      
+      // Check if nothing was created/updated
+      if (result.created === 0 && result.updated === 0) {
+        const errorMessage = result.errors.length > 0 
+          ? `Import failed: ${result.errors.join('; ')}` 
+          : 'Import failed: No products were created or updated';
+        throw new BadRequestException(errorMessage);
+      }
+      
       return {
         success: true,
-        message: `Import completed: ${result.created} created, ${result.updated} updated`,
+        message: `Import completed: ${result.created} created, ${result.updated} updated${result.errors.length > 0 ? ` with ${result.errors.length} errors` : ''}`,
         ...result,
       };
     } catch (error) {
@@ -204,9 +222,51 @@ export class ProductsController {
         file.buffer,
       );
       
+      // Cleanup orphan images right after import (regardless of success/failure)
+      console.log('[Import] Cleaning up orphan images after import...');
+      try {
+        const cleanupResult = await this.productsService.cleanupOrphanImages(actualVendorId || undefined, true);
+        console.log(`[Import] Orphan cleanup: ${cleanupResult.deleted} images deleted out of ${cleanupResult.orphans.length} orphans found`);
+      } catch (cleanupError) {
+        console.error('[Import] Failed to cleanup orphan images:', cleanupError);
+        // Don't fail the import if cleanup fails
+      }
+      
+      // Check if nothing was created/updated
+      if (result.created === 0 && result.updated === 0) {
+        const errorMessage = result.errors.length > 0 
+          ? `Import failed: ${result.errors.join('; ')}` 
+          : 'Import failed: No products were created or updated';
+        throw new BadRequestException(errorMessage);
+      }
+      
       return {
         success: true,
-        message: `Import completed: ${result.created} created, ${result.updated} updated`,
+        message: `Import completed: ${result.created} created, ${result.updated} updated${result.errors.length > 0 ? ` with ${result.errors.length} errors` : ''}`,
+        ...result,
+      };
+    } catch (error) {
+      throw new BadRequestException(error.message);
+    }
+  }
+
+  @Post('admin/cleanup-orphan-images')
+  @ApiOperation({ summary: 'Find and optionally delete orphan images from Cloudinary (Admin only)' })
+  @ApiQuery({ name: 'delete', required: false, description: 'Set to "true" to actually delete orphans' })
+  @ApiQuery({ name: 'vendorId', required: false, description: 'Filter by vendor ID (optional)' })
+  async cleanupOrphanImages(
+    @Query('delete') shouldDelete?: string,
+    @Query('vendorId') vendorId?: string,
+  ) {
+    try {
+      const deleteOrphans = shouldDelete === 'true';
+      const result = await this.productsService.cleanupOrphanImages(vendorId, deleteOrphans);
+      
+      return {
+        success: true,
+        message: deleteOrphans 
+          ? `Cleanup completed: ${result.deleted} orphan images deleted` 
+          : `Found ${result.orphans.length} orphan images (use ?delete=true to remove them)`,
         ...result,
       };
     } catch (error) {

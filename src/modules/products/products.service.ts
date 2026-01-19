@@ -7,6 +7,7 @@ import { Category } from '../categories/category.entity';
 import { Vendor } from '../vendors/vendor.entity';
 import { CategoriesService } from '../categories/categories.service';
 import { FileCleanupService } from '../../common/services/file-cleanup.service';
+import { CloudinaryService } from '../../common/services/cloudinary.service';
 import { MarketplaceGateway } from '../stock/stock.gateway';
 import { ConfigService } from '@nestjs/config';
 
@@ -23,6 +24,7 @@ export class ProductsService {
     private vendorsRepository: Repository<Vendor>,
     private categoriesService: CategoriesService,
     private fileCleanupService: FileCleanupService,
+    private cloudinaryService: CloudinaryService,
     private marketplaceGateway: MarketplaceGateway,
     private configService: ConfigService,
   ) {}
@@ -653,5 +655,70 @@ export class ProductsService {
 
     // Delete product from database (cascades to variants)
     await this.productsRepository.delete(id);
+  }
+
+  /**
+   * Find and optionally delete orphan images from Cloudinary
+   * Orphan images are those that exist in Cloudinary but are not referenced by any product
+   * @param vendorId - Optional vendor ID to filter products
+   * @param deleteOrphans - If true, delete orphan images; if false, just return them
+   * @returns Object with cleanup results
+   */
+  async cleanupOrphanImages(
+    vendorId?: string,
+    deleteOrphans: boolean = false,
+  ): Promise<{
+    total: number;
+    orphans: string[];
+    deleted: number;
+    errors: string[];
+  }> {
+    // Get all products (optionally filtered by vendor)
+    const whereCondition = vendorId ? { vendorId } : {};
+    const products = await this.productsRepository.find({
+      where: whereCondition,
+      relations: ['productVariants'],
+    });
+
+    // Collect all image URLs from products and variants
+    const referencedUrls: string[] = [];
+
+    products.forEach(product => {
+      // Add product images
+      if (product.images && Array.isArray(product.images)) {
+        referencedUrls.push(...product.images.filter(url => url));
+      }
+      if (product.featuredImage) {
+        referencedUrls.push(product.featuredImage);
+      }
+
+      // Add variant images
+      if (product.productVariants && product.productVariants.length > 0) {
+        product.productVariants.forEach(variant => {
+          if (variant.images && Array.isArray(variant.images)) {
+            referencedUrls.push(...variant.images.filter(url => url));
+          }
+        });
+      }
+    });
+
+    // Filter to only Cloudinary URLs
+    const cloudinaryUrls = referencedUrls.filter(url =>
+      url.startsWith('https://res.cloudinary.com'),
+    );
+
+    console.log(`Found ${cloudinaryUrls.length} Cloudinary URLs referenced by ${products.length} products`);
+
+    // Determine which folder to check based on vendor filter
+    const folder = vendorId
+      ? `marketplace/products/${vendorId}`
+      : 'marketplace/products';
+
+    // Use CloudinaryService to find and optionally delete orphans
+    return this.cloudinaryService.cleanupOrphanImages(
+      folder,
+      cloudinaryUrls,
+      deleteOrphans,
+    );
   }
 }

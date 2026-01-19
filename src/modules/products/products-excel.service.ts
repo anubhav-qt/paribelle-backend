@@ -1086,6 +1086,7 @@ export class ProductsExcelService {
     
     // First pass: Process product sheets to create/update products
     const processedProductIds = new Set<string>();
+    const productNameToIdMap = new Map<string, string>(); // Track product names -> IDs for variant lookup
 
     // Process each worksheet (except Instructions and Product Variants on first pass)
     for (const worksheet of workbook.worksheets) {
@@ -1139,6 +1140,7 @@ export class ProductsExcelService {
       // Build column map from header row
       const headerRow = worksheet.getRow(1);
       const columnMap = new Map<string, number>();
+      console.log(`[Import] Processing sheet "${sheetName}", building column map...`);
       headerRow.eachCell((cell, colNumber) => {
         const headerName = cell.value?.toString().trim();
         if (headerName) {
@@ -1151,8 +1153,10 @@ export class ProductsExcelService {
           
           // Also map exact header name
           columnMap.set(headerName, colNumber);
+          console.log(`[Import]   Column ${colNumber}: "${headerName}" (normalized: "${normalizedKey}")`);
         }
       });
+      console.log(`[Import] Found ${columnMap.size / 2} columns in sheet "${sheetName}"`);
 
       // Helper function to get cell value by header name
       const getCellValue = (row: ExcelJS.Row, headerKey: string): any => {
@@ -1173,25 +1177,48 @@ export class ProductsExcelService {
       const rowPromises = rowsToProcess.map(async ({ row, rowNumber }) => {
 
         try {
-          // Try to get _id column if it exists (for updates), otherwise it's a new product
+          // Wrap all cell access in try-catch to provide better error messages
           let _id: string | undefined;
-          try {
-            _id = getCellValue(row, '_ID')?.toString().trim();
-          } catch (e) {
-            // Column doesn't exist - this is fine for new imports
-            _id = undefined;
-          }
+          let name: string | undefined;
+          let description: string | undefined;
+          let imagesCell: string | undefined;
+          let price: number;
+          let compareAtPrice: number;
+          let stockQuantity: number;
+          let status: string;
           
-          const name = getCellValue(row, 'Product Name')?.toString().trim();
-          const description = getCellValue(row, 'Description')?.toString().trim();
-          const imagesCell = getCellValue(row, 'Images (comma-separated filenames)')?.toString().trim() || 
-                            getCellValue(row, 'Images')?.toString().trim();
-          const price = parseFloat(getCellValue(row, 'Price')?.toString() || '0');
-          const compareAtPrice = parseFloat(getCellValue(row, 'Compare At Price (Optional)')?.toString() || 
-                                           getCellValue(row, 'Compare At Price')?.toString() || '0');
-          const stockQuantity = parseInt(getCellValue(row, 'Stock Quantity')?.toString() || '0');
-          const status = getCellValue(row, 'Status (active/draft/archived)')?.toString().trim() || 
-                        getCellValue(row, 'Status')?.toString().trim() || 'active';
+          try {
+            // Try to get _id column if it exists (for updates), otherwise it's a new product
+            try {
+              _id = getCellValue(row, '_ID')?.toString().trim();
+            } catch (e) {
+              // Column doesn't exist - this is fine for new imports
+              _id = undefined;
+            }
+            
+            console.log(`[Import] Row ${rowNumber}: Reading cells...`);
+            name = getCellValue(row, 'Product Name')?.toString().trim();
+            console.log(`[Import] Row ${rowNumber}: Product Name = "${name}"`);
+            description = getCellValue(row, 'Description')?.toString().trim();
+            imagesCell = getCellValue(row, 'Images (comma-separated filenames)')?.toString().trim() || 
+                              getCellValue(row, 'Images')?.toString().trim();
+            price = parseFloat(getCellValue(row, 'Price')?.toString() || '0');
+            compareAtPrice = parseFloat(getCellValue(row, 'Compare At Price (Optional)')?.toString() || 
+                                             getCellValue(row, 'Compare At Price')?.toString() || '0');
+            stockQuantity = parseInt(getCellValue(row, 'Stock Quantity')?.toString() || '0');
+            status = getCellValue(row, 'Status (active/draft/archived)')?.toString().trim() || 
+                          getCellValue(row, 'Status')?.toString().trim() || 'active';
+            console.log(`[Import] Row ${rowNumber}: Successfully read basic fields`);
+          } catch (cellError) {
+            // Catch Excel "Out of bounds" and other cell access errors
+            const errorMsg = cellError.message || String(cellError);
+            if (errorMsg.includes('Out of bounds') || errorMsg.includes('column')) {
+              errors.push(`Sheet "${sheetName}", Row ${rowNumber}: Error reading data - please check that all required columns exist and data is properly formatted. (Technical: ${errorMsg})`);
+            } else {
+              errors.push(`Sheet "${sheetName}", Row ${rowNumber}: Error reading data - ${errorMsg}`);
+            }
+            return;
+          }
           
           // Read GST/Pricing fields
           // Extract just the code part if format is "code - description"
@@ -1275,6 +1302,8 @@ export class ProductsExcelService {
 
           // Process images
           const productImages: string[] = [];
+          const uploadedCloudinaryUrls: string[] = []; // Track for cleanup on failure
+          
           if (imagesCell) {
             const imageFilenames = imagesCell.split(',').map(f => f.trim()).filter(f => f.length > 0);
             for (const filename of imageFilenames) {
@@ -1290,11 +1319,26 @@ export class ProductsExcelService {
               }
               
               if (imageFile) {
-                // Save the image (Cloudinary or local filesystem)
-                const uploadPath = await this.saveUploadedImage(imageFile, finalVendorId);
-                productImages.push(uploadPath);
+                try {
+                  // Save the image (Cloudinary or local filesystem)
+                  const uploadPath = await this.saveUploadedImage(imageFile, finalVendorId);
+                  productImages.push(uploadPath);
+                  
+                  // Track Cloudinary URLs for potential cleanup
+                  if (uploadPath.startsWith('https://res.cloudinary.com')) {
+                    uploadedCloudinaryUrls.push(uploadPath);
+                  }
+                } catch (uploadError) {
+                  errors.push(`Sheet "${sheetName}", Row ${rowNumber}: Failed to upload image "${filename}" - ${uploadError.message}`);
+                  // Clean up any images uploaded so far for this product
+                  if (uploadedCloudinaryUrls.length > 0) {
+                    console.log(`[Import] Cleaning up ${uploadedCloudinaryUrls.length} uploaded images due to upload failure`);
+                    await this.cloudinaryService.deleteMultipleImages(uploadedCloudinaryUrls);
+                  }
+                  throw uploadError; // Re-throw to skip product creation
+                }
               } else {
-                errors.push(`Sheet "${sheetName}", Row ${rowNumber}: Image "${filename}" not found in uploaded files`);
+                errors.push(`Sheet "${sheetName}", Row ${rowNumber}: Image "${filename}" not found in the "images" folder of your ZIP file. Make sure the filename matches exactly (including file extension like .jpg, .png).`);
               }
             }
           }
@@ -1302,7 +1346,7 @@ export class ProductsExcelService {
           // Collect attributes from category-specific columns
           const attributes: Record<string, any> = {};
           categoryFilters.forEach(filter => {
-            const cellValue = row.getCell(`attr_${filter.id}`).value?.toString().trim();
+            const cellValue = getCellValue(row, `attr_${filter.id}`)?.toString().trim();
             if (cellValue) {
               attributes[filter.id] = cellValue;
             }
@@ -1376,11 +1420,23 @@ export class ProductsExcelService {
                 }
                 updated++;
                 processedProductIds.add(_id);
+                // Add to map for variant lookup
+                productNameToIdMap.set(name, _id);
               } else {
                 errors.push(`Sheet "${sheetName}", Row ${rowNumber}: Product not found or doesn't belong to vendor`);
+                // Clean up uploaded images on failure
+                if (uploadedCloudinaryUrls.length > 0) {
+                  console.log(`[Import] Cleaning up ${uploadedCloudinaryUrls.length} uploaded images - product not found`);
+                  await this.cloudinaryService.deleteMultipleImages(uploadedCloudinaryUrls);
+                }
               }
             } catch (err) {
               errors.push(`Sheet "${sheetName}", Row ${rowNumber}: Update failed - ${err.message}`);
+              // Clean up uploaded images on failure
+              if (uploadedCloudinaryUrls.length > 0) {
+                console.log(`[Import] Cleaning up ${uploadedCloudinaryUrls.length} uploaded images - update failed`);
+                await this.cloudinaryService.deleteMultipleImages(uploadedCloudinaryUrls);
+              }
             }
           } else {
             // Create new product
@@ -1390,8 +1446,16 @@ export class ProductsExcelService {
               const savedProduct = Array.isArray(savedResult) ? savedResult[0] : savedResult;
               created++;
               processedProductIds.add(savedProduct.id);
+              // Add to map for variant lookup
+              productNameToIdMap.set(name, savedProduct.id);
+              console.log(`[Import] Created product "${name}" with ID: ${savedProduct.id}`);
             } catch (err) {
               errors.push(`Sheet "${sheetName}", Row ${rowNumber}: Create failed - ${err.message}`);
+              // Clean up uploaded images on failure
+              if (uploadedCloudinaryUrls.length > 0) {
+                console.log(`[Import] Cleaning up ${uploadedCloudinaryUrls.length} uploaded images - create failed`);
+                await this.cloudinaryService.deleteMultipleImages(uploadedCloudinaryUrls);
+              }
             }
           }
 
@@ -1404,6 +1468,16 @@ export class ProductsExcelService {
       await Promise.all(rowPromises);
     }
 
+    // IMPORTANT: Flush all database writes before processing variants
+    // This ensures products are actually in the database when variants try to look them up
+    console.log(`[Import] All product sheets processed. Flushing database writes...`);
+    console.log(`[Import] Created: ${created}, Updated: ${updated}`);
+    
+    // Wait a bit to ensure database transactions are committed
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    console.log(`[Import] Database flush complete. Starting variant processing...`);
+
     // Second pass: Process Product Variants sheet
     const variantsSheet = workbook.getWorksheet('Product Variants');
     if (variantsSheet) {
@@ -1411,22 +1485,129 @@ export class ProductsExcelService {
       let variantsCreated = 0;
       let variantsUpdated = 0;
 
+      // Collect all unique variant attributes to potentially add to categories
+      const discoveredAttributes = new Map<string, Set<string>>(); // attribute name -> set of values
+
       // Build column map from header row for variants
       const variantHeaderRow = variantsSheet.getRow(1);
       const variantColumnMap = new Map<string, number>();
+      const headerNameMap = new Map<number, string>(); // Map col index to original header name
+      
       variantHeaderRow.eachCell((cell, colNumber) => {
         const headerName = cell.value?.toString().trim();
         if (headerName) {
           const normalizedKey = headerName.replace(/\s+/g, '').toLowerCase();
           variantColumnMap.set(normalizedKey, colNumber);
-          variantColumnMap.set(headerName, colNumber);
+          headerNameMap.set(colNumber, headerName); // Store original name for attribute keys
         }
       });
 
       const getVariantCellValue = (row: ExcelJS.Row, headerKey: string): any => {
-        const colIndex = variantColumnMap.get(headerKey) || variantColumnMap.get(headerKey.toLowerCase().replace(/\s+/g, ''));
+        const normalizedKey = headerKey.toLowerCase().replace(/\s+/g, '');
+        const colIndex = variantColumnMap.get(normalizedKey);
         return colIndex ? row.getCell(colIndex).value : null;
       };
+
+      // First pass through variants: collect all attributes
+      variantsSheet.eachRow((row, rowNumber) => {
+        if (rowNumber === 1) return; // Skip header
+        
+        // Method 1: Check for combined "Attributes" column (format: "Size: S, Color: Red")
+        const attributesStr = getVariantCellValue(row, 'Attributes')?.toString().trim();
+        if (attributesStr) {
+          attributesStr.split(',').forEach(attr => {
+            const [key, value] = attr.split(':').map(s => s.trim());
+            if (key && value) {
+              if (!discoveredAttributes.has(key)) {
+                discoveredAttributes.set(key, new Set());
+              }
+              discoveredAttributes.get(key)?.add(value);
+            }
+          });
+        }
+        
+        // Method 2: Check for individual attribute columns (Size, Color, Weight, etc.)
+        // These are any columns that are not standard variant columns
+        const standardColumns = ['productname', 'variantname', 'sku', 'price', 'compareatprice', 'stockquantity', 'isactive', '_product_id', '_variant_id', 'attributes'];
+        
+        headerNameMap.forEach((originalHeaderName, colIndex) => {
+          const normalizedHeader = originalHeaderName.toLowerCase().replace(/\s+/g, '');
+          
+          // If this is not a standard column, treat it as a variant attribute
+          if (!standardColumns.includes(normalizedHeader)) {
+            const value = row.getCell(colIndex).value?.toString().trim();
+            if (value) {
+              // Use the original header name (with proper casing) as the attribute key
+              if (!discoveredAttributes.has(originalHeaderName)) {
+                discoveredAttributes.set(originalHeaderName, new Set());
+              }
+              discoveredAttributes.get(originalHeaderName)?.add(value);
+            }
+          }
+        });
+      });
+
+      console.log(`[Variants] Discovered attributes:`, Array.from(discoveredAttributes.entries()).map(([key, values]) => `${key}: [${Array.from(values).join(', ')}]`).join(', '));
+
+      // Update categories with discovered attributes if needed
+      if (discoveredAttributes.size > 0) {
+        const categoriesToUpdate = await this.categoriesRepository.find({ 
+          where: { isActive: true } 
+        });
+        
+        for (const category of categoriesToUpdate) {
+          let needsUpdate = false;
+          const filterConfig = category.filterConfig || { filters: [] };
+          
+          // Check each discovered attribute
+          for (const [attrKey, attrValues] of discoveredAttributes.entries()) {
+            const attrId = attrKey.toLowerCase();
+            
+            // Check if this attribute already exists in the category
+            const existingFilter = filterConfig.filters.find(f => f.id === attrId);
+            
+            if (!existingFilter) {
+              // Add new filter for this attribute
+              console.log(`[Variants] Adding "${attrKey}" attribute to category "${category.name}"`);
+              filterConfig.filters.push({
+                id: attrId,
+                label: attrKey,
+                type: 'select',
+                options: Array.from(attrValues).map(value => ({
+                  value: value.toLowerCase(),
+                  label: value
+                }))
+              });
+              needsUpdate = true;
+            } else {
+              // Merge new values into existing filter
+              const existingValues = new Set(existingFilter.options?.map(o => o.value) || []);
+              let addedValues = false;
+              
+              for (const value of attrValues) {
+                const normalizedValue = value.toLowerCase();
+                if (!existingValues.has(normalizedValue)) {
+                  console.log(`[Variants] Adding value "${value}" to "${attrKey}" in category "${category.name}"`);
+                  if (!existingFilter.options) existingFilter.options = [];
+                  existingFilter.options.push({
+                    value: normalizedValue,
+                    label: value
+                  });
+                  addedValues = true;
+                }
+              }
+              
+              if (addedValues) needsUpdate = true;
+            }
+          }
+          
+          if (needsUpdate) {
+            category.filterConfig = filterConfig;
+            await this.categoriesRepository.save(category);
+            console.log(`[Variants] Updated category "${category.name}" with variant attributes`);
+          }
+        }
+      }
 
       // Process each variant row
       const variantPromises: Promise<void>[] = [];
@@ -1461,8 +1642,10 @@ export class ProductsExcelService {
             return;
           }
 
-          // Parse attributes string (e.g., "Size: xs, Color: black, Weight: 250g")
+          // Parse attributes - support both formats
           const variantAttributes: Record<string, string> = {};
+          
+          // Method 1: Parse from "Attributes" column (e.g., "Size: xs, Color: black, Weight: 250g")
           if (attributesStr) {
             attributesStr.split(',').forEach(attr => {
               const [key, value] = attr.split(':').map(s => s.trim());
@@ -1471,28 +1654,52 @@ export class ProductsExcelService {
               }
             });
           }
+          
+          // Method 2: Parse from individual attribute columns (Size, Color, etc.)
+          const standardColumns = ['productname', 'variantname', 'sku', 'price', 'compareatprice', 'stockquantity', 'isactive', '_product_id', '_variant_id', 'attributes'];
+          
+          headerNameMap.forEach((originalHeaderName, colIndex) => {
+            const normalizedHeader = originalHeaderName.toLowerCase().replace(/\s+/g, '');
+            
+            // If this is not a standard column, treat it as a variant attribute
+            if (!standardColumns.includes(normalizedHeader)) {
+              const value = row.getCell(colIndex).value?.toString().trim();
+              if (value) {
+                // Use the original header name as the attribute key
+                variantAttributes[originalHeaderName] = value;
+              }
+            }
+          });
 
           const promise = (async () => {
             // If no productId, look up by product name
             let finalProductId = productId;
             if (!finalProductId && productName) {
-              // Look up product by name - if no vendorId specified, search all vendors (admin import)
-              const whereCondition: any = { name: productName };
-              if (vendorId) {
-                whereCondition.vendorId = vendorId;
-              }
-              
-              console.log(`[Variants] Looking up product: "${productName}" with conditions:`, whereCondition);
-              const product = await this.productsRepository.findOne({
-                where: whereCondition
-              });
-              if (product) {
-                finalProductId = product.id;
-                console.log(`[Variants] Found product: ${product.id} (vendor: ${product.vendorId})`);
+              // First try to find in our newly created products map
+              if (productNameToIdMap.has(productName)) {
+                finalProductId = productNameToIdMap.get(productName);
+                console.log(`[Variants] Found product "${productName}" in creation map: ${finalProductId}`);
               } else {
-                console.error(`[Variants] Product "${productName}" not found`);
-                errors.push(`Variants Sheet, Row ${rowNumber}: Product "${productName}" not found`);
-                return;
+                // If not found in map, look up in database
+                const whereCondition: any = { name: productName };
+                // Only add vendorId filter if vendorId is provided (not super admin import)
+                if (vendorId) {
+                  whereCondition.vendorId = vendorId;
+                }
+                
+                console.log(`[Variants] Looking up product in database: "${productName}" with conditions:`, whereCondition);
+                const product = await this.productsRepository.findOne({
+                  where: whereCondition
+                });
+                if (product) {
+                  finalProductId = product.id;
+                  console.log(`[Variants] Found product in database: ${product.id} (vendor: ${product.vendorId})`);
+                } else {
+                  console.error(`[Variants] Product "${productName}" not found in map or database`);
+                  console.error(`[Variants] Available products in map:`, Array.from(productNameToIdMap.keys()));
+                  errors.push(`Variants Sheet, Row ${rowNumber}: Product "${productName}" not found. Make sure the product name exactly matches a product in one of the category sheets (case-sensitive), and the product was successfully imported. Available products: ${Array.from(productNameToIdMap.keys()).join(', ')}`);
+                  return;
+                }
               }
             }
 

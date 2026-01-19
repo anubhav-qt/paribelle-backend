@@ -258,4 +258,117 @@ export class CloudinaryService {
 
     return cloudinary.url(publicId, transformations);
   }
+
+  /**
+   * List all images in a Cloudinary folder
+   * @param folder - Folder path (e.g., 'marketplace/products')
+   * @param maxResults - Maximum number of results to return
+   * @returns Array of image resources with public_ids and URLs
+   */
+  async listImages(folder: string = 'marketplace', maxResults: number = 500): Promise<any[]> {
+    if (!this.isConfigured) {
+      throw new Error('Cloudinary is not configured');
+    }
+
+    try {
+      const allImages: any[] = [];
+      let nextCursor: string | undefined;
+
+      // Cloudinary API returns paginated results, fetch all pages
+      do {
+        const result = await cloudinary.api.resources({
+          type: 'upload',
+          prefix: folder,
+          max_results: Math.min(maxResults, 500), // API limit is 500 per request
+          next_cursor: nextCursor,
+        });
+
+        allImages.push(...result.resources);
+        nextCursor = result.next_cursor;
+
+        // Stop if we've reached the max or no more results
+        if (allImages.length >= maxResults || !nextCursor) {
+          break;
+        }
+      } while (nextCursor);
+
+      this.logger.log(`Found ${allImages.length} images in folder: ${folder}`);
+      return allImages;
+    } catch (error) {
+      this.logger.error(`Failed to list images in folder ${folder}:`, error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Find and optionally delete orphan images not referenced in the provided URLs
+   * @param folder - Cloudinary folder to check
+   * @param referencedUrls - Array of URLs that are currently in use
+   * @param deleteOrphans - If true, delete orphan images; if false, just return them
+   * @returns Object with orphan image details and deletion results
+   */
+  async cleanupOrphanImages(
+    folder: string = 'marketplace/products',
+    referencedUrls: string[],
+    deleteOrphans: boolean = false,
+  ): Promise<{ 
+    total: number; 
+    orphans: string[]; 
+    deleted: number; 
+    errors: string[];
+  }> {
+    if (!this.isConfigured) {
+      throw new Error('Cloudinary is not configured');
+    }
+
+    try {
+      // Get all images in the folder
+      const allImages = await this.listImages(folder);
+      
+      // Extract public_ids from referenced URLs
+      const referencedPublicIds = new Set(
+        referencedUrls
+          .map(url => this.extractPublicId(url))
+          .filter(id => id !== null)
+      );
+
+      // Find orphans - images in Cloudinary not in referenced set
+      const orphanImages = allImages.filter(
+        image => !referencedPublicIds.has(image.public_id)
+      );
+
+      const orphanPublicIds = orphanImages.map(img => img.public_id);
+      
+      this.logger.log(`Found ${orphanImages.length} orphan images out of ${allImages.length} total`);
+
+      let deleted = 0;
+      const errors: string[] = [];
+
+      // Delete orphans if requested
+      if (deleteOrphans && orphanPublicIds.length > 0) {
+        this.logger.log(`Deleting ${orphanPublicIds.length} orphan images...`);
+        
+        for (const publicId of orphanPublicIds) {
+          try {
+            await this.deleteImage(publicId);
+            deleted++;
+          } catch (error) {
+            errors.push(`Failed to delete ${publicId}: ${error.message}`);
+          }
+        }
+        
+        this.logger.log(`Deleted ${deleted} orphan images with ${errors.length} errors`);
+      }
+
+      return {
+        total: allImages.length,
+        orphans: orphanPublicIds,
+        deleted,
+        errors,
+      };
+    } catch (error) {
+      this.logger.error('Failed to cleanup orphan images:', error.message);
+      throw error;
+    }
+  }
 }
