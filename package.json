@@ -27,7 +27,8 @@
     "db:init": "node initialsetup/init-database.js",
     "db:init:create": "node initialsetup/init-database.js --create-database",
     "seed": "ts-node -r tsconfig-paths/register src/database/seed-runner.ts",
-    "seed:admin": "ts-node -r tsconfig-paths/register src/scripts/seed-admin.ts"
+    "seed:admin": "ts-node -r tsconfig-paths/register src/scripts/seed-admin.ts",
+    "migrate:reviews-cascade": "node add-cascade-delete-reviews.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.490.0",

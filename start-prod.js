@@ -9,9 +9,27 @@ console.log('PORT:', process.env.PORT);
 console.log('DATABASE_URL:', process.env.DATABASE_URL ? 'SET (hidden)' : 'NOT SET');
 console.log('======================================\n');
 
-// Check if dist/main.js exists
+// Run database migrations
+console.log('🔄 Running database migrations...');
+const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+
+try {
+  // Check if migration script exists
+  const migrationScript = path.join(__dirname, 'add-cascade-delete-reviews.js');
+  if (fs.existsSync(migrationScript)) {
+    execSync('node add-cascade-delete-reviews.js', { stdio: 'inherit', cwd: __dirname });
+    console.log('✅ Database migrations completed\n');
+  } else {
+    console.log('⚠️  Migration script not found, skipping...\n');
+  }
+} catch (error) {
+  console.error('❌ Migration failed:', error.message);
+  console.error('Continuing with startup anyway...\n');
+}
+
+// Check if dist/main.js exists
 
 // Try multiple possible locations for dist/main.js
 const possiblePaths = [
