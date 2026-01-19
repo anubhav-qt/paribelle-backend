@@ -394,6 +394,7 @@ export class ProductsService {
       .leftJoinAndSelect('product.reviews', 'review')
       .leftJoinAndSelect('product.variations', 'variations')
       .leftJoinAndSelect('product.parentProduct', 'parentProduct')
+      .leftJoinAndSelect('product.productVariants', 'productVariants')
       .leftJoinAndSelect('vendor.locationCity', 'city')
       .leftJoinAndSelect('vendor.locationSubLocation', 'subLocation')
       .select([
@@ -418,15 +419,42 @@ export class ProductsService {
         'parentProduct.id',
         'parentProduct.name',
         'parentProduct.slug',
+        'productVariants',
       ])
       .where('product.slug = :slug', { slug })
       .andWhere('vendor.kycStatus = :kycStatus', { kycStatus: 'approved' }) // Only show products from verified vendors
       .getOne();
     
-    // If product has variants, fetch them
+    // If product has variants, fetch them and generate variantOptions
     if (product && product.hasVariants) {
       const variants = await this.getProductVariants(product.id);
       (product as any).productVariants = variants;
+      
+      // Generate variantOptions from variants for frontend selector
+      if (variants && variants.length > 0) {
+        const attributeKeys = new Set<string>();
+        variants.forEach(variant => {
+          if (variant.variantAttributes) {
+            Object.keys(variant.variantAttributes).forEach(key => attributeKeys.add(key));
+          }
+        });
+        
+        const variantOptions: any[] = [];
+        attributeKeys.forEach(key => {
+          const values = new Set<string>();
+          variants.forEach(variant => {
+            if (variant.variantAttributes && variant.variantAttributes[key]) {
+              values.add(variant.variantAttributes[key]);
+            }
+          });
+          variantOptions.push({
+            name: key.charAt(0).toUpperCase() + key.slice(1),
+            values: Array.from(values)
+          });
+        });
+        
+        (product as any).variantOptions = variantOptions;
+      }
     }
     
     return product;
