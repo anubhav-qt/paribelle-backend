@@ -216,7 +216,7 @@ export class Product {
   @OneToMany(() => OrderItem, (orderItem) => orderItem.product)
   orderItems: OrderItem[];
 
-  @OneToMany(() => Review, (review) => review.product)
+  @OneToMany(() => Review, (review) => review.product, { cascade: true, onDelete: 'CASCADE' })
   reviews: Review[];
 
   @CreateDateColumn()
