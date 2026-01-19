@@ -1278,7 +1278,17 @@ export class ProductsExcelService {
           if (imagesCell) {
             const imageFilenames = imagesCell.split(',').map(f => f.trim()).filter(f => f.length > 0);
             for (const filename of imageFilenames) {
-              const imageFile = imageMap.get(filename.toLowerCase());
+              let imageFile = imageMap.get(filename.toLowerCase());
+              
+              // If not found and no extension, try common extensions
+              if (!imageFile && !filename.match(/\.(jpg|jpeg|png|gif|webp)$/i)) {
+                const extensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.JPG', '.JPEG', '.PNG', '.GIF', '.WEBP'];
+                for (const ext of extensions) {
+                  imageFile = imageMap.get((filename + ext).toLowerCase());
+                  if (imageFile) break;
+                }
+              }
+              
               if (imageFile) {
                 // Save the image (Cloudinary or local filesystem)
                 const uploadPath = await this.saveUploadedImage(imageFile, finalVendorId);
