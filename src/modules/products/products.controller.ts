@@ -195,11 +195,13 @@ export class ProductsController {
       throw new BadRequestException('No ZIP file uploaded');
     }
 
+    if (vendorId === 'all') {
+      throw new BadRequestException('Import all vendors is not supported. Please import for a specific vendor.');
+    }
+
     try {
-      // Handle 'all' for admin to import all products
-      const targetVendorId = vendorId === 'all' ? null : vendorId;
       const result = await this.productsExcelService.importFromZip(
-        targetVendorId,
+        vendorId,
         file.buffer,
       );
       
