@@ -2258,44 +2258,79 @@ export class ProductsExcelService {
     console.log('📦 Adding Excel file to ZIP...');
     archive.append(Buffer.from(excelBuffer as ArrayBuffer), { name: 'products.xlsx' });
     
-    // Create dummy images (simple colored 100x100 PNGs)
+    // Create dummy images (minimal valid 1x1 PNG)
     const createDummyImage = (color: { r: number; g: number; b: number }): Buffer => {
-      // Create a minimal valid 100x100 PNG
-      const width = 100;
-      const height = 100;
-      const png = Buffer.alloc(8 + 25 + 12 + (height * (1 + width * 3)) + 12);
-      let offset = 0;
+      // Create a minimal valid 1x1 PNG with the specified color
+      // This is a complete, valid PNG structure
+      const crc32 = (data: Buffer): number => {
+        let crc = 0xFFFFFFFF;
+        for (let i = 0; i < data.length; i++) {
+          crc = crc ^ data[i];
+          for (let j = 0; j < 8; j++) {
+            crc = (crc >>> 1) ^ (0xEDB88320 & -(crc & 1));
+          }
+        }
+        return crc ^ 0xFFFFFFFF;
+      };
+
+      const ihdrData = Buffer.from([
+        0x49, 0x48, 0x44, 0x52, // "IHDR"
+        0x00, 0x00, 0x00, 0x01, // Width: 1
+        0x00, 0x00, 0x00, 0x01, // Height: 1
+        0x08, 0x02, 0x00, 0x00, 0x00 // 8-bit RGB, no compression, no filter, no interlace
+      ]);
+      const ihdrCrc = crc32(ihdrData);
+
+      const idatContent = Buffer.from([
+        0x00, // Filter type: None
+        color.r, color.g, color.b // RGB pixel
+      ]);
       
-      // PNG signature
-      png.writeUInt32BE(0x89504E47, offset); offset += 4;
-      png.writeUInt32BE(0x0D0A1A0A, offset); offset += 4;
+      // Compress IDAT content (simple zlib wrapper)
+      const zlib = require('zlib');
+      const compressed = zlib.deflateSync(idatContent);
       
-      // IHDR chunk
-      png.writeUInt32BE(13, offset); offset += 4; // Length
-      png.write('IHDR', offset); offset += 4;
-      png.writeUInt32BE(width, offset); offset += 4;
-      png.writeUInt32BE(height, offset); offset += 4;
-      png.writeUInt8(8, offset); offset += 1; // Bit depth
-      png.writeUInt8(2, offset); offset += 1; // Color type (RGB)
-      png.writeUInt8(0, offset); offset += 1; // Compression
-      png.writeUInt8(0, offset); offset += 1; // Filter
-      png.writeUInt8(0, offset); offset += 1; // Interlace
-      png.writeUInt32BE(0, offset); offset += 4; // CRC (simplified)
-      
-      // Just return a simple PNG structure
-      return Buffer.from([
-        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
-        0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
-        0x00, 0x00, 0x00, 0x0A, 0x00, 0x00, 0x00, 0x0A,
-        0x08, 0x02, 0x00, 0x00, 0x00, 0x02, 0x50, 0x58, 0xEA,
-        0x00, 0x00, 0x00, 0x01, 0x73, 0x52, 0x47, 0x42,
-        0x00, 0xAE, 0xCE, 0x1C, 0xE9, 0x00, 0x00, 0x00,
-        0x04, 0x67, 0x41, 0x4D, 0x41, 0x00, 0x00, 0xB1,
-        0x8F, 0x0B, 0xFC, 0x61, 0x05, 0x00, 0x00, 0x00,
-        0x20, 0x49, 0x44, 0x41, 0x54, 0x28, 0x53, 0x63,
-        ...Buffer.alloc(32, color.r), // Fill with color
-        0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44,
-        0xAE, 0x42, 0x60, 0x82
+      const idatData = Buffer.concat([
+        Buffer.from([0x49, 0x44, 0x41, 0x54]), // "IDAT"
+        compressed
+      ]);
+      const idatCrc = crc32(idatData);
+
+      const iendData = Buffer.from([0x49, 0x45, 0x4E, 0x44]); // "IEND"
+      const iendCrc = crc32(iendData);
+
+      // Assemble PNG
+      return Buffer.concat([
+        Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]), // PNG signature
+        Buffer.from([0x00, 0x00, 0x00, 0x0D]), // IHDR length
+        ihdrData,
+        Buffer.from([
+          (ihdrCrc >>> 24) & 0xFF,
+          (ihdrCrc >>> 16) & 0xFF,
+          (ihdrCrc >>> 8) & 0xFF,
+          ihdrCrc & 0xFF
+        ]),
+        Buffer.from([
+          (compressed.length >>> 24) & 0xFF,
+          (compressed.length >>> 16) & 0xFF,
+          (compressed.length >>> 8) & 0xFF,
+          compressed.length & 0xFF
+        ]),
+        idatData,
+        Buffer.from([
+          (idatCrc >>> 24) & 0xFF,
+          (idatCrc >>> 16) & 0xFF,
+          (idatCrc >>> 8) & 0xFF,
+          idatCrc & 0xFF
+        ]),
+        Buffer.from([0x00, 0x00, 0x00, 0x00]), // IEND length
+        iendData,
+        Buffer.from([
+          (iendCrc >>> 24) & 0xFF,
+          (iendCrc >>> 16) & 0xFF,
+          (iendCrc >>> 8) & 0xFF,
+          iendCrc & 0xFF
+        ])
       ]);
     };
     
