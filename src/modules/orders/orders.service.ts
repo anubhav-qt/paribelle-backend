@@ -942,12 +942,23 @@ export class OrdersService {
       throw new BadRequestException('Refund can only be requested for cancelled or delivered orders');
     }
 
-    if (order.paymentStatus !== PaymentStatus.PAID) {
+    // For COD orders, refunds are not applicable since payment wasn't made online
+    // For online payments, check if order was paid
+    const isCOD = order.items?.[0]?.product?.vendor?.paymentMethod === 'cod' || 
+                  order.adminNotes?.includes('COD') ||
+                  order.customerNotes?.includes('COD');
+    
+    if (!isCOD && order.paymentStatus !== PaymentStatus.PAID) {
       throw new BadRequestException('Only paid orders can be refunded');
     }
 
-    order.paymentStatus = PaymentStatus.REFUNDED;
-    order.adminNotes = (order.adminNotes || '') + `\nRefund requested: ${reason} at ${new Date().toISOString()}`;
+    if (isCOD) {
+      // For COD, just mark as cancelled/returned, no payment refund needed
+      order.adminNotes = (order.adminNotes || '') + `\nCOD order cancelled/returned: ${reason} at ${new Date().toISOString()}`;
+    } else {
+      order.paymentStatus = PaymentStatus.REFUNDED;
+      order.adminNotes = (order.adminNotes || '') + `\nRefund requested: ${reason} at ${new Date().toISOString()}`;
+    }
 
     return this.orderRepository.save(order);
   }

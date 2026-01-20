@@ -133,16 +133,23 @@ export class CreateVendorPagesTable1733673600000 implements MigrationInterface {
       }),
     );
 
-    // Create foreign key
-    await queryRunner.createForeignKey(
-      'vendor_pages',
-      new TableForeignKey({
-        columnNames: ['vendor_id'],
-        referencedColumnNames: ['id'],
-        referencedTableName: 'vendors',
-        onDelete: 'CASCADE',
-      }),
+    // Create foreign key (check if it exists first to avoid errors on re-run)
+    const foreignKeys = await queryRunner.getTable('vendor_pages');
+    const fkExists = foreignKeys?.foreignKeys.some(
+      (fk) => fk.columnNames.indexOf('vendor_id') !== -1
     );
+    
+    if (!fkExists) {
+      await queryRunner.createForeignKey(
+        'vendor_pages',
+        new TableForeignKey({
+          columnNames: ['vendor_id'],
+          referencedColumnNames: ['id'],
+          referencedTableName: 'vendors',
+          onDelete: 'CASCADE',
+        }),
+      );
+    }
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
