@@ -13,7 +13,7 @@ export class CreateVendorNavigationTable1733673800000 implements MigrationInterf
             default: 'uuid_generate_v4()',
           },
           {
-            name: 'vendorId',
+            name: 'vendor_id',
             type: 'uuid',
           },
           {
@@ -30,12 +30,12 @@ export class CreateVendorNavigationTable1733673800000 implements MigrationInterf
             default: 0,
           },
           {
-            name: 'parentId',
+            name: 'parent_id',
             type: 'uuid',
             isNullable: true,
           },
           {
-            name: 'isActive',
+            name: 'is_active',
             type: 'boolean',
             default: true,
           },
@@ -46,7 +46,7 @@ export class CreateVendorNavigationTable1733673800000 implements MigrationInterf
             default: `'header'`,
           },
           {
-            name: 'openInNewTab',
+            name: 'open_in_new_tab',
             type: 'boolean',
             default: false,
           },
@@ -59,8 +59,8 @@ export class CreateVendorNavigationTable1733673800000 implements MigrationInterf
     await queryRunner.createIndex(
       'vendor_navigation',
       new TableIndex({
-        name: 'IDX_vendor_navigation_vendorId',
-        columnNames: ['vendorId'],
+        name: 'IDX_vendor_navigation_vendor_id',
+        columnNames: ['vendor_id'],
       }),
     );
 
@@ -68,7 +68,7 @@ export class CreateVendorNavigationTable1733673800000 implements MigrationInterf
     await queryRunner.createForeignKey(
       'vendor_navigation',
       new TableForeignKey({
-        columnNames: ['vendorId'],
+        columnNames: ['vendor_id'],
         referencedColumnNames: ['id'],
         referencedTableName: 'vendors',
         onDelete: 'CASCADE',

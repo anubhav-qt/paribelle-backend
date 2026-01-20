@@ -19,7 +19,7 @@ export class VendorNavigation {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column()
+  @Column({ name: 'vendor_id' })
   @Index()
   vendorId: string;
 
@@ -38,10 +38,10 @@ export class VendorNavigation {
   @Column({ type: 'int', default: 0 })
   order: number;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'uuid', nullable: true, name: 'parent_id' })
   parentId: string;
 
-  @Column({ default: true })
+  @Column({ default: true, name: 'is_active' })
   isActive: boolean;
 
   @Column({
@@ -51,6 +51,6 @@ export class VendorNavigation {
   })
   position: NavigationPosition;
 
-  @Column({ default: false })
+  @Column({ default: false, name: 'open_in_new_tab' })
   openInNewTab: boolean;
 }

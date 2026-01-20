@@ -96,12 +96,12 @@ export class VendorPage {
   @Column({ default: false, name: 'is_home_page' })
   isHomePage: boolean;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamp', nullable: true, name: 'published_at' })
   publishedAt: Date;
 }

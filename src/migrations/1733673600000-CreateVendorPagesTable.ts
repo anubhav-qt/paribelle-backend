@@ -25,7 +25,7 @@ export class CreateVendorPagesTable1733673600000 implements MigrationInterface {
             type: 'varchar',
           },
           {
-            name: 'pageType',
+            name: 'page_type',
             type: 'enum',
             enum: ['custom', 'about', 'contact', 'faq', 'terms', 'privacy'],
             default: `'custom'`,
@@ -40,7 +40,7 @@ export class CreateVendorPagesTable1733673600000 implements MigrationInterface {
             isNullable: true,
           },
           {
-            name: 'featuredImage',
+            name: 'featured_image',
             type: 'varchar',
             isNullable: true,
           },
@@ -51,17 +51,17 @@ export class CreateVendorPagesTable1733673600000 implements MigrationInterface {
             isNullable: true,
           },
           {
-            name: 'metaTitle',
+            name: 'meta_title',
             type: 'varchar',
             isNullable: true,
           },
           {
-            name: 'metaDescription',
+            name: 'meta_description',
             type: 'text',
             isNullable: true,
           },
           {
-            name: 'metaKeywords',
+            name: 'meta_keywords',
             type: 'text',
             isNullable: true,
           },
@@ -77,28 +77,28 @@ export class CreateVendorPagesTable1733673600000 implements MigrationInterface {
             default: 0,
           },
           {
-            name: 'showInNavigation',
+            name: 'show_in_navigation',
             type: 'boolean',
             default: true,
           },
           {
-            name: 'isHomePage',
+            name: 'is_home_page',
             type: 'boolean',
             default: false,
           },
           {
-            name: 'createdAt',
+            name: 'created_at',
             type: 'timestamp',
             default: 'CURRENT_TIMESTAMP',
           },
           {
-            name: 'updatedAt',
+            name: 'updated_at',
             type: 'timestamp',
             default: 'CURRENT_TIMESTAMP',
             onUpdate: 'CURRENT_TIMESTAMP',
           },
           {
-            name: 'publishedAt',
+            name: 'published_at',
             type: 'timestamp',
             isNullable: true,
           },

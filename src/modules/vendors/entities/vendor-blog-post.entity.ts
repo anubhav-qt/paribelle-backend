@@ -66,10 +66,10 @@ export class VendorBlogPost {
   @Column({ type: 'text', nullable: true, name: 'meta_description' })
   metaDescription: string;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 
   @Column({ type: 'timestamp', nullable: true, name: 'published_at' })
