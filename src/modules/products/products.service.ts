@@ -660,6 +660,20 @@ export class ProductsService {
   }
 
   async remove(id: string): Promise<void> {
+    // Check if product has associated orders
+    const orderItemsCount = await this.productsRepository
+      .createQueryBuilder('product')
+      .leftJoin('order_items', 'orderItem', 'orderItem.product_id = product.id')
+      .where('product.id = :id', { id })
+      .select('COUNT(orderItem.id)', 'count')
+      .getRawOne();
+
+    if (orderItemsCount && parseInt(orderItemsCount.count) > 0) {
+      // Product has been ordered - archive it instead of deleting
+      await this.productsRepository.update(id, { status: ProductStatus.ARCHIVED });
+      return;
+    }
+
     // Get product with variants to delete associated images
     const product = await this.productsRepository.findOne({
       where: { id },

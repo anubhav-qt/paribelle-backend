@@ -80,6 +80,252 @@ export class ProductsExcelService {
     }
   }
 
+  /**
+   * Get standard product column definitions (with optional category filters)
+   */
+  private getProductColumns(categoryFilters: any[] = []): any[] {
+    const columns: any[] = [
+      { header: 'ID', key: '_id', width: 36 },
+      { header: 'Product Name', key: 'name', width: 30 },
+      { header: 'Description', key: 'description', width: 50 },
+      { header: 'Images (comma-separated filenames)', key: 'images', width: 40 },
+      { header: 'Has Variants', key: 'hasVariants', width: 12 },
+      { header: 'Price', key: 'price', width: 12 },
+      { header: 'Compare At Price (Optional)', key: 'compareAtPrice', width: 18 },
+      { header: 'Stock Quantity', key: 'stockQuantity', width: 15 },
+      { header: 'Status (active/draft/archived)', key: 'status', width: 25 },
+      { header: 'Variant Count', key: 'variantCount', width: 12 },
+      { header: 'HSN Code', key: 'hsnCode', width: 15 },
+      { header: 'SAC Code', key: 'sacCode', width: 15 },
+      { header: 'GST Rate (%)', key: 'gstRate', width: 12 },
+      { header: 'Price Type', key: 'priceType', width: 25 },
+      { header: 'Product Type', key: 'productType', width: 15 },
+      { header: 'Booking Duration', key: 'bookingDuration', width: 15 },
+      { header: 'Booking Duration Unit', key: 'bookingDurationUnit', width: 20 },
+      { header: 'Booking Buffer Time', key: 'bookingBufferTime', width: 18 },
+      { header: 'Booking Available Days', key: 'bookingAvailableDays', width: 35 },
+      { header: 'Booking Time Slots', key: 'bookingTimeSlots', width: 30 },
+      { header: 'MRP', key: 'mrp', width: 12 },
+      { header: 'Base Price', key: 'basePrice', width: 12 },
+      { header: 'GST Amount', key: 'gstAmount', width: 12 },
+      { header: 'Cost Per Item', key: 'costPerItem', width: 12 },
+    ];
+
+    // Add category-specific attribute columns
+    categoryFilters.forEach(filter => {
+      columns.push({
+        header: filter.label,
+        key: `attr_${filter.id}`,
+        width: 20,
+      });
+    });
+
+    return columns;
+  }
+
+  /**
+   * Get variant column definitions
+   */
+  private getVariantColumns(): any[] {
+    return [
+      { header: 'Variant ID', key: '_variantId', width: 36 },
+      { header: 'Product ID', key: '_productId', width: 36 },
+      { header: 'Product Name', key: 'productName', width: 30 },
+      { header: 'SKU', key: 'sku', width: 30 },
+      { header: 'Variant Attributes', key: 'attributes', width: 40 },
+      { header: 'Price', key: 'price', width: 12 },
+      { header: 'Compare At Price', key: 'compareAtPrice', width: 18 },
+      { header: 'Stock', key: 'stock', width: 12 },
+      { header: 'Active', key: 'isActive', width: 10 },
+    ];
+  }
+
+  /**
+   * Apply standard header styling to a sheet
+   */
+  private styleHeaderRow(sheet: ExcelJS.Worksheet, color: string = 'FF4472C4'): void {
+    sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    sheet.getRow(1).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: color },
+    };
+  }
+
+  /**
+   * Apply data validation rules to product sheet
+   */
+  private applyProductDataValidation(
+    sheet: ExcelJS.Worksheet,
+    columns: any[],
+    dataRowStart: number,
+    dataRowEnd: number,
+    allHsnCodes: HsnCode[]
+  ): void {
+    // GST Rate dropdown (0, 5, 12, 18, 28)
+    const gstRateColumn = columns.findIndex(c => c.key === 'gstRate') + 1;
+    if (gstRateColumn > 0) {
+      for (let row = dataRowStart; row <= dataRowEnd + 100; row++) {
+        sheet.getCell(row, gstRateColumn).dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: ['"0,5,12,18,28"'],
+          showErrorMessage: true,
+          errorTitle: 'Invalid GST Rate',
+          error: 'Please select a valid GST rate: 0, 5, 12, 18, or 28',
+        };
+      }
+    }
+
+    // Price Type dropdown
+    const priceTypeColumn = columns.findIndex(c => c.key === 'priceType') + 1;
+    if (priceTypeColumn > 0) {
+      for (let row = dataRowStart; row <= dataRowEnd + 100; row++) {
+        sheet.getCell(row, priceTypeColumn).dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: ['"mrp_with_gst,selling_price_without_gst"'],
+          showErrorMessage: true,
+          errorTitle: 'Invalid Price Type',
+          error: 'Please select: mrp_with_gst or selling_price_without_gst',
+        };
+      }
+    }
+
+    // Product Type dropdown
+    const productTypeColumn = columns.findIndex(c => c.key === 'productType') + 1;
+    if (productTypeColumn > 0) {
+      for (let row = dataRowStart; row <= dataRowEnd + 100; row++) {
+        sheet.getCell(row, productTypeColumn).dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: ['"physical,digital,booking"'],
+          showErrorMessage: true,
+          errorTitle: 'Invalid Product Type',
+          error: 'Please select: physical, digital, or booking',
+        };
+      }
+    }
+
+    // Status dropdown
+    const statusColumn = columns.findIndex(c => c.key === 'status') + 1;
+    if (statusColumn > 0) {
+      for (let row = dataRowStart; row <= dataRowEnd + 100; row++) {
+        sheet.getCell(row, statusColumn).dataValidation = {
+          type: 'list',
+          allowBlank: false,
+          formulae: ['"active,draft,archived"'],
+          showErrorMessage: true,
+          errorTitle: 'Invalid Status',
+          error: 'Please select: active, draft, or archived',
+        };
+      }
+    }
+
+    // Has Variants dropdown
+    const hasVariantsColumn = columns.findIndex(c => c.key === 'hasVariants') + 1;
+    if (hasVariantsColumn > 0) {
+      for (let row = dataRowStart; row <= dataRowEnd + 100; row++) {
+        sheet.getCell(row, hasVariantsColumn).dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: ['"YES,NO"'],
+          showErrorMessage: true,
+          errorTitle: 'Invalid Value',
+          error: 'Please select: YES or NO',
+        };
+      }
+    }
+
+    // Common HSN Codes dropdown - reference the HSN-SAC Reference sheet
+    const hsnCodeColumn = columns.findIndex(c => c.key === 'hsnCode') + 1;
+    if (hsnCodeColumn > 0 && allHsnCodes.length > 0) {
+      for (let row = dataRowStart; row <= dataRowEnd + 100; row++) {
+        sheet.getCell(row, hsnCodeColumn).dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: [`='HSN-SAC Reference'!$A$2:$A$${allHsnCodes.length + 1}`],
+          showInputMessage: true,
+          promptTitle: 'HSN Code',
+          prompt: 'Select from HSN-SAC Reference sheet or enter custom code',
+        };
+      }
+    }
+
+    // Common SAC Codes dropdown - reference the HSN-SAC Reference sheet
+    const sacCodeColumn = columns.findIndex(c => c.key === 'sacCode') + 1;
+    if (sacCodeColumn > 0 && allHsnCodes.length > 0) {
+      for (let row = dataRowStart; row <= dataRowEnd + 100; row++) {
+        sheet.getCell(row, sacCodeColumn).dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: [`='HSN-SAC Reference'!$A$2:$A$${allHsnCodes.length + 1}`],
+          showInputMessage: true,
+          promptTitle: 'SAC Code',
+          prompt: 'Select from HSN-SAC Reference sheet or enter custom code',
+        };
+      }
+    }
+  }
+
+  /**
+   * Apply data validation rules to variants sheet
+   */
+  private applyVariantDataValidation(
+    sheet: ExcelJS.Worksheet,
+    variantCount: number
+  ): void {
+    const variantDataRowStart = 2;
+    const variantDataRowEnd = variantCount + 1;
+
+    // Active status dropdown for variants
+    const activeColumn = sheet.columns.findIndex(c => c.key === 'isActive') + 1;
+    if (activeColumn > 0) {
+      for (let row = variantDataRowStart; row <= variantDataRowEnd + 50; row++) {
+        sheet.getCell(row, activeColumn).dataValidation = {
+          type: 'list',
+          allowBlank: false,
+          formulae: ['"YES,NO"'],
+          showErrorMessage: true,
+          errorTitle: 'Invalid Value',
+          error: 'Please select: YES or NO',
+        };
+      }
+    }
+  }
+
+  /**
+   * Create HSN-SAC Reference sheet
+   */
+  private async createHsnSacReferenceSheet(
+    workbook: ExcelJS.Workbook,
+    allHsnCodes: HsnCode[]
+  ): Promise<void> {
+    const hsnRefSheet = workbook.addWorksheet('HSN-SAC Reference');
+    
+    hsnRefSheet.columns = [
+      { header: 'Code with Description', key: 'codeWithDesc', width: 50 },
+      { header: 'Full Description', key: 'description', width: 60 },
+      { header: 'GST Rate (%)', key: 'gstRate', width: 12 },
+      { header: 'Type', key: 'type', width: 10 },
+    ];
+    
+    this.styleHeaderRow(hsnRefSheet, 'FF2E7D32');
+    
+    allHsnCodes.forEach(hsn => {
+      const type = hsn.code.length === 6 ? 'SAC' : 'HSN';
+      const shortDesc = hsn.description.substring(0, 50);
+      const codeWithDesc = `${hsn.code} - ${shortDesc}${hsn.description.length > 50 ? '...' : ''}`;
+      
+      hsnRefSheet.addRow({
+        codeWithDesc: codeWithDesc,
+        description: hsn.description,
+        gstRate: hsn.recommendedGstRate,
+        type: type,
+      });
+    });
+  }
+
   async exportToExcel(vendorId: string | null): Promise<Buffer> {
     try {
       console.log('🚀🚀🚀 ===========================================');
@@ -88,20 +334,6 @@ export class ProductsExcelService {
       console.log('🚀 Timestamp:', new Date().toISOString());
       console.log('🚀🚀🚀 ===========================================');
       console.log('Starting Excel export for vendor:', vendorId || 'ALL');
-      
-      // If no vendorId provided (template download), always generate sample template
-      if (vendorId === null) {
-        console.log('📄 Template download requested - generating sample template with hardcoded products...');
-        // Extract just the Excel file from the ZIP
-        const zipBuffer = await this.generateSampleTemplate();
-        const zip = new AdmZip(zipBuffer);
-        const excelEntry = zip.getEntry('products.xlsx');
-        if (!excelEntry) {
-          throw new Error('Excel file not found in template ZIP');
-        }
-        return excelEntry.getData();
-      }
-      
       const workbook = new ExcelJS.Workbook();
       
       // Get products with categories, vendor, and variants
@@ -168,43 +400,9 @@ export class ProductsExcelService {
         // Get category-specific filters
         const categoryFilters = category.filterConfig?.filters?.filter(f => f.id !== 'priceRange') || [];
 
-        // Build columns - ID column FIRST and VISIBLE for update operations
+        // Build columns using helper
         console.log(`🔧 Building columns for category: ${category.name}`);
-        const columns: any[] = [
-          { header: 'ID', key: '_id', width: 36 },
-          { header: 'Product Name', key: 'name', width: 30 },
-          { header: 'Description', key: 'description', width: 50 },
-          { header: 'Images (comma-separated filenames)', key: 'images', width: 40 },
-          { header: 'Has Variants', key: 'hasVariants', width: 12 },
-          { header: 'Price', key: 'price', width: 12 },
-          { header: 'Compare At Price (Optional)', key: 'compareAtPrice', width: 18 },
-          { header: 'Stock Quantity', key: 'stockQuantity', width: 15 },
-          { header: 'Status (active/draft/archived)', key: 'status', width: 25 },
-          { header: 'Variant Count', key: 'variantCount', width: 12 },
-          { header: 'HSN Code', key: 'hsnCode', width: 15 },
-          { header: 'SAC Code', key: 'sacCode', width: 15 },
-          { header: 'GST Rate (%)', key: 'gstRate', width: 12 },
-          { header: 'Price Type', key: 'priceType', width: 25 },
-          { header: 'Product Type', key: 'productType', width: 15 },
-          { header: 'Booking Duration', key: 'bookingDuration', width: 15 },
-          { header: 'Booking Duration Unit', key: 'bookingDurationUnit', width: 20 },
-          { header: 'Booking Buffer Time', key: 'bookingBufferTime', width: 18 },
-          { header: 'Booking Available Days', key: 'bookingAvailableDays', width: 35 },
-          { header: 'Booking Time Slots', key: 'bookingTimeSlots', width: 30 },
-          { header: 'MRP', key: 'mrp', width: 12 },
-          { header: 'Base Price', key: 'basePrice', width: 12 },
-          { header: 'GST Amount', key: 'gstAmount', width: 12 },
-          { header: 'Cost Per Item', key: 'costPerItem', width: 12 },
-        ];
-
-        // Add category-specific attribute columns
-        categoryFilters.forEach(filter => {
-          columns.push({
-            header: filter.label,
-            key: `attr_${filter.id}`,
-            width: 20,
-          });
-        });
+        const columns = this.getProductColumns(categoryFilters);
 
         console.log(`✅ Setting ${columns.length} columns for sheet "${category.name}"`);
         console.log(`✅ First 3 columns:`, JSON.stringify(columns.slice(0, 3), null, 2));
@@ -215,13 +413,8 @@ export class ProductsExcelService {
         console.log(`📋 Second column header: ${sheet.getColumn(2).header}, key: ${sheet.getColumn(2).key}`);
         console.log(`📋 Third column header: ${sheet.getColumn(3).header}, key: ${sheet.getColumn(3).key}`);
 
-        // Style header row
-        sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
-        sheet.getRow(1).fill = {
-          type: 'pattern',
-          pattern: 'solid',
-          fgColor: { argb: 'FF4472C4' },
-        };
+        // Style header row using helper
+        this.styleHeaderRow(sheet, 'FF4472C4');
 
         // Add products data
         for (const product of categoryProducts) {
@@ -351,102 +544,10 @@ export class ProductsExcelService {
           sheet.addRow(rowData);
         }
 
-        // Add data validation (dropdowns) to columns
+        // Add data validation using helper
         const dataRowStart = 2; // After header
         const dataRowEnd = categoryProducts.length + 1;
-        
-        // GST Rate dropdown (0, 5, 12, 18, 28)
-        const gstRateColumn = columns.findIndex(c => c.key === 'gstRate') + 1;
-        if (gstRateColumn > 0) {
-          for (let row = dataRowStart; row <= dataRowEnd + 100; row++) {
-            sheet.getCell(row, gstRateColumn).dataValidation = {
-              type: 'list',
-              allowBlank: true,
-              formulae: ['"0,5,12,18,28"'],
-              showErrorMessage: true,
-              errorTitle: 'Invalid GST Rate',
-              error: 'Please select a valid GST rate: 0, 5, 12, 18, or 28',
-            };
-          }
-        }
-
-        // Price Type dropdown
-        const priceTypeColumn = columns.findIndex(c => c.key === 'priceType') + 1;
-        if (priceTypeColumn > 0) {
-          for (let row = dataRowStart; row <= dataRowEnd + 100; row++) {
-            sheet.getCell(row, priceTypeColumn).dataValidation = {
-              type: 'list',
-              allowBlank: true,
-              formulae: ['"mrp_with_gst,selling_price_without_gst"'],
-              showErrorMessage: true,
-              errorTitle: 'Invalid Price Type',
-              error: 'Please select: mrp_with_gst or selling_price_without_gst',
-            };
-          }
-        }
-
-        // Status dropdown
-        const statusColumn = columns.findIndex(c => c.key === 'status') + 1;
-        if (statusColumn > 0) {
-          for (let row = dataRowStart; row <= dataRowEnd + 100; row++) {
-            sheet.getCell(row, statusColumn).dataValidation = {
-              type: 'list',
-              allowBlank: false,
-              formulae: ['"active,draft,archived"'],
-              showErrorMessage: true,
-              errorTitle: 'Invalid Status',
-              error: 'Please select: active, draft, or archived',
-            };
-          }
-        }
-
-        // Has Variants dropdown
-        const hasVariantsColumn = columns.findIndex(c => c.key === 'hasVariants') + 1;
-        if (hasVariantsColumn > 0) {
-          for (let row = dataRowStart; row <= dataRowEnd + 100; row++) {
-            sheet.getCell(row, hasVariantsColumn).dataValidation = {
-              type: 'list',
-              allowBlank: true,
-              formulae: ['"YES,NO"'],
-              showErrorMessage: true,
-              errorTitle: 'Invalid Value',
-              error: 'Please select: YES or NO',
-            };
-          }
-        }
-
-        // Common HSN Codes dropdown - reference the HSN-SAC Reference sheet
-        const hsnCodeColumn = columns.findIndex(c => c.key === 'hsnCode') + 1;
-        if (hsnCodeColumn > 0 && allHsnCodes.length > 0) {
-          const hsnCount = allHsnCodes.filter(h => h.code.length !== 6).length;
-          if (hsnCount > 0) {
-            for (let row = dataRowStart; row <= dataRowEnd + 100; row++) {
-              sheet.getCell(row, hsnCodeColumn).dataValidation = {
-                type: 'list',
-                allowBlank: true,
-                formulae: [`='HSN-SAC Reference'!$A$2:$A$${allHsnCodes.length + 1}`],
-                showInputMessage: true,
-                promptTitle: 'HSN Code',
-                prompt: 'Select from HSN-SAC Reference sheet or enter custom code',
-              };
-            }
-          }
-        }
-
-        // Common SAC Codes dropdown - reference the HSN-SAC Reference sheet
-        const sacCodeColumn = columns.findIndex(c => c.key === 'sacCode') + 1;
-        if (sacCodeColumn > 0 && allHsnCodes.length > 0) {
-          for (let row = dataRowStart; row <= dataRowEnd + 100; row++) {
-            sheet.getCell(row, sacCodeColumn).dataValidation = {
-              type: 'list',
-              allowBlank: true,
-              formulae: [`='HSN-SAC Reference'!$A$2:$A$${allHsnCodes.length + 1}`],
-              showInputMessage: true,
-              promptTitle: 'SAC Code',
-              prompt: 'Select from HSN-SAC Reference sheet or enter custom code',
-            };
-          }
-        }
+        this.applyProductDataValidation(sheet, columns, dataRowStart, dataRowEnd, allHsnCodes);
 
         // Add reference data for filter options
         categoryFilters.forEach(filter => {
@@ -705,34 +806,13 @@ export class ProductsExcelService {
         console.log(`🔧 Creating Variants sheet with ${allVariants.length} variants...`);
         const variantsSheet = workbook.addWorksheet('Product Variants');
         
-        const variantColumns = [
-          { header: 'Variant ID', key: '_variantId', width: 36 },
-          { header: 'Product ID', key: '_productId', width: 36 },
-          { header: 'Product Name', key: 'productName', width: 30 },
-          { header: 'SKU', key: 'sku', width: 30 },
-          { header: 'Variant Attributes', key: 'attributes', width: 40 },
-          { header: 'Price', key: 'price', width: 12 },
-          { header: 'Compare At Price', key: 'compareAtPrice', width: 18 },
-          { header: 'Stock', key: 'stock', width: 12 },
-          { header: 'Active', key: 'isActive', width: 10 },
-        ];
-
+        // Use helper for columns
+        const variantColumns = this.getVariantColumns();
         console.log(`✅ Setting ${variantColumns.length} columns for Variants sheet`);
-        console.log(`✅ First 3 columns:`, JSON.stringify(variantColumns.slice(0, 3), null, 2));
         variantsSheet.columns = variantColumns;
-        console.log(`✅ Variants sheet columns set successfully`);
-        console.log(`📋 Verification - Variants column count: ${variantsSheet.columns.length}`);
-        console.log(`📋 First column header: ${variantsSheet.getColumn(1).header}, key: ${variantsSheet.getColumn(1).key}, width: ${variantsSheet.getColumn(1).width}`);
-        console.log(`📋 Second column header: ${variantsSheet.getColumn(2).header}, key: ${variantsSheet.getColumn(2).key}, width: ${variantsSheet.getColumn(2).width}`);
-        console.log(`📋 Third column header: ${variantsSheet.getColumn(3).header}, key: ${variantsSheet.getColumn(3).key}`);
 
-        // Style header
-        variantsSheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
-        variantsSheet.getRow(1).fill = {
-          type: 'pattern',
-          pattern: 'solid',
-          fgColor: { argb: 'FF9B59B6' }, // Purple for variants
-        };
+        // Use helper for header styling
+        this.styleHeaderRow(variantsSheet, 'FF9B59B6'); // Purple for variants
 
         // Add variant data
         allVariants.forEach(({ product, variant }) => {
@@ -765,62 +845,15 @@ export class ProductsExcelService {
           });
         });
 
-        // Add data validation (dropdowns) to Product Variants sheet
-        const variantDataRowStart = 2;
-        const variantDataRowEnd = allVariants.length + 1;
-
-        // Active status dropdown for variants
-        const activeColumn = variantsSheet.columns.findIndex(c => c.key === 'isActive') + 1;
-        if (activeColumn > 0) {
-          for (let row = variantDataRowStart; row <= variantDataRowEnd + 50; row++) {
-            variantsSheet.getCell(row, activeColumn).dataValidation = {
-              type: 'list',
-              allowBlank: false,
-              formulae: ['"YES,NO"'],
-              showErrorMessage: true,
-              errorTitle: 'Invalid Value',
-              error: 'Please select: YES or NO',
-            };
-          }
-        }
+        // Use helper for variant validation
+        this.applyVariantDataValidation(variantsSheet, allVariants.length);
 
         console.log(`Variants sheet created with ${allVariants.length} variants`);
       }
 
-      // Create HSN/SAC Codes Reference sheet
+      // Create HSN/SAC Codes Reference sheet using helper
       console.log('Creating HSN/SAC Codes Reference sheet...');
-      const hsnRefSheet = workbook.addWorksheet('HSN-SAC Reference');
-      
-      // Add header row
-      hsnRefSheet.columns = [
-        { header: 'Code with Description', key: 'codeWithDesc', width: 50 },
-        { header: 'Full Description', key: 'description', width: 60 },
-        { header: 'GST Rate (%)', key: 'gstRate', width: 12 },
-        { header: 'Type', key: 'type', width: 10 },
-      ];
-      
-      // Style header
-      hsnRefSheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
-      hsnRefSheet.getRow(1).fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FF2E7D32' }, // Green for reference data
-      };
-      
-      // Add all HSN/SAC codes
-      allHsnCodes.forEach(hsn => {
-        const type = hsn.code.length === 6 ? 'SAC' : 'HSN';
-        // Format code with description for dropdown (50 chars max)
-        const shortDesc = hsn.description.substring(0, 50);
-        const codeWithDesc = `${hsn.code} - ${shortDesc}${hsn.description.length > 50 ? '...' : ''}`;
-        
-        hsnRefSheet.addRow({
-          codeWithDesc: codeWithDesc,
-          description: hsn.description,
-          gstRate: hsn.recommendedGstRate,
-          type: type,
-        });
-      });
+      await this.createHsnSacReferenceSheet(workbook, allHsnCodes);
       
       console.log(`HSN/SAC Reference sheet created with ${allHsnCodes.length} codes`);
 
@@ -935,24 +968,13 @@ export class ProductsExcelService {
     try {
       console.log('Starting ZIP export for vendor:', vendorId || 'ALL');
       
-      // If no vendorId provided (template download), always generate sample template
-      if (vendorId === null) {
-        console.log('📦 Template download requested - generating sample template with images...');
-        return await this.generateSampleTemplate();
-      }
-      
-      // For specific vendor, export their actual products
-      const whereCondition = { vendorId };
+      // Export actual products from database
+      const whereCondition = vendorId ? { vendorId } : {};
       const products = await this.productsRepository.find({
         where: whereCondition,
       });
 
       console.log(`Found ${products.length} products for ZIP export`);
-      
-      // If vendor has no products, still allow empty export (they can use template separately)
-      if (products.length === 0) {
-        console.log('Vendor has no products - exporting empty file');
-      }
       
       // Get the Excel buffer first
       const excelBuffer = await this.exportToExcel(vendorId);
@@ -1959,48 +1981,18 @@ export class ProductsExcelService {
   /**
    * Generate a sample template with 3 example products and dummy images
    */
-  private async generateSampleTemplate(): Promise<Buffer> {
+  async generateSampleTemplate(): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook();
     
     // Create Fashion sheet with sample products
     const fashionSheet = workbook.addWorksheet('Fashion');
     
-    const columns: any[] = [
-      { header: 'ID', key: '_id', width: 36 },
-      { header: 'Product Name', key: 'name', width: 30 },
-      { header: 'Description', key: 'description', width: 50 },
-      { header: 'Images (comma-separated filenames)', key: 'images', width: 40 },
-      { header: 'Has Variants', key: 'hasVariants', width: 12 },
-      { header: 'Price', key: 'price', width: 12 },
-      { header: 'Compare At Price (Optional)', key: 'compareAtPrice', width: 18 },
-      { header: 'Stock Quantity', key: 'stockQuantity', width: 15 },
-      { header: 'Status (active/draft/archived)', key: 'status', width: 25 },
-      { header: 'Variant Count', key: 'variantCount', width: 12 },
-      { header: 'HSN Code', key: 'hsnCode', width: 15 },
-      { header: 'SAC Code', key: 'sacCode', width: 15 },
-      { header: 'GST Rate (%)', key: 'gstRate', width: 12 },
-      { header: 'Price Type', key: 'priceType', width: 25 },
-      { header: 'Product Type', key: 'productType', width: 15 },
-      { header: 'Booking Duration', key: 'bookingDuration', width: 15 },
-      { header: 'Booking Duration Unit', key: 'bookingDurationUnit', width: 20 },
-      { header: 'Booking Buffer Time', key: 'bookingBufferTime', width: 18 },
-      { header: 'Booking Available Days', key: 'bookingAvailableDays', width: 35 },
-      { header: 'Booking Time Slots', key: 'bookingTimeSlots', width: 30 },
-      { header: 'MRP', key: 'mrp', width: 12 },
-      { header: 'Base Price', key: 'basePrice', width: 12 },
-      { header: 'GST Amount', key: 'gstAmount', width: 12 },
-      { header: 'Cost Per Item', key: 'costPerItem', width: 12 },
-    ];
-
+    // Use helper for columns
+    const columns = this.getProductColumns();
     fashionSheet.columns = columns;
     
-    // Style header
-    fashionSheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
-    fashionSheet.getRow(1).fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: 'FF4A90E2' },
-    };
+    // Use helper for header styling
+    this.styleHeaderRow(fashionSheet, 'FF4A90E2');
 
     // Sample Product 1: Simple physical product (no variants)
     fashionSheet.addRow({
@@ -2101,27 +2093,12 @@ export class ProductsExcelService {
     // Create Product Variants sheet with sample variants for Cotton T-Shirt
     const variantsSheet = workbook.addWorksheet('Product Variants');
     
-    const variantColumns = [
-      { header: 'Variant ID', key: '_variantId', width: 36 },
-      { header: 'Product ID', key: '_productId', width: 36 },
-      { header: 'Product Name', key: 'productName', width: 30 },
-      { header: 'SKU', key: 'sku', width: 30 },
-      { header: 'Variant Attributes', key: 'attributes', width: 40 },
-      { header: 'Price', key: 'price', width: 12 },
-      { header: 'Compare At Price', key: 'compareAtPrice', width: 18 },
-      { header: 'Stock', key: 'stock', width: 12 },
-      { header: 'Active', key: 'isActive', width: 10 },
-    ];
-
+    // Use helper for columns
+    const variantColumns = this.getVariantColumns();
     variantsSheet.columns = variantColumns;
     
-    // Style header
-    variantsSheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
-    variantsSheet.getRow(1).fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: 'FF9B59B6' },
-    };
+    // Use helper for header styling
+    this.styleHeaderRow(variantsSheet, 'FF9B59B6');
 
     // Add sample variants
     variantsSheet.addRow({
@@ -2211,27 +2188,13 @@ export class ProductsExcelService {
     instructionsSheet.addRow(['• Format Variant Attributes as: "Size: M, Color: Red"']);
     instructionsSheet.addRow(['• Leave Variant ID blank for new variants']);
 
-    // Create HSN-SAC Reference sheet
-    const hsnRefSheet = workbook.addWorksheet('HSN-SAC Reference');
-    hsnRefSheet.columns = [
-      { header: 'Code', key: 'code', width: 15 },
-      { header: 'Description', key: 'description', width: 60 },
-      { header: 'GST Rate (%)', key: 'gstRate', width: 12 },
-      { header: 'Type', key: 'type', width: 10 },
+    // Create HSN-SAC Reference sheet with sample codes
+    const sampleHsnCodes: HsnCode[] = [
+      { id: '1', code: '4202', description: 'Trunks, suit-cases, handbags and similar containers', recommendedGstRate: 18, isActive: true } as HsnCode,
+      { id: '2', code: '6109', description: 'T-shirts, singlets and other vests, knitted or crocheted', recommendedGstRate: 12, isActive: true } as HsnCode,
+      { id: '3', code: '999293', description: 'Fitness, yoga and aerobics centers', recommendedGstRate: 18, isActive: true } as HsnCode,
     ];
-    
-    // Style header
-    hsnRefSheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
-    hsnRefSheet.getRow(1).fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: 'FF2E7D32' },
-    };
-
-    // Add sample HSN/SAC codes
-    hsnRefSheet.addRow({ code: '4202', description: 'Trunks, suit-cases, handbags and similar containers', gstRate: 18, type: 'HSN' });
-    hsnRefSheet.addRow({ code: '6109', description: 'T-shirts, singlets and other vests, knitted or crocheted', gstRate: 12, type: 'HSN' });
-    hsnRefSheet.addRow({ code: '999293', description: 'Fitness, yoga and aerobics centers', gstRate: 18, type: 'SAC' });
+    await this.createHsnSacReferenceSheet(workbook, sampleHsnCodes);
 
     // Write Excel to buffer
     const excelBuffer = await workbook.xlsx.writeBuffer();

@@ -72,6 +72,63 @@ export class ProductsController {
     return this.productsService.findAll(pageNum, limitNum, status, search, vendorId, isUncategorized, cityId, subLocationId, productType);
   }
 
+  @Get('template/download')
+  @ApiOperation({ summary: 'Download product template with sample data and images' })
+  async downloadTemplate(@Res() res: Response) {
+    const buffer = await this.productsExcelService.generateSampleTemplate();
+    
+    res.setHeader(
+      'Content-Type',
+      'application/zip',
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename=products-template-${Date.now()}.zip`,
+    );
+    
+    res.send(buffer);
+  }
+
+  @Get('export/:vendorId')
+  @ApiOperation({ summary: 'Export vendor products to Excel' })
+  async exportProducts(
+    @Param('vendorId') vendorId: string,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.productsExcelService.exportToExcel(vendorId);
+    
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename=products-${vendorId}-${Date.now()}.xlsx`,
+    );
+    
+    res.send(buffer);
+  }
+
+  @Get('export-zip/:vendorId')
+  @ApiOperation({ summary: 'Export vendor products to ZIP with images' })
+  async exportToZip(
+    @Param('vendorId') vendorId: string,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.productsExcelService.exportToZip(vendorId);
+    
+    res.setHeader(
+      'Content-Type',
+      'application/zip',
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename=products-${vendorId}-${Date.now()}.zip`,
+    );
+    
+    res.send(buffer);
+  }
+
   @Get('slug/:slug')
   @ApiOperation({ summary: 'Get product by slug' })
   async findBySlug(@Param('slug') slug: string) {
@@ -107,48 +164,6 @@ export class ProductsController {
   async remove(@Param('id') id: string) {
     await this.productsService.remove(id);
     return { message: 'Product deleted successfully' };
-  }
-
-  @Get('export/:vendorId')
-  @ApiOperation({ summary: 'Export vendor products to Excel' })
-  async exportProducts(
-    @Param('vendorId') vendorId: string,
-    @Res() res: Response,
-  ) {
-    const buffer = await this.productsExcelService.exportToExcel(vendorId);
-    
-    res.setHeader(
-      'Content-Type',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    );
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename=products-${vendorId}-${Date.now()}.xlsx`,
-    );
-    
-    res.send(buffer);
-  }
-
-  @Get('export-zip/:vendorId')
-  @ApiOperation({ summary: 'Export vendor products to ZIP (Excel + Images)' })
-  async exportProductsZip(
-    @Param('vendorId') vendorId: string,
-    @Res() res: Response,
-  ) {
-    // Handle 'all' for admin to export all products
-    const targetVendorId = vendorId === 'all' ? null : vendorId;
-    const buffer = await this.productsExcelService.exportToZip(targetVendorId);
-    
-    res.setHeader(
-      'Content-Type',
-      'application/zip',
-    );
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename=products-${vendorId}-${Date.now()}.zip`,
-    );
-    
-    res.send(buffer);
   }
 
   @Post('import/:vendorId')
