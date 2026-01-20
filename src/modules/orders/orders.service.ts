@@ -932,6 +932,7 @@ export class OrdersService {
   async requestRefund(id: string, userId: string, reason: string) {
     const order = await this.orderRepository.findOne({
       where: { id, userId },
+      relations: ['payments'],
     });
 
     if (!order) {
@@ -942,12 +943,11 @@ export class OrdersService {
       throw new BadRequestException('Refund can only be requested for cancelled or delivered orders');
     }
 
-    // For COD orders, refunds are not applicable since payment wasn't made online
-    // For online payments, check if order was paid
-    const isCOD = order.items?.[0]?.product?.vendor?.paymentMethod === 'cod' || 
-                  order.adminNotes?.includes('COD') ||
-                  order.customerNotes?.includes('COD');
+    // Check if this is a COD order by looking at payment method
+    const isCOD = order.payments?.some(payment => payment.method === 'cod') || false;
     
+    // For COD orders, allow refund after delivery regardless of payment status
+    // For online payments, check if order was paid
     if (!isCOD && order.paymentStatus !== PaymentStatus.PAID) {
       throw new BadRequestException('Only paid orders can be refunded');
     }
