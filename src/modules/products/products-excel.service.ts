@@ -88,6 +88,20 @@ export class ProductsExcelService {
       console.log('🚀 Timestamp:', new Date().toISOString());
       console.log('🚀🚀🚀 ===========================================');
       console.log('Starting Excel export for vendor:', vendorId || 'ALL');
+      
+      // If no vendorId provided (template download), always generate sample template
+      if (vendorId === null) {
+        console.log('📄 Template download requested - generating sample template with hardcoded products...');
+        // Extract just the Excel file from the ZIP
+        const zipBuffer = await this.generateSampleTemplate();
+        const zip = new AdmZip(zipBuffer);
+        const excelEntry = zip.getEntry('products.xlsx');
+        if (!excelEntry) {
+          throw new Error('Excel file not found in template ZIP');
+        }
+        return excelEntry.getData();
+      }
+      
       const workbook = new ExcelJS.Workbook();
       
       // Get products with categories, vendor, and variants
@@ -99,6 +113,7 @@ export class ProductsExcelService {
       });
 
       console.log(`Found ${products.length} products${vendorId ? ` for vendor ${vendorId}` : ' (all vendors)'}`);
+      
       const productsWithVariants = products.filter(p => p.hasVariants && p.productVariants?.length > 0);
       console.log(`${productsWithVariants.length} products have variants`);
 
@@ -721,7 +736,19 @@ export class ProductsExcelService {
 
         // Add variant data
         allVariants.forEach(({ product, variant }) => {
-          const attributesStr = Object.entries(variant.variantAttributes)
+          // Filter out standard fields from variant attributes (only keep actual attributes like Size, Color)
+          const actualAttributes: Record<string, string> = {};
+          if (variant.variantAttributes) {
+            Object.entries(variant.variantAttributes).forEach(([key, value]) => {
+              const normalizedKey = key.toLowerCase().replace(/\s+/g, '');
+              // Exclude standard fields
+              if (!['stock', 'active', 'isactive', 'stockquantity', 'price', 'compareatprice', 'sku', 'variantattributes'].includes(normalizedKey)) {
+                actualAttributes[key] = String(value);
+              }
+            });
+          }
+          
+          const attributesStr = Object.entries(actualAttributes)
             .map(([key, value]) => `${key}: ${value}`)
             .join(', ');
 
@@ -908,16 +935,28 @@ export class ProductsExcelService {
     try {
       console.log('Starting ZIP export for vendor:', vendorId || 'ALL');
       
-      // Get the Excel buffer first
-      const excelBuffer = await this.exportToExcel(vendorId);
+      // If no vendorId provided (template download), always generate sample template
+      if (vendorId === null) {
+        console.log('📦 Template download requested - generating sample template with images...');
+        return await this.generateSampleTemplate();
+      }
       
-      // Get products to extract images
-      const whereCondition = vendorId ? { vendorId } : {};
+      // For specific vendor, export their actual products
+      const whereCondition = { vendorId };
       const products = await this.productsRepository.find({
         where: whereCondition,
       });
 
       console.log(`Found ${products.length} products for ZIP export`);
+      
+      // If vendor has no products, still allow empty export (they can use template separately)
+      if (products.length === 0) {
+        console.log('Vendor has no products - exporting empty file');
+      }
+      
+      // Get the Excel buffer first
+      const excelBuffer = await this.exportToExcel(vendorId);
+      
       const productsWithImages = products.filter(p => p.images && p.images.length > 0);
       console.log(`${productsWithImages.length} products have images`);
 
@@ -1729,12 +1768,16 @@ export class ProductsExcelService {
           // Parse attributes - support both formats
           const variantAttributes: Record<string, string> = {};
           
-          // Method 1: Parse from "Attributes" column (e.g., "Size: xs, Color: black, Weight: 250g")
+          // Method 1: Parse from "Variant Attributes" column (e.g., "Size: xs, Color: black, Weight: 250g")
           if (attributesStr) {
             attributesStr.split(',').forEach(attr => {
               const [key, value] = attr.split(':').map(s => s.trim());
               if (key && value) {
-                variantAttributes[key] = value;
+                // Skip standard fields that shouldn't be in attributes
+                const normalizedKey = key.toLowerCase().replace(/\s+/g, '');
+                if (!['stock', 'active', 'isactive', 'stockquantity', 'price', 'compareatprice', 'sku', 'variantattributes'].includes(normalizedKey)) {
+                  variantAttributes[key] = value;
+                }
               }
             });
           }
@@ -1742,7 +1785,7 @@ export class ProductsExcelService {
           // Method 2: Parse from individual attribute columns (Size, Color, etc.)
           const standardColumns = [
             'productname', 'variantname', 'sku', 'price', 'compareatprice', 
-            'stockquantity', 'isactive', 'attributes',
+            'stockquantity', 'stock', 'isactive', 'active', 'attributes', 'variantattributes',
             '_product_id', '_variant_id',
             'variantid', 'productid'
           ];
@@ -1911,5 +1954,368 @@ export class ProductsExcelService {
       console.error(`❌ Error saving image ${file.originalname}:`, error);
       throw new Error(`Failed to save image: ${error.message}`);
     }
+  }
+
+  /**
+   * Generate a sample template with 3 example products and dummy images
+   */
+  private async generateSampleTemplate(): Promise<Buffer> {
+    const workbook = new ExcelJS.Workbook();
+    
+    // Create Fashion sheet with sample products
+    const fashionSheet = workbook.addWorksheet('Fashion');
+    
+    const columns: any[] = [
+      { header: 'ID', key: '_id', width: 36 },
+      { header: 'Product Name', key: 'name', width: 30 },
+      { header: 'Description', key: 'description', width: 50 },
+      { header: 'Images (comma-separated filenames)', key: 'images', width: 40 },
+      { header: 'Has Variants', key: 'hasVariants', width: 12 },
+      { header: 'Price', key: 'price', width: 12 },
+      { header: 'Compare At Price (Optional)', key: 'compareAtPrice', width: 18 },
+      { header: 'Stock Quantity', key: 'stockQuantity', width: 15 },
+      { header: 'Status (active/draft/archived)', key: 'status', width: 25 },
+      { header: 'Variant Count', key: 'variantCount', width: 12 },
+      { header: 'HSN Code', key: 'hsnCode', width: 15 },
+      { header: 'SAC Code', key: 'sacCode', width: 15 },
+      { header: 'GST Rate (%)', key: 'gstRate', width: 12 },
+      { header: 'Price Type', key: 'priceType', width: 25 },
+      { header: 'Product Type', key: 'productType', width: 15 },
+      { header: 'Booking Duration', key: 'bookingDuration', width: 15 },
+      { header: 'Booking Duration Unit', key: 'bookingDurationUnit', width: 20 },
+      { header: 'Booking Buffer Time', key: 'bookingBufferTime', width: 18 },
+      { header: 'Booking Available Days', key: 'bookingAvailableDays', width: 35 },
+      { header: 'Booking Time Slots', key: 'bookingTimeSlots', width: 30 },
+      { header: 'MRP', key: 'mrp', width: 12 },
+      { header: 'Base Price', key: 'basePrice', width: 12 },
+      { header: 'GST Amount', key: 'gstAmount', width: 12 },
+      { header: 'Cost Per Item', key: 'costPerItem', width: 12 },
+    ];
+
+    fashionSheet.columns = columns;
+    
+    // Style header
+    fashionSheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    fashionSheet.getRow(1).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF4A90E2' },
+    };
+
+    // Sample Product 1: Simple physical product (no variants)
+    fashionSheet.addRow({
+      _id: '',
+      name: 'Leather Wallet',
+      description: 'Premium genuine leather wallet with multiple card slots',
+      images: 'wallet-brown.jpg, wallet-inside.jpg',
+      hasVariants: 'NO',
+      price: 1299,
+      compareAtPrice: 1599,
+      stockQuantity: 50,
+      status: 'active',
+      variantCount: '',
+      hsnCode: '4202',
+      sacCode: '',
+      gstRate: 18,
+      priceType: 'selling_price_without_gst',
+      productType: 'physical',
+      bookingDuration: '',
+      bookingDurationUnit: '',
+      bookingBufferTime: '',
+      bookingAvailableDays: '',
+      bookingTimeSlots: '',
+      mrp: 1599,
+      basePrice: 1100,
+      gstAmount: 234,
+      costPerItem: 800,
+    });
+
+    // Sample Product 2: Product with variants
+    fashionSheet.addRow({
+      _id: '',
+      name: 'Cotton T-Shirt',
+      description: 'Comfortable cotton t-shirt available in multiple sizes and colors',
+      images: 'tshirt-front.jpg, tshirt-back.jpg, tshirt-detail.jpg',
+      hasVariants: 'YES',
+      price: 499,
+      compareAtPrice: 699,
+      stockQuantity: 0,
+      status: 'active',
+      variantCount: 5,
+      hsnCode: '6109',
+      sacCode: '',
+      gstRate: 12,
+      priceType: 'selling_price_without_gst',
+      productType: 'physical',
+      bookingDuration: '',
+      bookingDurationUnit: '',
+      bookingBufferTime: '',
+      bookingAvailableDays: '',
+      bookingTimeSlots: '',
+      mrp: 699,
+      basePrice: 445,
+      gstAmount: 60,
+      costPerItem: 300,
+    });
+
+    // Create Services sheet with booking product
+    const servicesSheet = workbook.addWorksheet('Services');
+    servicesSheet.columns = columns;
+    
+    // Style header
+    servicesSheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    servicesSheet.getRow(1).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF4A90E2' },
+    };
+
+    // Sample Product 3: Booking product
+    servicesSheet.addRow({
+      _id: '',
+      name: 'Yoga Class Session',
+      description: 'One-on-one yoga training session with certified instructor',
+      images: 'yoga-class.jpg, instructor.jpg',
+      hasVariants: 'NO',
+      price: 800,
+      compareAtPrice: '',
+      stockQuantity: 0,
+      status: 'active',
+      variantCount: '',
+      hsnCode: '',
+      sacCode: '999293',
+      gstRate: 18,
+      priceType: 'selling_price_without_gst',
+      productType: 'booking',
+      bookingDuration: 60,
+      bookingDurationUnit: 'minutes',
+      bookingBufferTime: 15,
+      bookingAvailableDays: 'monday,tuesday,wednesday,thursday,friday,saturday',
+      bookingTimeSlots: '06:00-07:00,07:00-08:00,08:00-09:00,17:00-18:00,18:00-19:00',
+      mrp: 800,
+      basePrice: 678,
+      gstAmount: 122,
+      costPerItem: 500,
+    });
+
+    // Create Product Variants sheet with sample variants for Cotton T-Shirt
+    const variantsSheet = workbook.addWorksheet('Product Variants');
+    
+    const variantColumns = [
+      { header: 'Variant ID', key: '_variantId', width: 36 },
+      { header: 'Product ID', key: '_productId', width: 36 },
+      { header: 'Product Name', key: 'productName', width: 30 },
+      { header: 'SKU', key: 'sku', width: 30 },
+      { header: 'Variant Attributes', key: 'attributes', width: 40 },
+      { header: 'Price', key: 'price', width: 12 },
+      { header: 'Compare At Price', key: 'compareAtPrice', width: 18 },
+      { header: 'Stock', key: 'stock', width: 12 },
+      { header: 'Active', key: 'isActive', width: 10 },
+    ];
+
+    variantsSheet.columns = variantColumns;
+    
+    // Style header
+    variantsSheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    variantsSheet.getRow(1).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF9B59B6' },
+    };
+
+    // Add sample variants
+    variantsSheet.addRow({
+      _variantId: '',
+      _productId: '',
+      productName: 'Cotton T-Shirt',
+      sku: 'TS-M-RED',
+      attributes: 'Size: M, Color: Red',
+      price: 499,
+      compareAtPrice: 699,
+      stock: 15,
+      isActive: 'YES',
+    });
+
+    variantsSheet.addRow({
+      _variantId: '',
+      _productId: '',
+      productName: 'Cotton T-Shirt',
+      sku: 'TS-L-BLACK',
+      attributes: 'Size: L, Color: Black',
+      price: 499,
+      compareAtPrice: 699,
+      stock: 20,
+      isActive: 'YES',
+    });
+
+    variantsSheet.addRow({
+      _variantId: '',
+      _productId: '',
+      productName: 'Cotton T-Shirt',
+      sku: 'TS-S-RED',
+      attributes: 'Size: S, Color: Red',
+      price: 499,
+      compareAtPrice: 699,
+      stock: 10,
+      isActive: 'YES',
+    });
+
+    variantsSheet.addRow({
+      _variantId: '',
+      _productId: '',
+      productName: 'Cotton T-Shirt',
+      sku: 'TS-XL-BLACK',
+      attributes: 'Size: XL, Color: Black',
+      price: 549,
+      compareAtPrice: 699,
+      stock: 8,
+      isActive: 'YES',
+    });
+
+    variantsSheet.addRow({
+      _variantId: '',
+      _productId: '',
+      productName: 'Cotton T-Shirt',
+      sku: 'TS-L-BLUE',
+      attributes: 'Size: L, Color: Blue',
+      price: 499,
+      compareAtPrice: 699,
+      stock: 12,
+      isActive: 'YES',
+    });
+
+    // Create Instructions sheet
+    const instructionsSheet = workbook.addWorksheet('📖 Instructions');
+    instructionsSheet.getColumn(1).width = 120;
+
+    // Add instructions
+    instructionsSheet.addRow(['PRODUCT IMPORT INSTRUCTIONS']).font = { bold: true, size: 16 };
+    instructionsSheet.addRow([]);
+    instructionsSheet.addRow(['This template contains 3 sample products:']).font = { bold: true };
+    instructionsSheet.addRow(['1. Leather Wallet - A simple physical product without variants']);
+    instructionsSheet.addRow(['2. Cotton T-Shirt - A product with 5 variants (different sizes and colors)']);
+    instructionsSheet.addRow(['3. Yoga Class Session - A booking/service product']);
+    instructionsSheet.addRow([]);
+    instructionsSheet.addRow(['IMPORTANT: Leave the ID columns blank when creating NEW products. IDs are auto-generated.']);
+    instructionsSheet.addRow(['For UPDATES: Keep the existing ID to update that specific product.']);
+    instructionsSheet.addRow([]);
+    instructionsSheet.addRow(['Images:']).font = { bold: true };
+    instructionsSheet.addRow(['• Replace the example image filenames with your actual image files']);
+    instructionsSheet.addRow(['• Format: Comma-separated list (e.g., "product1.jpg, product2.jpg, product3.jpg")']);
+    instructionsSheet.addRow(['• When importing, upload images in a ZIP file along with the Excel']);
+    instructionsSheet.addRow(['• Images must be in an "images" folder within the ZIP file']);
+    instructionsSheet.addRow([]);
+    instructionsSheet.addRow(['Product Variants Sheet:']).font = { bold: true };
+    instructionsSheet.addRow(['• List all variants for products where Has Variants = YES']);
+    instructionsSheet.addRow(['• Use Product Name to match variants to products']);
+    instructionsSheet.addRow(['• Format Variant Attributes as: "Size: M, Color: Red"']);
+    instructionsSheet.addRow(['• Leave Variant ID blank for new variants']);
+
+    // Create HSN-SAC Reference sheet
+    const hsnRefSheet = workbook.addWorksheet('HSN-SAC Reference');
+    hsnRefSheet.columns = [
+      { header: 'Code', key: 'code', width: 15 },
+      { header: 'Description', key: 'description', width: 60 },
+      { header: 'GST Rate (%)', key: 'gstRate', width: 12 },
+      { header: 'Type', key: 'type', width: 10 },
+    ];
+    
+    // Style header
+    hsnRefSheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    hsnRefSheet.getRow(1).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF2E7D32' },
+    };
+
+    // Add sample HSN/SAC codes
+    hsnRefSheet.addRow({ code: '4202', description: 'Trunks, suit-cases, handbags and similar containers', gstRate: 18, type: 'HSN' });
+    hsnRefSheet.addRow({ code: '6109', description: 'T-shirts, singlets and other vests, knitted or crocheted', gstRate: 12, type: 'HSN' });
+    hsnRefSheet.addRow({ code: '999293', description: 'Fitness, yoga and aerobics centers', gstRate: 18, type: 'SAC' });
+
+    // Write Excel to buffer
+    const excelBuffer = await workbook.xlsx.writeBuffer();
+    console.log('✅ Excel buffer created, size:', Buffer.from(excelBuffer as ArrayBuffer).length);
+    
+    // Create a ZIP file containing the Excel and dummy images
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    const buffers: Buffer[] = [];
+    
+    archive.on('data', (chunk) => buffers.push(chunk));
+    
+    const zipPromise = new Promise<Buffer>((resolve, reject) => {
+      archive.on('end', () => {
+        console.log('✅ ZIP archive finalized');
+        resolve(Buffer.concat(buffers));
+      });
+      archive.on('error', (err) => {
+        console.error('❌ ZIP archive error:', err);
+        reject(err);
+      });
+    });
+    
+    // Add Excel file to ZIP
+    console.log('📦 Adding Excel file to ZIP...');
+    archive.append(Buffer.from(excelBuffer as ArrayBuffer), { name: 'products.xlsx' });
+    
+    // Create dummy images (simple colored 100x100 PNGs)
+    const createDummyImage = (color: { r: number; g: number; b: number }): Buffer => {
+      // Create a minimal valid 100x100 PNG
+      const width = 100;
+      const height = 100;
+      const png = Buffer.alloc(8 + 25 + 12 + (height * (1 + width * 3)) + 12);
+      let offset = 0;
+      
+      // PNG signature
+      png.writeUInt32BE(0x89504E47, offset); offset += 4;
+      png.writeUInt32BE(0x0D0A1A0A, offset); offset += 4;
+      
+      // IHDR chunk
+      png.writeUInt32BE(13, offset); offset += 4; // Length
+      png.write('IHDR', offset); offset += 4;
+      png.writeUInt32BE(width, offset); offset += 4;
+      png.writeUInt32BE(height, offset); offset += 4;
+      png.writeUInt8(8, offset); offset += 1; // Bit depth
+      png.writeUInt8(2, offset); offset += 1; // Color type (RGB)
+      png.writeUInt8(0, offset); offset += 1; // Compression
+      png.writeUInt8(0, offset); offset += 1; // Filter
+      png.writeUInt8(0, offset); offset += 1; // Interlace
+      png.writeUInt32BE(0, offset); offset += 4; // CRC (simplified)
+      
+      // Just return a simple PNG structure
+      return Buffer.from([
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+        0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+        0x00, 0x00, 0x00, 0x0A, 0x00, 0x00, 0x00, 0x0A,
+        0x08, 0x02, 0x00, 0x00, 0x00, 0x02, 0x50, 0x58, 0xEA,
+        0x00, 0x00, 0x00, 0x01, 0x73, 0x52, 0x47, 0x42,
+        0x00, 0xAE, 0xCE, 0x1C, 0xE9, 0x00, 0x00, 0x00,
+        0x04, 0x67, 0x41, 0x4D, 0x41, 0x00, 0x00, 0xB1,
+        0x8F, 0x0B, 0xFC, 0x61, 0x05, 0x00, 0x00, 0x00,
+        0x20, 0x49, 0x44, 0x41, 0x54, 0x28, 0x53, 0x63,
+        ...Buffer.alloc(32, color.r), // Fill with color
+        0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44,
+        0xAE, 0x42, 0x60, 0x82
+      ]);
+    };
+    
+    // Add dummy image files to images folder
+    console.log('📦 Adding dummy images to ZIP...');
+    archive.append(createDummyImage({ r: 139, g: 69, b: 19 }), { name: 'images/wallet-brown.jpg' });
+    archive.append(createDummyImage({ r: 139, g: 69, b: 19 }), { name: 'images/wallet-inside.jpg' });
+    archive.append(createDummyImage({ r: 255, g: 0, b: 0 }), { name: 'images/tshirt-front.jpg' });
+    archive.append(createDummyImage({ r: 255, g: 0, b: 0 }), { name: 'images/tshirt-back.jpg' });
+    archive.append(createDummyImage({ r: 0, g: 0, b: 255 }), { name: 'images/tshirt-detail.jpg' });
+    archive.append(createDummyImage({ r: 128, g: 0, b: 128 }), { name: 'images/yoga-class.jpg' });
+    archive.append(createDummyImage({ r: 128, g: 0, b: 128 }), { name: 'images/instructor.jpg' });
+    console.log('✅ Added 7 dummy images');
+    
+    // Finalize the archive
+    console.log('📦 Finalizing ZIP archive...');
+    archive.finalize();
+    
+    const result = await zipPromise;
+    console.log('✅ ZIP file created, size:', result.length);
+    return result;
   }
 }
