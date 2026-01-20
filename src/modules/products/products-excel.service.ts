@@ -82,6 +82,11 @@ export class ProductsExcelService {
 
   async exportToExcel(vendorId: string | null): Promise<Buffer> {
     try {
+      console.log('🚀🚀🚀 ===========================================');
+      console.log('🚀 NEW CODE VERSION - EXCEL EXPORT STARTING');
+      console.log('🚀 Vendor ID:', vendorId || 'ALL');
+      console.log('🚀 Timestamp:', new Date().toISOString());
+      console.log('🚀🚀🚀 ===========================================');
       console.log('Starting Excel export for vendor:', vendorId || 'ALL');
       const workbook = new ExcelJS.Workbook();
       
@@ -148,8 +153,10 @@ export class ProductsExcelService {
         // Get category-specific filters
         const categoryFilters = category.filterConfig?.filters?.filter(f => f.id !== 'priceRange') || [];
 
-        // Build columns - NO IDs, NO SLUGS, user-editable only
+        // Build columns - ID column FIRST and VISIBLE for update operations
+        console.log(`🔧 Building columns for category: ${category.name}`);
         const columns: any[] = [
+          { header: 'ID', key: '_id', width: 36 },
           { header: 'Product Name', key: 'name', width: 30 },
           { header: 'Description', key: 'description', width: 50 },
           { header: 'Images (comma-separated filenames)', key: 'images', width: 40 },
@@ -184,18 +191,14 @@ export class ProductsExcelService {
           });
         });
 
-        // Hidden column for tracking existing products
-        columns.push({
-          header: '_ID',
-          key: '_id',
-          width: 10,
-          hidden: true,
-        });
-
+        console.log(`✅ Setting ${columns.length} columns for sheet "${category.name}"`);
+        console.log(`✅ First 3 columns:`, JSON.stringify(columns.slice(0, 3), null, 2));
         sheet.columns = columns;
-
-        // Actually hide the _ID column (ExcelJS requires this)
-        sheet.getColumn(columns.length).hidden = true;
+        console.log(`✅ Sheet columns set successfully for "${category.name}"`);
+        console.log(`📋 Verification - Sheet "${category.name}" column count: ${sheet.columns.length}`);
+        console.log(`📋 First column header: ${sheet.getColumn(1).header}, key: ${sheet.getColumn(1).key}, width: ${sheet.getColumn(1).width}`);
+        console.log(`📋 Second column header: ${sheet.getColumn(2).header}, key: ${sheet.getColumn(2).key}`);
+        console.log(`📋 Third column header: ${sheet.getColumn(3).header}, key: ${sheet.getColumn(3).key}`);
 
         // Style header row
         sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
@@ -450,9 +453,11 @@ export class ProductsExcelService {
 
       // Create uncategorized products sheet if any
       if (uncategorizedProducts.length > 0) {
+        console.log(`🔧 Building columns for Uncategorized sheet`);
         const sheet = workbook.addWorksheet('Uncategorized');
 
         const columns: any[] = [
+          { header: 'ID', key: '_id', width: 36 },
           { header: 'Product Name', key: 'name', width: 30 },
           { header: 'Description', key: 'description', width: 50 },
           { header: 'Images (comma-separated filenames)', key: 'images', width: 40 },
@@ -470,13 +475,16 @@ export class ProductsExcelService {
           { header: 'Base Price', key: 'basePrice', width: 12 },
           { header: 'GST Amount', key: 'gstAmount', width: 12 },
           { header: 'Cost Per Item', key: 'costPerItem', width: 12 },
-          { header: '_ID', key: '_id', width: 10, hidden: true },
         ];
 
+        console.log(`✅ Setting ${columns.length} columns for Uncategorized sheet`);
+        console.log(`✅ First 3 columns:`, JSON.stringify(columns.slice(0, 3), null, 2));
         sheet.columns = columns;
-
-        // Actually hide the _ID column (ExcelJS requires this)
-        sheet.getColumn(columns.length).hidden = true;
+        console.log(`✅ Sheet columns set successfully for Uncategorized`);
+        console.log(`📋 Verification - Uncategorized column count: ${sheet.columns.length}`);
+        console.log(`📋 First column header: ${sheet.getColumn(1).header}, key: ${sheet.getColumn(1).key}, width: ${sheet.getColumn(1).width}`);
+        console.log(`📋 Second column header: ${sheet.getColumn(2).header}, key: ${sheet.getColumn(2).key}`);
+        console.log(`📋 Third column header: ${sheet.getColumn(3).header}, key: ${sheet.getColumn(3).key}`);
 
         sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
         sheet.getRow(1).fill = {
@@ -679,10 +687,12 @@ export class ProductsExcelService {
       });
 
       if (allVariants.length > 0) {
-        console.log(`Creating Variants sheet with ${allVariants.length} variants...`);
+        console.log(`🔧 Creating Variants sheet with ${allVariants.length} variants...`);
         const variantsSheet = workbook.addWorksheet('Product Variants');
         
-        variantsSheet.columns = [
+        const variantColumns = [
+          { header: 'Variant ID', key: '_variantId', width: 36 },
+          { header: 'Product ID', key: '_productId', width: 36 },
           { header: 'Product Name', key: 'productName', width: 30 },
           { header: 'Variant SKU', key: 'sku', width: 30 },
           { header: 'Variant Attributes', key: 'attributes', width: 40 },
@@ -690,9 +700,16 @@ export class ProductsExcelService {
           { header: 'Compare At Price', key: 'compareAtPrice', width: 18 },
           { header: 'Stock', key: 'stock', width: 12 },
           { header: 'Active', key: 'isActive', width: 10 },
-          { header: '_PRODUCT_ID', key: '_productId', width: 10, hidden: true },
-          { header: '_VARIANT_ID', key: '_variantId', width: 10, hidden: true },
         ];
+
+        console.log(`✅ Setting ${variantColumns.length} columns for Variants sheet`);
+        console.log(`✅ First 3 columns:`, JSON.stringify(variantColumns.slice(0, 3), null, 2));
+        variantsSheet.columns = variantColumns;
+        console.log(`✅ Variants sheet columns set successfully`);
+        console.log(`📋 Verification - Variants column count: ${variantsSheet.columns.length}`);
+        console.log(`📋 First column header: ${variantsSheet.getColumn(1).header}, key: ${variantsSheet.getColumn(1).key}, width: ${variantsSheet.getColumn(1).width}`);
+        console.log(`📋 Second column header: ${variantsSheet.getColumn(2).header}, key: ${variantsSheet.getColumn(2).key}, width: ${variantsSheet.getColumn(2).width}`);
+        console.log(`📋 Third column header: ${variantsSheet.getColumn(3).header}, key: ${variantsSheet.getColumn(3).key}`);
 
         // Style header
         variantsSheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
@@ -709,6 +726,8 @@ export class ProductsExcelService {
             .join(', ');
 
           variantsSheet.addRow({
+            _variantId: variant.id,
+            _productId: product.id,
             productName: product.name,
             sku: variant.sku,
             attributes: attributesStr,
@@ -716,8 +735,6 @@ export class ProductsExcelService {
             compareAtPrice: variant.compareAtPrice || '',
             stock: variant.stockQuantity,
             isActive: variant.isActive ? 'YES' : 'NO',
-            _productId: product.id,
-            _variantId: variant.id,
           });
         });
 
@@ -739,10 +756,6 @@ export class ProductsExcelService {
             };
           }
         }
-
-        // Hide ID columns
-        variantsSheet.getColumn(8).hidden = true;
-        variantsSheet.getColumn(9).hidden = true;
 
         console.log(`Variants sheet created with ${allVariants.length} variants`);
       }
@@ -813,8 +826,6 @@ export class ProductsExcelService {
       instructionsSheet.getCell('A20').value = '• Dropdown shows "code - description" format for easy selection';
       instructionsSheet.getCell('A21').value = '• Use Ctrl+F in Reference sheet to search for specific products/services';
       
-      instructionsSheet.getCell('A21').value = '• Use Ctrl+F in Reference sheet to search for specific products/services';
-      
       instructionsSheet.getCell('A23').value = 'EDITING PRODUCTS:';
       instructionsSheet.getCell('A23').font = { bold: true };
       instructionsSheet.getCell('A24').value = '• Modify any visible field (name, price, description, etc.)';
@@ -826,55 +837,65 @@ export class ProductsExcelService {
       instructionsSheet.getCell('A29').font = { bold: true };
       instructionsSheet.getCell('A30').value = '• Add a new row in the appropriate category sheet';
       instructionsSheet.getCell('A31').value = '• Fill in all required fields (name, price, stock)';
-      instructionsSheet.getCell('A32').value = '• Leave the _ID column empty (it\'s hidden and auto-generated)';
-      instructionsSheet.getCell('A33').value = '• New products will be assigned to that sheet\'s category';
+      instructionsSheet.getCell('A32').value = '• Leave the ID column empty for new products (system auto-generates)';
+      instructionsSheet.getCell('A33').value = '• Keep the ID when updating existing products - this ensures updates work correctly';
+      instructionsSheet.getCell('A34').value = '• New products will be assigned to that sheet\'s category';
       
-      instructionsSheet.getCell('A35').value = 'PRODUCT IMAGES:';
-      instructionsSheet.getCell('A35').font = { bold: true };
-      instructionsSheet.getCell('A36').value = '• If you exported as ZIP, images are in the "images" folder';
-      instructionsSheet.getCell('A37').value = '• In the Images column, enter comma-separated filenames (e.g., "image1.jpg, image2.png")';
-      instructionsSheet.getCell('A38').value = '• You can reuse existing images or add new ones';
-      instructionsSheet.getCell('A39').value = '• Supported formats: JPG, PNG, WEBP (max 5MB per image)';
+      instructionsSheet.getCell('A36').value = 'PRODUCT IMAGES:';
+      instructionsSheet.getCell('A36').font = { bold: true };
+      instructionsSheet.getCell('A37').value = '• If you exported as ZIP, images are in the "images" folder';
+      instructionsSheet.getCell('A38').value = '• In the Images column, enter comma-separated filenames (e.g., "image1.jpg, image2.png")';
+      instructionsSheet.getCell('A39').value = '• You can reuse existing images or add new ones';
+      instructionsSheet.getCell('A40').value = '• Supported formats: JPG, PNG, WEBP (max 5MB per image)';
       
-      instructionsSheet.getCell('A41').value = 'PRICING & GST CONFIGURATION:';
-      instructionsSheet.getCell('A41').font = { bold: true };
-      instructionsSheet.getCell('A42').value = '• HSN Code/SAC Code: For goods/services GST classification (select from HSN-SAC Reference sheet)';
-      instructionsSheet.getCell('A43').value = '• GST Rate (%): Auto-filled from HSN/SAC code when available, or select from dropdown (0, 5, 12, 18, 28)';
-      instructionsSheet.getCell('A44').value = '• GST Rate is editable - system suggestion can be overridden if needed';
-      instructionsSheet.getCell('A45').value = '• Price Type: "mrp_with_gst" or "selling_price_without_gst"';
-      instructionsSheet.getCell('A46').value = '• MRP: Maximum Retail Price (if using mrp_with_gst)';
-      instructionsSheet.getCell('A47').value = '• Base Price: Price before GST (auto-calculated)';
-      instructionsSheet.getCell('A48').value = '• GST Amount: Tax amount (auto-calculated)';
-      instructionsSheet.getCell('A49').value = '• Cost Per Item: Your cost/purchase price';
+      instructionsSheet.getCell('A42').value = 'PRICING & GST CONFIGURATION:';
+      instructionsSheet.getCell('A42').font = { bold: true };
+      instructionsSheet.getCell('A43').value = '• HSN Code/SAC Code: For goods/services GST classification (select from HSN-SAC Reference sheet)';
+      instructionsSheet.getCell('A44').value = '• GST Rate (%): Auto-filled from HSN/SAC code when available, or select from dropdown (0, 5, 12, 18, 28)';
+      instructionsSheet.getCell('A45').value = '• GST Rate is editable - system suggestion can be overridden if needed';
+      instructionsSheet.getCell('A46').value = '• Price Type: "mrp_with_gst" or "selling_price_without_gst"';
+      instructionsSheet.getCell('A47').value = '• MRP: Maximum Retail Price (if using mrp_with_gst)';
+      instructionsSheet.getCell('A48').value = '• Base Price: Price before GST (auto-calculated)';
+      instructionsSheet.getCell('A49').value = '• GST Amount: Tax amount (auto-calculated)';
+      instructionsSheet.getCell('A50').value = '• Cost Per Item: Your cost/purchase price';
       
-      instructionsSheet.getCell('A45').value = 'PRODUCT VARIANTS:';
-      instructionsSheet.getCell('A45').font = { bold: true };
-      instructionsSheet.getCell('A46').value = '• Products with variants are marked "YES" in the "Has Variants" column';
-      instructionsSheet.getCell('A47').value = '• Variant products show price ranges (e.g., "3.00 - 333.00") and total stock across all variants';
-      instructionsSheet.getCell('A48').value = '• Check the "Product Variants" sheet for detailed variant information';
-      instructionsSheet.getCell('A49').value = '• Each variant has its own SKU, price, stock, and attributes (Size, Color, etc.)';
-      instructionsSheet.getCell('A50').value = '• You can edit variant prices, stock, and active status in the "Product Variants" sheet';
-      instructionsSheet.getCell('A51').value = '• Variants will be automatically created/updated during import';
+      instructionsSheet.getCell('A52').value = 'PRODUCT VARIANTS:';
+      instructionsSheet.getCell('A52').font = { bold: true };
+      instructionsSheet.getCell('A53').value = '• Products with variants are marked "YES" in the "Has Variants" column';
+      instructionsSheet.getCell('A54').value = '• Variant products show price ranges (e.g., "3.00 - 333.00") and total stock across all variants';
+      instructionsSheet.getCell('A55').value = '• Check the "Product Variants" sheet for detailed variant information';
+      instructionsSheet.getCell('A56').value = '• Each variant has its own SKU, price, stock, and attributes (Size, Color, etc.)';
+      instructionsSheet.getCell('A57').value = '• You can edit variant prices, stock, and active status in the "Product Variants" sheet';
+      instructionsSheet.getCell('A58').value = '• Variants will be automatically created/updated during import';
       
-      instructionsSheet.getCell('A53').value = 'IMPORTING:';
-      instructionsSheet.getCell('A53').font = { bold: true };
-      instructionsSheet.getCell('A54').value = 'Option 1: Import as ZIP (Recommended)';
-      instructionsSheet.getCell('A55').value = '• Keep this Excel file in the ZIP with the images folder';
-      instructionsSheet.getCell('A56').value = '• Upload the entire ZIP file - everything is imported together';
-      instructionsSheet.getCell('A57').value = '• Both products and variants will be imported automatically';
-      instructionsSheet.getCell('A58').value = '';
-      instructionsSheet.getCell('A59').value = 'Option 2: Import Excel + Images separately';
-      instructionsSheet.getCell('A60').value = '• Upload the Excel file and select image files individually';
-      instructionsSheet.getCell('A61').value = '• The system will match filenames from Excel with uploaded files';
+      instructionsSheet.getCell('A60').value = 'ID COLUMNS (IMPORTANT):';
+      instructionsSheet.getCell('A60').font = { bold: true };
+      instructionsSheet.getCell('A61').value = '• Product ID and Variant ID columns are now visible (first columns in each sheet)';
+      instructionsSheet.getCell('A62').value = '• When UPDATING products: Keep the existing ID - this ensures the correct product is updated';
+      instructionsSheet.getCell('A63').value = '• When CREATING new products: Leave the ID column empty - system will auto-generate';
+      instructionsSheet.getCell('A64').value = '• You can have multiple products with the same name if they have different IDs';
+      instructionsSheet.getCell('A65').value = '• Same applies to variants: Keep Variant ID when updating, leave empty for new variants';
+      
+      instructionsSheet.getCell('A67').value = 'IMPORTING:';
+      instructionsSheet.getCell('A67').font = { bold: true };
+      instructionsSheet.getCell('A68').value = 'Option 1: Import as ZIP (Recommended)';
+      instructionsSheet.getCell('A69').value = '• Keep this Excel file in the ZIP with the images folder';
+      instructionsSheet.getCell('A70').value = '• Upload the entire ZIP file - everything is imported together';
+      instructionsSheet.getCell('A71').value = '• Both products and variants will be imported automatically';
+      instructionsSheet.getCell('A72').value = '';
+      instructionsSheet.getCell('A73').value = 'Option 2: Import Excel + Images separately';
+      instructionsSheet.getCell('A74').value = '• Upload the Excel file and select image files individually';
+      instructionsSheet.getCell('A75').value = '• The system will match filenames from Excel with uploaded files';
 
       instructionsSheet.getColumn('A').width = 80;
       console.log('Instructions sheet created');
 
-      console.log('Generating Excel buffer...');
+      console.log('📦 Generating Excel buffer...');
       const buffer = await workbook.xlsx.writeBuffer();
-      console.log('Excel buffer generated, converting to Node Buffer...');
+      console.log('📦 Excel buffer generated, converting to Node Buffer...');
       const nodeBuffer = Buffer.from(buffer);
-      console.log(`Excel export complete. Buffer size: ${nodeBuffer.length} bytes`);
+      console.log(`✅✅✅ Excel export complete. Buffer size: ${nodeBuffer.length} bytes`);
+      console.log('✅✅✅ ============================================');
       return nodeBuffer;
     } catch (error) {
       console.error('Error exporting to Excel:', error);
@@ -1188,9 +1209,11 @@ export class ProductsExcelService {
           let status: string;
           
           try {
-            // Try to get _id column if it exists (for updates), otherwise it's a new product
+            // Try to get ID column if it exists (for updates), otherwise it's a new product
+            // Check for both 'ID' (new visible name) and '_ID' (legacy hidden name)
             try {
-              _id = getCellValue(row, '_ID')?.toString().trim();
+              _id = getCellValue(row, 'ID')?.toString().trim() || 
+                    getCellValue(row, '_ID')?.toString().trim();
             } catch (e) {
               // Column doesn't exist - this is fine for new imports
               _id = undefined;
@@ -1528,7 +1551,12 @@ export class ProductsExcelService {
         
         // Method 2: Check for individual attribute columns (Size, Color, Weight, etc.)
         // These are any columns that are not standard variant columns
-        const standardColumns = ['productname', 'variantname', 'sku', 'price', 'compareatprice', 'stockquantity', 'isactive', '_product_id', '_variant_id', 'attributes'];
+        const standardColumns = [
+          'productname', 'variantname', 'sku', 'price', 'compareatprice', 
+          'stockquantity', 'isactive', 'attributes',
+          '_product_id', '_variant_id',
+          'variantid', 'productid'
+        ];
         
         headerNameMap.forEach((originalHeaderName, colIndex) => {
           const normalizedHeader = originalHeaderName.toLowerCase().replace(/\s+/g, '');
@@ -1616,16 +1644,19 @@ export class ProductsExcelService {
         if (rowNumber === 1) return; // Skip header
 
         try {
-          // Try to get hidden ID columns if they exist (for updates)
+          // Try to get ID columns if they exist (for updates)
+          // Check for new visible column names first, then fall back to legacy hidden names
           let productId: string | undefined;
           let variantId: string | undefined;
           try {
-            productId = getVariantCellValue(row, '_PRODUCT_ID')?.toString().trim();
-            variantId = getVariantCellValue(row, '_VARIANT_ID')?.toString().trim();
+            variantId = getVariantCellValue(row, 'Variant ID')?.toString().trim() || 
+                        getVariantCellValue(row, '_VARIANT_ID')?.toString().trim();
+            productId = getVariantCellValue(row, 'Product ID')?.toString().trim() || 
+                        getVariantCellValue(row, '_PRODUCT_ID')?.toString().trim();
           } catch (e) {
             // Columns don't exist - this is fine for new imports
-            productId = undefined;
             variantId = undefined;
+            productId = undefined;
           }
           
           const sku = getVariantCellValue(row, 'SKU')?.toString().trim();
@@ -1656,7 +1687,12 @@ export class ProductsExcelService {
           }
           
           // Method 2: Parse from individual attribute columns (Size, Color, etc.)
-          const standardColumns = ['productname', 'variantname', 'sku', 'price', 'compareatprice', 'stockquantity', 'isactive', '_product_id', '_variant_id', 'attributes'];
+          const standardColumns = [
+            'productname', 'variantname', 'sku', 'price', 'compareatprice', 
+            'stockquantity', 'isactive', 'attributes',
+            '_product_id', '_variant_id',
+            'variantid', 'productid'
+          ];
           
           headerNameMap.forEach((originalHeaderName, colIndex) => {
             const normalizedHeader = originalHeaderName.toLowerCase().replace(/\s+/g, '');
