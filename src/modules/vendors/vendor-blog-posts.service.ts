@@ -23,11 +23,13 @@ export class VendorBlogPostsService {
       throw new BadRequestException('A blog post with this slug already exists');
     }
 
-    const blogPost = this.blogPostRepository.create({
+    const blogPostData: any = {
       ...createBlogPostDto,
       vendorId,
       publishedAt: createBlogPostDto.status === PageStatus.PUBLISHED ? new Date() : null,
-    });
+    };
+
+    const blogPost = this.blogPostRepository.create(blogPostData) as unknown as VendorBlogPost;
 
     return this.blogPostRepository.save(blogPost);
   }

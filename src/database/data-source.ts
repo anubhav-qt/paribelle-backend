@@ -28,8 +28,16 @@ export const AppDataSource = new DataSource({
   username: process.env.DB_USERNAME || parsedConfig.username || 'admin',
   password: process.env.DB_PASSWORD || parsedConfig.password || 'admin',
   database: process.env.DB_DATABASE || parsedConfig.database || 'marketplace',
-  entities: [path.join(process.cwd(), 'src/**/*.entity{.ts,.js}')],
-  migrations: [path.join(process.cwd(), 'src/migrations/*{.ts,.js}')],
+  entities: [
+    process.env.NODE_ENV === 'production'
+      ? path.join(__dirname, '../**/*.entity.js')
+      : path.join(process.cwd(), 'src/**/*.entity{.ts,.js}'),
+  ],
+  migrations: [
+    process.env.NODE_ENV === 'production'
+      ? path.join(__dirname, '../migrations/*.js')
+      : path.join(process.cwd(), 'src/migrations/*{.ts,.js}'),
+  ],
   synchronize: false,
   logging: true,
 });

@@ -18,6 +18,7 @@ export enum PageType {
   TERMS = 'terms',
   PRIVACY = 'privacy',
   COOKIE = 'cookie',
+  BLOG = 'blog',
 }
 
 export enum PageStatus {
@@ -77,6 +78,16 @@ export class VendorPage {
 
   @Column({ type: 'text', nullable: true, name: 'meta_keywords' })
   metaKeywords: string;
+
+  // Blog-specific fields
+  @Column('simple-array', { nullable: true })
+  tags: string[];
+
+  @Column({ type: 'int', default: 0, name: 'view_count' })
+  viewCount: number;
+
+  @Column({ nullable: true, name: 'author_name' })
+  authorName: string;
 
   // Publishing
   @Column({

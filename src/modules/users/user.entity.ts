@@ -15,6 +15,7 @@ import { VendorReview } from '../reviews/vendor-review.entity';
 export enum UserRole {
   SUPER_ADMIN = 'super_admin',
   VENDOR_ADMIN = 'vendor_admin',
+  VENDOR = 'vendor',
   CUSTOMER = 'customer',
 }
 

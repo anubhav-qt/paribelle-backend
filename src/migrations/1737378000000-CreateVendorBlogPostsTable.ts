@@ -1,6 +1,6 @@
-import { MigrationInterface, QueryRunner, Table, TableIndex, TableForeignKey } from 'typeorm';
+import { MigrationInterface, QueryRunner, Table, TableForeignKey } from 'typeorm';
 
-export class CreateVendorBlogPostsTable1733673700000 implements MigrationInterface {
+export class CreateVendorBlogPostsTable1737378000000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.createTable(
       new Table({
@@ -10,23 +10,28 @@ export class CreateVendorBlogPostsTable1733673700000 implements MigrationInterfa
             name: 'id',
             type: 'uuid',
             isPrimary: true,
+            generationStrategy: 'uuid',
             default: 'uuid_generate_v4()',
           },
           {
             name: 'vendor_id',
             type: 'uuid',
+            isNullable: false,
           },
           {
             name: 'title',
             type: 'varchar',
+            isNullable: false,
           },
           {
             name: 'slug',
             type: 'varchar',
+            isNullable: false,
           },
           {
             name: 'content',
             type: 'text',
+            isNullable: false,
           },
           {
             name: 'excerpt',
@@ -46,8 +51,9 @@ export class CreateVendorBlogPostsTable1733673700000 implements MigrationInterfa
           {
             name: 'status',
             type: 'enum',
-            enum: ['draft', 'published', 'archived'],
-            default: `'draft'`,
+            enum: ['draft', 'published'],
+            default: "'draft'",
+            isNullable: false,
           },
           {
             name: 'author_name',
@@ -58,6 +64,7 @@ export class CreateVendorBlogPostsTable1733673700000 implements MigrationInterfa
             name: 'view_count',
             type: 'int',
             default: 0,
+            isNullable: false,
           },
           {
             name: 'meta_title',
@@ -70,15 +77,16 @@ export class CreateVendorBlogPostsTable1733673700000 implements MigrationInterfa
             isNullable: true,
           },
           {
-            name: 'created_at',
+            name: 'createdAt',
             type: 'timestamp',
             default: 'CURRENT_TIMESTAMP',
+            isNullable: false,
           },
           {
-            name: 'updated_at',
+            name: 'updatedAt',
             type: 'timestamp',
             default: 'CURRENT_TIMESTAMP',
-            onUpdate: 'CURRENT_TIMESTAMP',
+            isNullable: false,
           },
           {
             name: 'published_at',
@@ -90,33 +98,22 @@ export class CreateVendorBlogPostsTable1733673700000 implements MigrationInterfa
       true,
     );
 
-    // Create indexes
-    await queryRunner.createIndex(
-      'vendor_blog_posts',
-      new TableIndex({
-        name: 'IDX_vendor_blog_posts_vendor_id',
-        columnNames: ['vendor_id'],
-      }),
+    // Create unique index on vendor_id and slug
+    await queryRunner.query(
+      `CREATE UNIQUE INDEX "IDX_vendor_blog_posts_vendor_slug" ON "vendor_blog_posts" ("vendor_id", "slug")`,
     );
 
-    await queryRunner.createIndex(
-      'vendor_blog_posts',
-      new TableIndex({
-        name: 'IDX_vendor_blog_posts_status',
-        columnNames: ['status'],
-      }),
+    // Create index on vendor_id
+    await queryRunner.query(
+      `CREATE INDEX "IDX_vendor_blog_posts_vendor_id" ON "vendor_blog_posts" ("vendor_id")`,
     );
 
-    await queryRunner.createIndex(
-      'vendor_blog_posts',
-      new TableIndex({
-        name: 'IDX_vendor_blog_posts_vendor_id_slug',
-        columnNames: ['vendor_id', 'slug'],
-        isUnique: true,
-      }),
+    // Create index on status
+    await queryRunner.query(
+      `CREATE INDEX "IDX_vendor_blog_posts_status" ON "vendor_blog_posts" ("status")`,
     );
 
-    // Create foreign key
+    // Add foreign key to vendors table
     await queryRunner.createForeignKey(
       'vendor_blog_posts',
       new TableForeignKey({
