@@ -384,14 +384,19 @@ export class OrdersService {
     let returnsData: any[] = [];
     
     if (orderIds.length > 0) {
-      const returnsQuery = `
-        SELECT r.*, oi.order_id 
-        FROM returns r
-        INNER JOIN order_items oi ON r.order_item_id = oi.id
-        WHERE oi.order_id = ANY($1)
-        ORDER BY r.created_at DESC
-      `;
-      returnsData = await this.dataSource.query(returnsQuery, [orderIds]);
+      try {
+        const returnsQuery = `
+          SELECT r.*, oi.order_id 
+          FROM returns r
+          INNER JOIN order_items oi ON r.order_item_id = oi.id
+          WHERE oi.order_id = ANY($1)
+          ORDER BY r.created_at DESC
+        `;
+        returnsData = await this.dataSource.query(returnsQuery, [orderIds]);
+      } catch (error) {
+        // Returns table doesn't exist yet - skip returns data
+        console.log('Returns table not found, skipping returns data');
+      }
     }
 
     // Group returns by order_id
@@ -473,10 +478,18 @@ export class OrdersService {
 
     // Fetch returns data for all orders
     const orderIds = orders.map(o => o.id);
-    const returnsData = orderIds.length > 0 ? await this.dataSource.query(
-      `SELECT * FROM returns WHERE order_id = ANY($1) ORDER BY requested_at DESC`,
-      [orderIds]
-    ) : [];
+    let returnsData: any[] = [];
+    if (orderIds.length > 0) {
+      try {
+        returnsData = await this.dataSource.query(
+          `SELECT * FROM returns WHERE order_id = ANY($1) ORDER BY requested_at DESC`,
+          [orderIds]
+        );
+      } catch (error) {
+        // Returns table doesn't exist yet - skip returns data
+        console.log('Returns table not found, skipping returns data');
+      }
+    }
 
     // Group returns by order ID
     const returnsByOrder = returnsData.reduce((acc: any, ret: any) => {
@@ -530,10 +543,18 @@ export class OrdersService {
 
     // Fetch returns data for all orders
     const orderIds = orders.map(o => o.id);
-    const returnsData = orderIds.length > 0 ? await this.dataSource.query(
-      `SELECT * FROM returns WHERE order_id = ANY($1) ORDER BY requested_at DESC`,
-      [orderIds]
-    ) : [];
+    let returnsData: any[] = [];
+    if (orderIds.length > 0) {
+      try {
+        returnsData = await this.dataSource.query(
+          `SELECT * FROM returns WHERE order_id = ANY($1) ORDER BY requested_at DESC`,
+          [orderIds]
+        );
+      } catch (error) {
+        // Returns table doesn't exist yet - skip returns data
+        console.log('Returns table not found, skipping returns data');
+      }
+    }
 
     // Group returns by order ID
     const returnsByOrder = returnsData.reduce((acc: any, ret: any) => {
