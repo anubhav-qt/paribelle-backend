@@ -252,7 +252,9 @@ export class OrdersService {
         commissionAmount,
         vendorPayout,
         status: OrderStatus.PENDING,
-        paymentStatus: paymentMethod === 'cod' ? PaymentStatus.PENDING : PaymentStatus.PAID, // Mark online payments as paid (when not using Razorpay gateway)
+        paymentStatus: paymentMethod === 'cod' ? PaymentStatus.PENDING : 
+                       paymentMethod === 'razorpay' ? PaymentStatus.PENDING : 
+                       PaymentStatus.PAID, // Only mark as paid for other payment methods
         shippingName: shippingAddress.fullName,
         shippingEmail: shippingAddress.email || '', // Use from address if available
         shippingPhone: shippingAddress.phone,
