@@ -16,7 +16,6 @@ import { City } from '../locations/entities/city.entity';
 import { SubLocation } from '../locations/entities/sub-location.entity';
 import { VendorPage } from './entities/vendor-page.entity';
 import { VendorBlogPost } from './entities/vendor-blog-post.entity';
-import { VendorNavigation } from './entities/vendor-navigation.entity';
 import { VendorReview } from '../reviews/vendor-review.entity';
 
 export enum VendorStatus {
@@ -375,9 +374,6 @@ export class Vendor {
 
   @OneToMany(() => VendorBlogPost, (post) => post.vendor)
   blogPosts: VendorBlogPost[];
-
-  @OneToMany(() => VendorNavigation, (nav) => nav.vendor)
-  navigationItems: VendorNavigation[];
 
   @OneToMany(() => VendorReview, (review) => review.vendor)
   reviews: VendorReview[];

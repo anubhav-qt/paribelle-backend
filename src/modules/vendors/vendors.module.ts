@@ -4,7 +4,6 @@ import { Vendor } from './vendor.entity';
 import { User } from '../users/user.entity';
 import { VendorPage } from './entities/vendor-page.entity';
 import { VendorBlogPost } from './entities/vendor-blog-post.entity';
-import { VendorNavigation } from './entities/vendor-navigation.entity';
 import { VendorsController } from './vendors.controller';
 import { VendorsService } from './vendors.service';
 import { VendorPagesController } from './vendor-pages.controller';
@@ -21,7 +20,7 @@ import { AdminModule } from '../admin/admin.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Vendor, User, VendorPage, VendorBlogPost, VendorNavigation]),
+    TypeOrmModule.forFeature([Vendor, User, VendorPage, VendorBlogPost]),
     LocationsModule,
     ReferralsModule,
     InvoicesModule,
