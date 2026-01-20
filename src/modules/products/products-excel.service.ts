@@ -694,7 +694,7 @@ export class ProductsExcelService {
           { header: 'Variant ID', key: '_variantId', width: 36 },
           { header: 'Product ID', key: '_productId', width: 36 },
           { header: 'Product Name', key: 'productName', width: 30 },
-          { header: 'Variant SKU', key: 'sku', width: 30 },
+          { header: 'SKU', key: 'sku', width: 30 },
           { header: 'Variant Attributes', key: 'attributes', width: 40 },
           { header: 'Price', key: 'price', width: 12 },
           { header: 'Compare At Price', key: 'compareAtPrice', width: 18 },
@@ -1189,8 +1189,16 @@ export class ProductsExcelService {
       const rowsToProcess: { row: ExcelJS.Row; rowNumber: number }[] = [];
       worksheet.eachRow((row, rowNumber) => {
         if (rowNumber === 1) return; // Skip header
+        
+        // Check if this is a reference row (contains "options:")
         const firstCell = row.getCell(1).value?.toString().trim();
-        if (!firstCell || firstCell.includes('options:')) return; // Skip reference rows
+        if (firstCell && firstCell.includes('options:')) return;
+        
+        // Check if row has a product name (don't skip just because ID is blank)
+        const productNameCol = columnMap.get('Product Name') || columnMap.get('productname');
+        const productName = productNameCol ? row.getCell(productNameCol).value?.toString().trim() : null;
+        if (!productName) return; // Skip only if product name is also empty
+        
         rowsToProcess.push({ row, rowNumber });
       });
 
@@ -1330,6 +1338,14 @@ export class ProductsExcelService {
           if (imagesCell) {
             const imageFilenames = imagesCell.split(',').map(f => f.trim()).filter(f => f.length > 0);
             for (const filename of imageFilenames) {
+              // Check if it's an external URL - if so, keep it as-is
+              if (filename.startsWith('http://') || filename.startsWith('https://')) {
+                productImages.push(filename);
+                console.log(`[Import] Row ${rowNumber}: Keeping external URL: ${filename}`);
+                continue;
+              }
+              
+              // Otherwise, look for the file in the ZIP
               let imageFile = imageMap.get(filename.toLowerCase());
               
               // If not found and no extension, try common extensions
@@ -1405,9 +1421,22 @@ export class ProductsExcelService {
           }
 
           // Prepare product data
+          // Generate unique slug
+          let baseSlug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+          let slug = baseSlug;
+          let slugCounter = 1;
+          
+          // Check if slug already exists (only for new products without ID)
+          if (!_id) {
+            while (await this.productsRepository.findOne({ where: { slug } })) {
+              slug = `${baseSlug}-${slugCounter}`;
+              slugCounter++;
+            }
+          }
+          
           const productData: any = {
             name,
-            slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''),
+            slug,
             description: description || '',
             price,
             compareAtPrice: compareAtPrice || null,
@@ -1433,10 +1462,16 @@ export class ProductsExcelService {
           if (_id && _id.length > 0) {
             // Update existing product
             try {
-              const existingProduct = await this.productsRepository.findOne({ where: { id: _id } });
+              const existingProduct = await this.productsRepository.findOne({ 
+                where: { id: _id },
+                relations: ['categories']
+              });
               if (existingProduct && (!vendorId || existingProduct.vendorId === finalVendorId)) {
-                await this.productsRepository.update(_id, productData);
-                // Update categories relationship
+                // Remove categories from productData to avoid TypeORM many-to-many issues
+                const { categories: _, ...dataWithoutCategories } = productData;
+                await this.productsRepository.update(_id, dataWithoutCategories);
+                
+                // Update categories relationship separately
                 if (category) {
                   existingProduct.categories = [category];
                   await this.productsRepository.save(existingProduct);
@@ -1445,6 +1480,7 @@ export class ProductsExcelService {
                 processedProductIds.add(_id);
                 // Add to map for variant lookup
                 productNameToIdMap.set(name, _id);
+                console.log(`[Import] Row ${rowNumber}: Updated product "${name}" (ID: ${_id})`);
               } else {
                 errors.push(`Sheet "${sheetName}", Row ${rowNumber}: Product not found or doesn't belong to vendor`);
                 // Clean up uploaded images on failure
@@ -1455,6 +1491,7 @@ export class ProductsExcelService {
               }
             } catch (err) {
               errors.push(`Sheet "${sheetName}", Row ${rowNumber}: Update failed - ${err.message}`);
+              console.error(`[Import] Update error for row ${rowNumber}:`, err);
               // Clean up uploaded images on failure
               if (uploadedCloudinaryUrls.length > 0) {
                 console.log(`[Import] Cleaning up ${uploadedCloudinaryUrls.length} uploaded images - update failed`);
@@ -1525,18 +1562,27 @@ export class ProductsExcelService {
         }
       });
 
+      console.log('[Variants] Column mapping:', Array.from(variantColumnMap.entries()).map(([key, col]) => `"${key}" -> col ${col}`).join(', '));
+      console.log('[Variants] Available columns:', Array.from(variantColumnMap.keys()).join(', '));
+      console.log('[Variants] Looking for "sku" column - found:', variantColumnMap.has('sku') ? 'YES' : 'NO');
+      console.log('[Variants] Looking for "variantsku" column - found:', variantColumnMap.has('variantsku') ? 'YES' : 'NO');
+
       const getVariantCellValue = (row: ExcelJS.Row, headerKey: string): any => {
         const normalizedKey = headerKey.toLowerCase().replace(/\s+/g, '');
         const colIndex = variantColumnMap.get(normalizedKey);
-        return colIndex ? row.getCell(colIndex).value : null;
+        const value = colIndex ? row.getCell(colIndex).value : null;
+        if (row.number === 2 && ['sku', 'productname', 'variantid', 'productid'].includes(normalizedKey)) {
+          console.log(`[Variants] getVariantCellValue(row ${row.number}, "${headerKey}") -> normalizedKey="${normalizedKey}", colIndex=${colIndex}, value=${value}`);
+        }
+        return value;
       };
 
       // First pass through variants: collect all attributes
       variantsSheet.eachRow((row, rowNumber) => {
         if (rowNumber === 1) return; // Skip header
         
-        // Method 1: Check for combined "Attributes" column (format: "Size: S, Color: Red")
-        const attributesStr = getVariantCellValue(row, 'Attributes')?.toString().trim();
+        // Method 1: Check for combined "Variant Attributes" column (format: "Size: S, Color: Red")
+        const attributesStr = getVariantCellValue(row, 'Variant Attributes')?.toString().trim();
         if (attributesStr) {
           attributesStr.split(',').forEach(attr => {
             const [key, value] = attr.split(':').map(s => s.trim());
@@ -1649,23 +1695,30 @@ export class ProductsExcelService {
           let productId: string | undefined;
           let variantId: string | undefined;
           try {
-            variantId = getVariantCellValue(row, 'Variant ID')?.toString().trim() || 
-                        getVariantCellValue(row, '_VARIANT_ID')?.toString().trim();
-            productId = getVariantCellValue(row, 'Product ID')?.toString().trim() || 
-                        getVariantCellValue(row, '_PRODUCT_ID')?.toString().trim();
+            const variantIdRaw = getVariantCellValue(row, 'Variant ID') || getVariantCellValue(row, '_VARIANT_ID');
+            const productIdRaw = getVariantCellValue(row, 'Product ID') || getVariantCellValue(row, '_PRODUCT_ID');
+            
+            variantId = variantIdRaw?.toString().trim();
+            productId = productIdRaw?.toString().trim();
+            
+            console.log(`[Variants] Row ${rowNumber}: variantIdRaw=${JSON.stringify(variantIdRaw)}, productIdRaw=${JSON.stringify(productIdRaw)}`);
+            console.log(`[Variants] Row ${rowNumber}: variantId=${variantId}, productId=${productId}`);
           } catch (e) {
             // Columns don't exist - this is fine for new imports
+            console.log(`[Variants] Row ${rowNumber}: Error reading ID columns:`, e.message);
             variantId = undefined;
             productId = undefined;
           }
           
           const sku = getVariantCellValue(row, 'SKU')?.toString().trim();
           const productName = getVariantCellValue(row, 'Product Name')?.toString().trim();
-          const attributesStr = getVariantCellValue(row, 'Attributes')?.toString().trim();
+          const attributesStr = getVariantCellValue(row, 'Variant Attributes')?.toString().trim();
+          
+          console.log(`[Variants] Row ${rowNumber}: sku=${sku}, productName=${productName}`);
           const price = parseFloat(getVariantCellValue(row, 'Price')?.toString() || '0');
           const compareAtPrice = parseFloat(getVariantCellValue(row, 'Compare At Price')?.toString() || '0');
-          const stock = parseInt(getVariantCellValue(row, 'Stock Quantity')?.toString() || '0');
-          const isActiveStr = getVariantCellValue(row, 'Is Active')?.toString().trim()?.toUpperCase();
+          const stock = parseInt(getVariantCellValue(row, 'Stock')?.toString() || '0');
+          const isActiveStr = getVariantCellValue(row, 'Active')?.toString().trim()?.toUpperCase();
           const isActive = isActiveStr === 'YES' || isActiveStr === 'TRUE';
 
           if ((!productId && !productName) || !sku) {
