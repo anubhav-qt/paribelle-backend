@@ -17,7 +17,7 @@ export class VendorBlogPost {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column()
+  @Column({ name: 'vendor_id' })
   @Index()
   vendorId: string;
 

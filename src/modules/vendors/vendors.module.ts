@@ -9,6 +9,8 @@ import { VendorsController } from './vendors.controller';
 import { VendorsService } from './vendors.service';
 import { VendorPagesController } from './vendor-pages.controller';
 import { VendorPagesService } from './vendor-pages.service';
+import { VendorBlogPostsController } from './vendor-blog-posts.controller';
+import { VendorBlogPostsService } from './vendor-blog-posts.service';
 import { KYCController } from './kyc.controller';
 import { KYCService } from './kyc.service';
 import { LocationsModule } from '../locations/locations.module';
@@ -26,8 +28,8 @@ import { AdminModule } from '../admin/admin.module';
     SimpleEmailModule,
     AdminModule,
   ],
-  controllers: [VendorsController, VendorPagesController, KYCController],
-  providers: [VendorsService, VendorPagesService, KYCService],
-  exports: [VendorsService, VendorPagesService, KYCService],
+  controllers: [VendorsController, VendorPagesController, VendorBlogPostsController, KYCController],
+  providers: [VendorsService, VendorPagesService, VendorBlogPostsService, KYCService],
+  exports: [VendorsService, VendorPagesService, VendorBlogPostsService, KYCService],
 })
 export class VendorsModule {}
