@@ -67,7 +67,7 @@ export class MarketplacePage {
   metaKeywords: string;
 
   // Blog-specific fields
-  @Column('simple-array', { nullable: true })
+  @Column('text', { array: true, nullable: true })
   tags: string[];
 
   @Column({ type: 'int', default: 0, name: 'view_count' })

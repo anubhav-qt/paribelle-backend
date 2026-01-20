@@ -39,6 +39,14 @@ export class CreateMarketplacePageDto {
   @IsOptional()
   metaKeywords?: string;
 
+  @IsString({ each: true })
+  @IsOptional()
+  tags?: string[];
+
+  @IsString()
+  @IsOptional()
+  authorName?: string;
+
   @IsEnum(PageStatus)
   @IsOptional()
   status?: PageStatus;
