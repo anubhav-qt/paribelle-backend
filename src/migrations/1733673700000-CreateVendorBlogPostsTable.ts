@@ -13,7 +13,7 @@ export class CreateVendorBlogPostsTable1733673700000 implements MigrationInterfa
             default: 'uuid_generate_v4()',
           },
           {
-            name: 'vendorId',
+            name: 'vendor_id',
             type: 'uuid',
           },
           {
@@ -34,7 +34,7 @@ export class CreateVendorBlogPostsTable1733673700000 implements MigrationInterfa
             isNullable: true,
           },
           {
-            name: 'featuredImage',
+            name: 'featured_image',
             type: 'varchar',
             isNullable: true,
           },
@@ -50,38 +50,38 @@ export class CreateVendorBlogPostsTable1733673700000 implements MigrationInterfa
             default: `'draft'`,
           },
           {
-            name: 'authorName',
+            name: 'author_name',
             type: 'varchar',
             isNullable: true,
           },
           {
-            name: 'viewCount',
+            name: 'view_count',
             type: 'int',
             default: 0,
           },
           {
-            name: 'metaTitle',
+            name: 'meta_title',
             type: 'varchar',
             isNullable: true,
           },
           {
-            name: 'metaDescription',
+            name: 'meta_description',
             type: 'text',
             isNullable: true,
           },
           {
-            name: 'createdAt',
+            name: 'created_at',
             type: 'timestamp',
             default: 'CURRENT_TIMESTAMP',
           },
           {
-            name: 'updatedAt',
+            name: 'updated_at',
             type: 'timestamp',
             default: 'CURRENT_TIMESTAMP',
             onUpdate: 'CURRENT_TIMESTAMP',
           },
           {
-            name: 'publishedAt',
+            name: 'published_at',
             type: 'timestamp',
             isNullable: true,
           },
@@ -94,8 +94,8 @@ export class CreateVendorBlogPostsTable1733673700000 implements MigrationInterfa
     await queryRunner.createIndex(
       'vendor_blog_posts',
       new TableIndex({
-        name: 'IDX_vendor_blog_posts_vendorId',
-        columnNames: ['vendorId'],
+        name: 'IDX_vendor_blog_posts_vendor_id',
+        columnNames: ['vendor_id'],
       }),
     );
 
@@ -110,8 +110,8 @@ export class CreateVendorBlogPostsTable1733673700000 implements MigrationInterfa
     await queryRunner.createIndex(
       'vendor_blog_posts',
       new TableIndex({
-        name: 'IDX_vendor_blog_posts_vendorId_slug',
-        columnNames: ['vendorId', 'slug'],
+        name: 'IDX_vendor_blog_posts_vendor_id_slug',
+        columnNames: ['vendor_id', 'slug'],
         isUnique: true,
       }),
     );
@@ -120,7 +120,7 @@ export class CreateVendorBlogPostsTable1733673700000 implements MigrationInterfa
     await queryRunner.createForeignKey(
       'vendor_blog_posts',
       new TableForeignKey({
-        columnNames: ['vendorId'],
+        columnNames: ['vendor_id'],
         referencedColumnNames: ['id'],
         referencedTableName: 'vendors',
         onDelete: 'CASCADE',
