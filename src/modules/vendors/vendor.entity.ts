@@ -15,7 +15,6 @@ import { Order } from '../orders/order.entity';
 import { City } from '../locations/entities/city.entity';
 import { SubLocation } from '../locations/entities/sub-location.entity';
 import { VendorPage } from './entities/vendor-page.entity';
-import { VendorBlogPost } from './entities/vendor-blog-post.entity';
 import { VendorReview } from '../reviews/vendor-review.entity';
 
 export enum VendorStatus {
@@ -371,9 +370,6 @@ export class Vendor {
 
   @OneToMany(() => VendorPage, (page) => page.vendor)
   customPages: VendorPage[];
-
-  @OneToMany(() => VendorBlogPost, (post) => post.vendor)
-  blogPosts: VendorBlogPost[];
 
   @OneToMany(() => VendorReview, (review) => review.vendor)
   reviews: VendorReview[];
