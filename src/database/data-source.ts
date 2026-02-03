@@ -28,6 +28,9 @@ export const AppDataSource = new DataSource({
   username: process.env.DB_USERNAME || parsedConfig.username || 'admin',
   password: process.env.DB_PASSWORD || parsedConfig.password || 'admin',
   database: process.env.DB_DATABASE || parsedConfig.database || 'marketplace',
+  ssl: process.env.NODE_ENV === 'production' || process.env.DATABASE_URL?.includes('neon.tech') 
+    ? { rejectUnauthorized: false } 
+    : false,
   entities: [
     process.env.NODE_ENV === 'production'
       ? path.join(__dirname, '../**/*.entity.js')
