@@ -39,6 +39,16 @@ export class Booking {
   @Column({ type: 'text', nullable: true, name: 'special_requests' })
   specialRequests: string;
 
+  // Customer Details
+  @Column({ name: 'customer_name' })
+  customerName: string;
+
+  @Column({ name: 'customer_email' })
+  customerEmail: string;
+
+  @Column({ name: 'customer_phone' })
+  customerPhone: string;
+
   @Column({ type: 'decimal', precision: 10, scale: 2, name: 'total_price' })
   totalPrice: number;
 
