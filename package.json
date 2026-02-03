@@ -30,6 +30,10 @@
     "db:init:create": "node initialsetup/init-database.js --create-database",
     "seed": "ts-node -r tsconfig-paths/register src/database/seed-runner.ts",
     "seed:admin": "ts-node -r tsconfig-paths/register src/scripts/seed-admin.ts",
+    "seed:tours": "node seed-tour-products.js",
+    "seed:services": "node seed-service-products.js",
+    "seed:physical": "node seed-physical-products.js",
+    "seed:all": "npm run seed && npm run seed:tours && npm run seed:services && npm run seed:physical",
     "migrate:reviews-cascade": "node add-cascade-delete-reviews.js"
   },
   "dependencies": {

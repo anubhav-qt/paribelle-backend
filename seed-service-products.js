@@ -1,11 +1,11 @@
 const { Client } = require('pg');
 
+// Use DATABASE_URL from environment (for Render/Vercel) or fallback to local
+const connectionString = process.env.DATABASE_URL || 'postgresql://postgres:password@localhost:5432/marketplace';
+
 const client = new Client({
-  host: 'localhost',
-  port: 5432,
-  user: 'postgres',
-  password: 'password',
-  database: 'marketplace'
+  connectionString: connectionString,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 
 const services = [
