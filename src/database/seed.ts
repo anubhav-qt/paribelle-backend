@@ -154,6 +154,7 @@ export async function seedData(dataSource: DataSource) {
       gstRate: 18,
       sku: 'ELEC-001',
       stockQuantity: 50,
+      productType: ProductType.PHYSICAL,
       status: ProductStatus.ACTIVE,
       featuredImage: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500',
       images: ['https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500'],
@@ -807,5 +808,10 @@ export async function seedData(dataSource: DataSource) {
   log(`   - ${reviewCount} reviews created`);
   log(`   - 5 categories created`);
   log(`   - 1 vendor created`);
+  
+  log('✅ Basic seed complete. Run additional seed scripts manually if needed:');
+  log('   node seed-tour-products.js (for tours)');
+  log('   node seed-service-products.js (for services)');
+  log('   node seed-physical-products.js (for more physical products)');
 }
 

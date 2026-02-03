@@ -2,7 +2,9 @@
 param(
     [switch]$ResetDB,
     [switch]$Build,
-    [switch]$Help
+    [switch]$Help,
+    [ValidateSet('', 'seed_all', 'seed_tours', 'seed_services', 'seed_physical')]
+    [string]$Seed = ''
 )
 
 if ($Help) {
@@ -16,6 +18,8 @@ if ($Help) {
     Write-Host "OPTIONS:" -ForegroundColor Yellow
     Write-Host "  -ResetDB                          Reset database (init + seed)" -ForegroundColor White
     Write-Host "  -Build                            Build in production mode" -ForegroundColor White
+    Write-Host "  -Seed <type>                      Seed specific product types" -ForegroundColor White
+    Write-Host "                                    (seed_all, seed_tours, seed_services, seed_physical)" -ForegroundColor Gray
     Write-Host "  -Help                             Show this help message" -ForegroundColor White
     Write-Host ""
     Write-Host "ENVIRONMENT VARIABLES:" -ForegroundColor Yellow
@@ -23,10 +27,11 @@ if ($Help) {
     Write-Host "  `$env:BUILD_MODE=`"true`"              Always use production builds"
     Write-Host ""
     Write-Host "EXAMPLES:" -ForegroundColor Yellow
-    Write-Host "  .\restart-services.ps1                # Start in dev mode"
-    Write-Host "  .\restart-services.ps1 -ResetDB       # Reset database and start"
-    Write-Host "  .\restart-services.ps1 -Build         # Build and start in production"
-    Write-Host "  .\restart-services.ps1 -ResetDB -Build  # Both options"
+    Write-Host "  .\restart-services.ps1                      # Start in dev mode"
+    Write-Host "  .\restart-services.ps1 -ResetDB             # Reset database and start"
+    Write-Host "  .\restart-services.ps1 -ResetDB -Seed seed_all    # Reset + seed all products"
+    Write-Host "  .\restart-services.ps1 -Seed seed_tours     # Seed only tour products"
+    Write-Host "  .\restart-services.ps1 -Build               # Build and start in production"
     Write-Host ""
     Write-Host "SERVICES:" -ForegroundColor Yellow
     Write-Host "  Backend API:  http://localhost:3001"
@@ -132,6 +137,71 @@ if ($resetDb) {
     Write-Host "`nTo disable database reset, run: `$env:RESET_DB=`"false`"" -ForegroundColor Yellow
 }
 
+# Handle seed parameter
+if ($Seed -ne '') {
+    Write-Host "`n🌱 SEEDING DATABASE..." -ForegroundColor Magenta
+    $backendPath = $PSScriptRoot
+    Set-Location $backendPath
+    Write-Host "Current directory: $(Get-Location)" -ForegroundColor Gray
+    
+    switch ($Seed) {
+        'seed_all' {
+            Write-Host "Seeding all product types (Physical + Tours + Services)..." -ForegroundColor Yellow
+            
+            Write-Host "`n📦 1/3 Seeding Physical Products..." -ForegroundColor Cyan
+            node seed-physical-products.js
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "❌ Physical products seeding failed" -ForegroundColor Red
+                exit 1
+            }
+            
+            Write-Host "`n✈️  2/3 Seeding Tour Products..." -ForegroundColor Cyan
+            node seed-tour-products.js
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "❌ Tour products seeding failed" -ForegroundColor Red
+                exit 1
+            }
+            
+            Write-Host "`n📅 3/3 Seeding Service Products..." -ForegroundColor Cyan
+            node seed-service-products.js
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "❌ Service products seeding failed" -ForegroundColor Red
+                exit 1
+            }
+            
+            Write-Host "`n✅ All products seeded successfully!" -ForegroundColor Green
+        }
+        'seed_tours' {
+            Write-Host "Seeding Tour Products only..." -ForegroundColor Yellow
+            node seed-tour-products.js
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "❌ Tour products seeding failed" -ForegroundColor Red
+                exit 1
+            }
+            Write-Host "`n✅ Tour products seeded!" -ForegroundColor Green
+        }
+        'seed_services' {
+            Write-Host "Seeding Service Booking Products only..." -ForegroundColor Yellow
+            node seed-service-products.js
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "❌ Service products seeding failed" -ForegroundColor Red
+                exit 1
+            }
+            Write-Host "`n✅ Service products seeded!" -ForegroundColor Green
+        }
+        'seed_physical' {
+            Write-Host "Seeding Physical Products only..." -ForegroundColor Yellow
+            node seed-physical-products.js
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "❌ Physical products seeding failed" -ForegroundColor Red
+                exit 1
+            }
+            Write-Host "`n✅ Physical products seeded!" -ForegroundColor Green
+        }
+    }
+}
+
+# 
 # Determine which mode to run (dev or prod)
 $runMode = if ($buildMode) { "start:prod" } else { "dev" }
 $modeLabel = if ($buildMode) { "PRODUCTION" } else { "DEVELOPMENT" }

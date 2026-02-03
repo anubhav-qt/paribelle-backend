@@ -94,15 +94,8 @@ async function seedPhysicalProducts() {
     await client.connect();
     console.log('Connected to database');
 
-    // Delete only existing physical products
-    console.log('\n🗑️  Deleting existing physical products...');
-    const deleteResult = await client.query("DELETE FROM products WHERE product_type = 'physical'");
-    console.log(`   Deleted ${deleteResult.rowCount} physical products`);
-    
-    // Delete all existing bookings
-    console.log('🗑️  Deleting all existing bookings...');
-    const deleteBookings = await client.query('DELETE FROM bookings');
-    console.log(`   Deleted ${deleteBookings.rowCount} bookings\n`);
+    // Don't delete existing products - just add more
+    console.log('\n📦 Adding 30 additional physical products...\n');
 
     // Get vendor
     const vendorResult = await client.query(

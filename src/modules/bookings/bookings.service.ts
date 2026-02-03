@@ -1,8 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
 import { Booking, BookingStatus } from './booking.entity';
 import { Product, ProductType } from '../products/product.entity';
+import { User } from '../users/user.entity';
 
 export interface TimeSlot {
   startTime: string;
@@ -23,16 +24,48 @@ export class BookingsService {
     private bookingRepository: Repository<Booking>,
     @InjectRepository(Product)
     private productRepository: Repository<Product>,
+    @InjectRepository(User)
+    private userRepository: Repository<User>,
   ) {}
 
   async create(createBookingDto: any): Promise<Booking> {
     console.log('Creating booking with data:', createBookingDto);
+    
+    // Validate that user exists
+    if (!createBookingDto.userId) {
+      throw new BadRequestException('User ID is required');
+    }
+    
+    const user = await this.userRepository.findOne({ where: { id: createBookingDto.userId } });
+    if (!user) {
+      throw new NotFoundException(
+        'USER_NOT_FOUND',
+        'Your session has expired or is invalid. Please log in again.'
+      );
+    }
+    
+    // Auto-populate customer details from user if not provided
+    createBookingDto.customerName = createBookingDto.customerName || `${user.firstName} ${user.lastName}`;
+    createBookingDto.customerEmail = createBookingDto.customerEmail || user.email;
+    createBookingDto.customerPhone = createBookingDto.customerPhone || user.phone || 'Not provided';
+    
     const booking = this.bookingRepository.create(createBookingDto);
-    const savedBooking = await this.bookingRepository.save(booking);
-    const result = Array.isArray(savedBooking) ? savedBooking[0] : savedBooking;
-    console.log('Saved booking:', result);
-    console.log('Booking ID:', result?.id);
-    return result;
+    
+    try {
+      const savedBooking = await this.bookingRepository.save(booking);
+      const result = Array.isArray(savedBooking) ? savedBooking[0] : savedBooking;
+      console.log('Saved booking:', result);
+      console.log('Booking ID:', result?.id);
+      return result;
+    } catch (error) {
+      console.error('Error saving booking:', error);
+      if (error.code === '23503') { // PostgreSQL foreign key constraint violation
+        throw new BadRequestException(
+          'Invalid reference in booking data. Please refresh the page and try again.'
+        );
+      }
+      throw error;
+    }
   }
 
   async findAll(): Promise<Booking[]> {
@@ -146,9 +179,21 @@ export class BookingsService {
           }];
         } else {
           // For hourly/session bookings, generate time slots
+          // Convert duration to minutes based on durationUnit
+          const durationInMinutes = bookingMeta.durationUnit === 'hours' 
+            ? (bookingMeta.duration || 1) * 60 
+            : bookingMeta.duration || 60;
+          
+          console.log('Generating slots:', {
+            duration: bookingMeta.duration,
+            durationUnit: bookingMeta.durationUnit,
+            durationInMinutes,
+            bufferTime: bookingMeta.bufferTime,
+          });
+          
           slots = this.generateTimeSlots(
             bookingMeta.timeSlots || [{ start: '09:00', end: '17:00' }],
-            bookingMeta.duration || 60,
+            durationInMinutes,
             bookingMeta.bufferTime || 0,
             existingBookings.filter(
               (b) => new Date(b.bookingDate).toISOString().split('T')[0] === dateStr,

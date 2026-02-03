@@ -48,16 +48,15 @@ function generateAvailability(serviceType, capacity) {
   // Build availableDays array
   const availableDays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
-  // Build timeSlots array - this is what the backend expects
+  // Build timeSlots array - this defines the RANGES where slots can be booked
   const timeSlots = [];
   if (serviceType === 'hourly') {
-    // Hourly slots from 9 AM to 6 PM
-    for (let hour = 9; hour < 18; hour++) {
-      timeSlots.push({
-        start: `${hour.toString().padStart(2, '0')}:00`,
-        end: `${(hour + 1).toString().padStart(2, '0')}:00`
-      });
-    }
+    // For hourly bookings, provide ONE big range for the entire working day
+    // The backend will generate individual hourly slots with buffer time
+    timeSlots.push({
+      start: '09:00',
+      end: '18:00'
+    });
   } else {
     // Daily booking - single full-day slot
     timeSlots.push({
