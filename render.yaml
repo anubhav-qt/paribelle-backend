@@ -6,7 +6,8 @@ services:
     region: frankfurt
     plan: free
     buildCommand: npm ci --legacy-peer-deps && npm run build
-    startCommand: node run-migrations.js && node seed-all-render.js && node dist/main.js
+    startCommand: npm run render:start
+    # After first successful deployment, change to: npm run render:start:normal
     envVars:
       - key: NODE_ENV
         value: production
