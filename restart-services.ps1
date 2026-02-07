@@ -16,22 +16,27 @@ if ($Help) {
     Write-Host "  .\restart-services.ps1 [options]"
     Write-Host ""
     Write-Host "OPTIONS:" -ForegroundColor Yellow
-    Write-Host "  -ResetDB                          Reset database (init + seed)" -ForegroundColor White
+    Write-Host "  -ResetDB                          Reset database (drops tables + recreates + seeds admin user only)" -ForegroundColor White
     Write-Host "  -Build                            Build in production mode" -ForegroundColor White
-    Write-Host "  -Seed <type>                      Seed specific product types" -ForegroundColor White
-    Write-Host "                                    (seed_all, seed_tours, seed_services, seed_physical)" -ForegroundColor Gray
+    Write-Host "  -Seed <type>                      Seed product data (required for products in database)" -ForegroundColor White
+    Write-Host "                                    Values: seed_all, seed_tours, seed_services, seed_physical" -ForegroundColor Gray
     Write-Host "  -Help                             Show this help message" -ForegroundColor White
+    Write-Host ""
+    Write-Host "IMPORTANT:" -ForegroundColor Red
+    Write-Host "  -ResetDB only creates admin user - use -Seed to add products!" -ForegroundColor Yellow
+    Write-Host "  To get a fully populated database, use: -ResetDB -Seed seed_all" -ForegroundColor Yellow
     Write-Host ""
     Write-Host "ENVIRONMENT VARIABLES:" -ForegroundColor Yellow
     Write-Host "  `$env:RESET_DB=`"true`"                Reset DB on every restart"
     Write-Host "  `$env:BUILD_MODE=`"true`"              Always use production builds"
     Write-Host ""
     Write-Host "EXAMPLES:" -ForegroundColor Yellow
-    Write-Host "  .\restart-services.ps1                      # Start in dev mode"
-    Write-Host "  .\restart-services.ps1 -ResetDB             # Reset database and start"
-    Write-Host "  .\restart-services.ps1 -ResetDB -Seed seed_all    # Reset + seed all products"
-    Write-Host "  .\restart-services.ps1 -Seed seed_tours     # Seed only tour products"
-    Write-Host "  .\restart-services.ps1 -Build               # Build and start in production"
+    Write-Host "  .\restart-services.ps1                           # Start in dev mode"
+    Write-Host "  .\restart-services.ps1 -ResetDB                  # Reset DB (admin user only, NO products)"
+    Write-Host "  .\restart-services.ps1 -ResetDB -Seed seed_all   # Reset DB + seed all products (RECOMMENDED)"
+    Write-Host "  .\restart-services.ps1 -Seed seed_all            # Add all products to existing DB"
+    Write-Host "  .\restart-services.ps1 -Seed seed_tours          # Add only tour products"
+    Write-Host "  .\restart-services.ps1 -Build                    # Build and start in production"
     Write-Host ""
     Write-Host "SERVICES:" -ForegroundColor Yellow
     Write-Host "  Backend API:  http://localhost:3001"
@@ -254,9 +259,10 @@ Write-Host "Press Ctrl+C in those windows to stop the servers" -ForegroundColor 
 
 Write-Host "`nUsage Tips:" -ForegroundColor Cyan
 Write-Host "   Command-line options:" -ForegroundColor Gray
-Write-Host "     .\restart-services.ps1 -ResetDB    # Reset database and restart" -ForegroundColor Gray
-Write-Host "     .\restart-services.ps1 -Build      # Build projects in production mode" -ForegroundColor Gray
-Write-Host "     .\restart-services.ps1 -ResetDB -Build # Both options" -ForegroundColor Gray
+Write-Host "     .\restart-services.ps1 -ResetDB -Seed seed_all  # Reset DB + seed all products" -ForegroundColor Gray
+Write-Host "     .\restart-services.ps1 -Seed seed_all           # Seed products only" -ForegroundColor Gray
+Write-Host "     .\restart-services.ps1 -Build                   # Production mode build" -ForegroundColor Gray
+Write-Host "     .\restart-services.ps1 -Help                    # Show detailed help" -ForegroundColor Gray
 Write-Host "" -ForegroundColor Gray
 if ($buildMode) {
     Write-Host "   Currently in BUILD mode (production builds + production servers)" -ForegroundColor Gray
