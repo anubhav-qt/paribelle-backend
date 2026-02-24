@@ -21,11 +21,11 @@ export async function seedData(dataSource: DataSource) {
   log('🌱 Seeding database...');
 
   // Create superadmin user
-  let superAdminUser = await userRepository.findOne({ where: { email: 'admin@marketplace.com' } });
+  let superAdminUser = await userRepository.findOne({ where: { email: 'ajaniljoshijobs@gmail.com' } });
   if (!superAdminUser) {
-    const hashedPassword = await bcrypt.hash('admin123', 10);
+    const hashedPassword = await bcrypt.hash('Admin@123', 10);
     superAdminUser = await userRepository.save({
-      email: 'admin@marketplace.com',
+      email: 'ajaniljoshijobs@gmail.com',
       password: hashedPassword,
       firstName: 'Super',
       lastName: 'Admin',
@@ -33,7 +33,7 @@ export async function seedData(dataSource: DataSource) {
       emailVerifiedAt: new Date(), // Pre-verified for testing
       status: UserStatus.ACTIVE,
     } as User) as User;
-    log('✅ Created superadmin user: admin@marketplace.com');
+    log('✅ Created superadmin user: ajaniljoshijobs@gmail.com');
   }
 
   // Create a vendor user

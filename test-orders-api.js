@@ -12,8 +12,8 @@ async function testOrdersAPI() {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        email: 'admin@marketplace.com',
-        password: 'admin123', // Assuming this is the password
+        email: 'ajaniljoshijobs@gmail.com',
+        password: 'Admin@123',
       }),
     });
     

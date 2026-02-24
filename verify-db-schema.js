@@ -71,7 +71,7 @@ async function verifySchema() {
     const adminResult = await client.query(`
       SELECT email, first_name, last_name, role, status, email_verified_at 
       FROM users 
-      WHERE email = 'admin@marketplace.com'
+      WHERE email = 'ajaniljoshijobs@gmail.com'
     `);
     
     if (adminResult.rows.length > 0) {

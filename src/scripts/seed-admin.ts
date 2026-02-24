@@ -22,7 +22,7 @@ async function seedAdmin() {
     
     const usersService = app.get(UsersService);
 
-    const adminEmail = process.env.ADMIN_EMAIL || 'admin@marketplace.com';
+    const adminEmail = process.env.ADMIN_EMAIL || 'ajaniljoshijobs@gmail.com';
     const adminPassword = process.env.ADMIN_PASSWORD || 'Admin@123';
 
     // Check if admin already exists
@@ -50,6 +50,7 @@ async function seedAdmin() {
       lastName: 'User',
       role: UserRole.SUPER_ADMIN,
       status: 'active' as any,
+      emailVerifiedAt: new Date(), // Pre-verify admin user
     });
 
     console.log('✅ Admin user created successfully!');

@@ -31,14 +31,14 @@ async function checkAdmin() {
     await client.connect();
     console.log('✅ Connected successfully!');
     
-    console.log('\n📧 Checking admin user: admin@marketplace.com');
+    console.log('\n📧 Checking admin user: ajaniljoshijobs@gmail.com');
     
     const result = await client.query(
       `SELECT id, email, "firstName", "lastName", role, status, 
               "emailVerifiedAt", password 
        FROM users 
        WHERE email = $1`,
-      ['admin@marketplace.com']
+      ['ajaniljoshijobs@gmail.com']
     );
     
     if (result.rows.length === 0) {
@@ -67,15 +67,15 @@ async function checkAdmin() {
     }
     
     // Test password
-    console.log('\n🔐 Testing password: admin123');
-    const passwordMatch = await bcrypt.compare('admin123', user.password);
+    console.log('\n🔐 Testing password: Admin@123');
+    const passwordMatch = await bcrypt.compare('Admin@123', user.password);
     
     if (passwordMatch) {
       console.log('   ✅ Password matches!');
     } else {
       console.log('   ❌ Password does NOT match!');
-      console.log('   Resetting password to: admin123');
-      const hashedPassword = await bcrypt.hash('admin123', 10);
+      console.log('   Resetting password to: Admin@123');
+      const hashedPassword = await bcrypt.hash('Admin@123', 10);
       await client.query(
         `UPDATE users SET password = $1 WHERE id = $2`,
         [hashedPassword, user.id]
@@ -84,8 +84,8 @@ async function checkAdmin() {
     }
     
     console.log('\n✅ Admin credentials are now valid:');
-    console.log('   Email:    admin@marketplace.com');
-    console.log('   Password: admin123');
+    console.log('   Email:    ajaniljoshijobs@gmail.com');
+    console.log('   Password: Admin@123');
     
     await client.end();
     process.exit(0);
