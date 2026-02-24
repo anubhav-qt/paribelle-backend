@@ -11,8 +11,8 @@ async function createTables() {
   console.log('🏗️  Creating database tables from entities...');
   
   try {
-    // Use TypeORM synchronize to create tables
-    execSync('npx ts-node -r tsconfig-paths/register src/scripts/create-tables.ts', {
+    // Use compiled JavaScript from dist folder
+    execSync('node dist/scripts/create-tables.js', {
       stdio: 'inherit',
       cwd: __dirname
     });
