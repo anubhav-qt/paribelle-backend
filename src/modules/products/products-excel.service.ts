@@ -1,11 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository, In, IsNull } from 'typeorm';
 import * as ExcelJS from 'exceljs';
 import { Product } from './product.entity';
 import { ProductVariant } from './product-variant.entity';
 import { Category } from '../categories/category.entity';
 import { Vendor } from '../vendors/vendor.entity';
+import { User, UserRole } from '../users/user.entity';
 import { HsnCode } from './hsn-code.entity';
 import { CloudinaryService } from '../../common/services/cloudinary.service';
 import * as fs from 'fs';
@@ -37,10 +38,62 @@ export class ProductsExcelService {
     private categoriesRepository: Repository<Category>,
     @InjectRepository(Vendor)
     private vendorsRepository: Repository<Vendor>,
+    @InjectRepository(User)
+    private usersRepository: Repository<User>,
     @InjectRepository(HsnCode)
     private hsnCodeRepository: Repository<HsnCode>,
     private cloudinaryService: CloudinaryService,
   ) {}
+
+  private async getOrCreatePlatformVendorForImport(): Promise<Vendor> {
+    let platformVendor = await this.vendorsRepository.findOne({ where: { slug: 'marketplace-platform' } });
+
+    if (platformVendor?.userId) {
+      return platformVendor;
+    }
+
+    let platformUser = await this.usersRepository.findOne({
+      where: {
+        role: UserRole.SUPER_ADMIN,
+        vendorId: IsNull(),
+      },
+    });
+
+    if (!platformUser) {
+      platformUser = await this.usersRepository.findOne({
+        where: {
+          vendorId: IsNull(),
+        },
+      });
+    }
+
+    if (!platformUser) {
+      throw new Error('No available user found for platform vendor. Please create a super admin user and retry import.');
+    }
+
+    if (!platformVendor) {
+      platformVendor = this.vendorsRepository.create({
+        userId: platformUser.id,
+        user: platformUser,
+        storeName: 'Platform Store',
+        slug: 'marketplace-platform',
+        businessName: 'Platform Business',
+        contactEmail: 'platform@marketplace.com',
+        contactPhone: '0000000000',
+        status: 'active' as any,
+        kycStatus: 'approved' as any,
+      });
+      platformVendor = await this.vendorsRepository.save(platformVendor);
+      console.log('[Import] Created platform vendor for admin imports');
+      return platformVendor;
+    }
+
+    platformVendor.userId = platformUser.id;
+    platformVendor.user = platformUser;
+    platformVendor = await this.vendorsRepository.save(platformVendor);
+    console.log('[Import] Updated existing platform vendor with a valid user_id for admin imports');
+    return platformVendor;
+  }
 
   /**
    * Helper method to get recommended GST rate from HSN/SAC code
@@ -1362,27 +1415,12 @@ export class ProductsExcelService {
           // Determine vendor ID for this product
           let finalVendorId: string | null = vendorId;
           if (!finalVendorId) {
-            // Get or create platform vendor for admin import
-            let platformVendor = await this.vendorsRepository.findOne({ where: { slug: 'marketplace-platform' } });
-            
-            if (!platformVendor) {
-              // Create platform vendor if it doesn't exist
-              try {
-                platformVendor = this.vendorsRepository.create({
-                  storeName: 'Platform Store',
-                  slug: 'marketplace-platform',
-                  businessName: 'Platform Business',
-                  contactEmail: 'platform@marketplace.com',
-                  contactPhone: '0000000000',
-                  status: 'active' as any,
-                  kycStatus: 'approved' as any,
-                });
-                platformVendor = await this.vendorsRepository.save(platformVendor);
-                console.log('[Import] Created platform vendor for admin imports');
-              } catch (err) {
-                errors.push(`Sheet "${sheetName}", Row ${rowNumber}: Failed to create platform vendor - ${err.message}`);
-                return;
-              }
+            let platformVendor: Vendor | null = null;
+            try {
+              platformVendor = await this.getOrCreatePlatformVendorForImport();
+            } catch (err) {
+              errors.push(`Sheet "${sheetName}", Row ${rowNumber}: Failed to create platform vendor - ${err.message}`);
+              return;
             }
             
             finalVendorId = platformVendor?.id || null;
