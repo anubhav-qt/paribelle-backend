@@ -83,9 +83,32 @@ export class ProductsExcelService {
         status: 'active' as any,
         kycStatus: 'approved' as any,
       });
-      platformVendor = await this.vendorsRepository.save(platformVendor);
-      console.log('[Import] Created platform vendor for admin imports');
-      return platformVendor;
+      try {
+        platformVendor = await this.vendorsRepository.save(platformVendor);
+        console.log('[Import] Created platform vendor for admin imports');
+        return platformVendor;
+      } catch (error) {
+        // Handle concurrent imports attempting to create the same platform vendor.
+        const isDuplicateKey =
+          error?.code === '23505' ||
+          error?.message?.toLowerCase?.().includes('duplicate key');
+
+        if (!isDuplicateKey) {
+          throw error;
+        }
+
+        const existingBySlug = await this.vendorsRepository.findOne({ where: { slug: 'marketplace-platform' } });
+        if (existingBySlug?.userId) {
+          return existingBySlug;
+        }
+
+        const existingByUser = await this.vendorsRepository.findOne({ where: { userId: platformUser.id } });
+        if (existingByUser) {
+          return existingByUser;
+        }
+
+        throw error;
+      }
     }
 
     platformVendor.userId = platformUser.id;
@@ -1200,6 +1223,13 @@ export class ProductsExcelService {
     }
     // If vendorId is null, admin is importing - vendor will be from Excel or use platform vendor
 
+    // Resolve platform vendor once per import to avoid parallel row races creating duplicates.
+    let resolvedImportVendorId: string | null = vendorId;
+    if (!resolvedImportVendorId) {
+      const platformVendor = await this.getOrCreatePlatformVendorForImport();
+      resolvedImportVendorId = platformVendor.id;
+    }
+
     // Create a map of uploaded images by filename
     const imageMap = new Map<string, MulterFile>();
     imageFiles.forEach(file => {
@@ -1413,21 +1443,10 @@ export class ProductsExcelService {
           if (!name) return;
 
           // Determine vendor ID for this product
-          let finalVendorId: string | null = vendorId;
+          const finalVendorId: string | null = resolvedImportVendorId;
           if (!finalVendorId) {
-            let platformVendor: Vendor | null = null;
-            try {
-              platformVendor = await this.getOrCreatePlatformVendorForImport();
-            } catch (err) {
-              errors.push(`Sheet "${sheetName}", Row ${rowNumber}: Failed to create platform vendor - ${err.message}`);
-              return;
-            }
-            
-            finalVendorId = platformVendor?.id || null;
-            if (!finalVendorId) {
-              errors.push(`Sheet "${sheetName}", Row ${rowNumber}: No vendor ID provided and platform vendor not available`);
-              return;
-            }
+            errors.push(`Sheet "${sheetName}", Row ${rowNumber}: No vendor ID provided and platform vendor not available`);
+            return;
           }
 
           // Process images
