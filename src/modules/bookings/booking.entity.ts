@@ -49,6 +49,36 @@ export class Booking {
   @Column({ name: 'customer_phone' })
   customerPhone: string;
 
+  // Address details captured during checkout (same structure as order checkout)
+  @Column({ type: 'jsonb', nullable: true, name: 'shipping_address_details' })
+  shippingAddressDetails: {
+    fullName?: string;
+    email?: string;
+    phone?: string;
+    addressLine1?: string;
+    addressLine2?: string;
+    city?: string;
+    state?: string;
+    postalCode?: string;
+    country?: string;
+  } | null;
+
+  @Column({ default: true, name: 'billing_address_same_as_shipping' })
+  billingAddressSameAsShipping: boolean;
+
+  @Column({ type: 'jsonb', nullable: true, name: 'billing_address_details' })
+  billingAddressDetails: {
+    fullName?: string;
+    email?: string;
+    phone?: string;
+    addressLine1?: string;
+    addressLine2?: string;
+    city?: string;
+    state?: string;
+    postalCode?: string;
+    country?: string;
+  } | null;
+
   @Column({ type: 'decimal', precision: 10, scale: 2, name: 'total_price' })
   totalPrice: number;
 

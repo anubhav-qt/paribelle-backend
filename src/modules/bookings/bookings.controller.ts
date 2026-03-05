@@ -56,6 +56,15 @@ export class BookingsController {
     return booking;
   }
 
+  @Patch(':id')
+  @ApiOperation({ summary: 'Update booking details (status, payment, address)' })
+  async update(
+    @Param('id') id: string,
+    @Body() updateBookingDto: any,
+  ) {
+    return this.bookingsService.update(id, updateBookingDto);
+  }
+
   @Patch(':id/status')
   @ApiOperation({ summary: 'Update booking status' })
   async updateStatus(

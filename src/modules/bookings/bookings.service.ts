@@ -30,6 +30,19 @@ export class BookingsService {
 
   async create(createBookingDto: any): Promise<Booking> {
     console.log('Creating booking with data:', createBookingDto);
+
+    const shippingAddress = createBookingDto.shippingAddress || createBookingDto.shippingAddressDetails;
+    const billingAddress = createBookingDto.billingAddress || createBookingDto.billingAddressDetails;
+
+    if (shippingAddress) {
+      createBookingDto.shippingAddressDetails = shippingAddress;
+      if (createBookingDto.billingAddressSameAsShipping === undefined) {
+        createBookingDto.billingAddressSameAsShipping = !billingAddress;
+      }
+      if (billingAddress) {
+        createBookingDto.billingAddressDetails = billingAddress;
+      }
+    }
     
     // Validate that user exists
     if (!createBookingDto.userId) {
@@ -44,10 +57,10 @@ export class BookingsService {
       );
     }
     
-    // Auto-populate customer details from user if not provided
-    createBookingDto.customerName = createBookingDto.customerName || `${user.firstName} ${user.lastName}`;
-    createBookingDto.customerEmail = createBookingDto.customerEmail || user.email;
-    createBookingDto.customerPhone = createBookingDto.customerPhone || user.phone || 'Not provided';
+    // Auto-populate customer details from shipping address first, then user profile.
+    createBookingDto.customerName = createBookingDto.customerName || shippingAddress?.fullName || `${user.firstName} ${user.lastName}`;
+    createBookingDto.customerEmail = createBookingDto.customerEmail || shippingAddress?.email || user.email;
+    createBookingDto.customerPhone = createBookingDto.customerPhone || shippingAddress?.phone || user.phone || 'Not provided';
     
     const booking = this.bookingRepository.create(createBookingDto);
     
@@ -66,6 +79,37 @@ export class BookingsService {
       }
       throw error;
     }
+  }
+
+  async update(id: string, updateBookingDto: any): Promise<Booking | null> {
+    const existing = await this.bookingRepository.findOne({ where: { id } });
+    if (!existing) {
+      throw new NotFoundException(`Booking with ID ${id} not found`);
+    }
+
+    const patch: any = { ...updateBookingDto };
+    const shippingAddress = updateBookingDto.shippingAddress || updateBookingDto.shippingAddressDetails;
+    const billingAddress = updateBookingDto.billingAddress || updateBookingDto.billingAddressDetails;
+
+    if (shippingAddress) {
+      patch.shippingAddressDetails = shippingAddress;
+      patch.customerName = patch.customerName || shippingAddress.fullName || existing.customerName;
+      patch.customerEmail = patch.customerEmail || shippingAddress.email || existing.customerEmail;
+      patch.customerPhone = patch.customerPhone || shippingAddress.phone || existing.customerPhone;
+    }
+
+    if (billingAddress) {
+      patch.billingAddressDetails = billingAddress;
+    }
+
+    delete patch.shippingAddress;
+    delete patch.billingAddress;
+
+    await this.bookingRepository.update(id, patch);
+    return this.bookingRepository.findOne({
+      where: { id },
+      relations: ['product', 'user', 'vendor', 'payment'],
+    });
   }
 
   async findAll(): Promise<Booking[]> {
