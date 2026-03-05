@@ -7,34 +7,37 @@ export class AddProductVariations1735392000000 implements MigrationInterface {
     const table = await queryRunner.getTable('products');
     if (!table) return;
 
+    const hasColumn = (snake: string, camel: string) =>
+      !!table.findColumnByName(snake) || !!table.findColumnByName(camel);
+
     // Add columns for product variation support
-    if (!table?.findColumnByName('isParent')) {
+    if (!hasColumn('is_parent', 'isParent')) {
       await queryRunner.addColumn(
         'products',
         new TableColumn({
-          name: 'isParent',
+          name: 'is_parent',
           type: 'boolean',
           default: false,
         }),
       );
     }
 
-    if (!table?.findColumnByName('parentProductId')) {
+    if (!hasColumn('parent_product_id', 'parentProductId')) {
       await queryRunner.addColumn(
         'products',
         new TableColumn({
-          name: 'parentProductId',
+          name: 'parent_product_id',
           type: 'uuid',
           isNullable: true,
         }),
       );
     }
 
-    if (!table?.findColumnByName('variationAttributes')) {
+    if (!hasColumn('variation_attributes', 'variationAttributes')) {
       await queryRunner.addColumn(
         'products',
         new TableColumn({
-          name: 'variationAttributes',
+          name: 'variation_attributes',
           type: 'jsonb',
           isNullable: true,
           comment: 'Specific attributes for this variation (e.g., {color: "red", size: "M"})',
@@ -42,11 +45,11 @@ export class AddProductVariations1735392000000 implements MigrationInterface {
       );
     }
 
-    if (!table?.findColumnByName('variationThemes')) {
+    if (!hasColumn('variation_themes', 'variationThemes')) {
       await queryRunner.addColumn(
         'products',
         new TableColumn({
-          name: 'variationThemes',
+          name: 'variation_themes',
           type: 'text',
           isArray: true,
           isNullable: true,
@@ -57,13 +60,15 @@ export class AddProductVariations1735392000000 implements MigrationInterface {
 
     // Add foreign key for parent-child relationship
     const existingFk = table?.foreignKeys.find(
-      (fk) => fk.columnNames.indexOf('parentProductId') !== -1,
+      (fk) =>
+        fk.columnNames.indexOf('parent_product_id') !== -1 ||
+        fk.columnNames.indexOf('parentProductId') !== -1,
     );
     if (!existingFk) {
       await queryRunner.createForeignKey(
         'products',
         new TableForeignKey({
-          columnNames: ['parentProductId'],
+          columnNames: [hasColumn('parent_product_id', 'parentProductId') ? 'parent_product_id' : 'parentProductId'],
           referencedColumnNames: ['id'],
           referencedTableName: 'products',
           onDelete: 'CASCADE',
@@ -80,7 +85,7 @@ export class AddProductVariations1735392000000 implements MigrationInterface {
         'products',
         new TableIndex({
           name: 'IDX_PRODUCTS_PARENT_ID',
-          columnNames: ['parentProductId'],
+          columnNames: [hasColumn('parent_product_id', 'parentProductId') ? 'parent_product_id' : 'parentProductId'],
         }),
       );
     }
@@ -93,7 +98,7 @@ export class AddProductVariations1735392000000 implements MigrationInterface {
         'products',
         new TableIndex({
           name: 'IDX_PRODUCTS_IS_PARENT',
-          columnNames: ['isParent'],
+          columnNames: [hasColumn('is_parent', 'isParent') ? 'is_parent' : 'isParent'],
         }),
       );
     }
@@ -116,23 +121,33 @@ export class AddProductVariations1735392000000 implements MigrationInterface {
 
     // Drop foreign key
     const foreignKey = table?.foreignKeys.find(
-      (fk) => fk.columnNames.indexOf('parentProductId') !== -1,
+      (fk) =>
+        fk.columnNames.indexOf('parent_product_id') !== -1 ||
+        fk.columnNames.indexOf('parentProductId') !== -1,
     );
     if (foreignKey) {
       await queryRunner.dropForeignKey('products', foreignKey);
     }
 
     // Drop columns
-    if (table?.findColumnByName('variationThemes')) {
+    if (table?.findColumnByName('variation_themes')) {
+      await queryRunner.dropColumn('products', 'variation_themes');
+    } else if (table?.findColumnByName('variationThemes')) {
       await queryRunner.dropColumn('products', 'variationThemes');
     }
-    if (table?.findColumnByName('variationAttributes')) {
+    if (table?.findColumnByName('variation_attributes')) {
+      await queryRunner.dropColumn('products', 'variation_attributes');
+    } else if (table?.findColumnByName('variationAttributes')) {
       await queryRunner.dropColumn('products', 'variationAttributes');
     }
-    if (table?.findColumnByName('parentProductId')) {
+    if (table?.findColumnByName('parent_product_id')) {
+      await queryRunner.dropColumn('products', 'parent_product_id');
+    } else if (table?.findColumnByName('parentProductId')) {
       await queryRunner.dropColumn('products', 'parentProductId');
     }
-    if (table?.findColumnByName('isParent')) {
+    if (table?.findColumnByName('is_parent')) {
+      await queryRunner.dropColumn('products', 'is_parent');
+    } else if (table?.findColumnByName('isParent')) {
       await queryRunner.dropColumn('products', 'isParent');
     }
   }
