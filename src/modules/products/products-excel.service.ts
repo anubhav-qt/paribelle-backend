@@ -1236,12 +1236,35 @@ export class ProductsExcelService {
       imageMap.set(file.originalname.toLowerCase(), file);
     });
 
-    // Get all categories to map sheet names to category IDs
-    const categories = await this.categoriesRepository.find({ where: { isActive: true } });
+    // Get categories for mapping sheet names to category IDs.
+    // Super admin imports should map to global categories only, while vendor imports can use
+    // both vendor-specific and global categories.
+    const categoryWhere: any = vendorId
+      ? [
+          { isActive: true, vendorId },
+          { isActive: true, vendorId: IsNull() },
+        ]
+      : [{ isActive: true, vendorId: IsNull() }];
+
+    const categories = await this.categoriesRepository.find({ where: categoryWhere });
     const categoryMap = new Map<string, Category>();
+
+    const setCategoryWithPriority = (key: string, category: Category) => {
+      const existing = categoryMap.get(key);
+      if (!existing) {
+        categoryMap.set(key, category);
+        return;
+      }
+
+      // For vendor imports, prefer vendor-specific category over global when names collide.
+      if (vendorId && existing.vendorId == null && category.vendorId === vendorId) {
+        categoryMap.set(key, category);
+      }
+    };
+
     categories.forEach(cat => {
-      categoryMap.set(cat.name, cat);
-      categoryMap.set(cat.name.substring(0, 30), cat); // Handle truncated names
+      setCategoryWithPriority(cat.name, cat);
+      setCategoryWithPriority(cat.name.substring(0, 30), cat); // Handle truncated names
     });
 
     let created = 0;
@@ -1278,6 +1301,7 @@ export class ProductsExcelService {
             name: sheetName,
             slug: slug,
             description: `Auto-created from Excel import`,
+            vendorId: vendorId || null,
             isActive: true,
             sortOrder: (maxSortOrder?.max || 0) + 1,
           });
