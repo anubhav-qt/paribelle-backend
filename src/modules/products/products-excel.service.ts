@@ -1248,6 +1248,7 @@ export class ProductsExcelService {
 
     const categories = await this.categoriesRepository.find({ where: categoryWhere });
     const categoryMap = new Map<string, Category>();
+    const categorySlugMap = new Map<string, Category>();
 
     const setCategoryWithPriority = (key: string, category: Category) => {
       const existing = categoryMap.get(key);
@@ -1265,6 +1266,7 @@ export class ProductsExcelService {
     categories.forEach(cat => {
       setCategoryWithPriority(cat.name, cat);
       setCategoryWithPriority(cat.name.substring(0, 30), cat); // Handle truncated names
+      categorySlugMap.set(cat.slug, cat);
     });
 
     let created = 0;
@@ -1286,12 +1288,41 @@ export class ProductsExcelService {
       // Find the category for this sheet
       let category = categoryMap.get(sheetName);
       const isUncategorized = sheetName === 'Uncategorized';
+
+      // Handle common sheet aliases to avoid duplicate category creation.
+      if (!category && !isUncategorized) {
+        const normalizedSheetSlug = sheetName
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-|-$/g, '');
+
+        const normalizedNoDash = normalizedSheetSlug.replace(/-/g, '');
+        if (
+          normalizedSheetSlug === 'services' ||
+          normalizedNoDash === 'bookingservices' ||
+          normalizedNoDash === 'bookingsservices'
+        ) {
+          category = categorySlugMap.get('bookings-services');
+          if (category) {
+            categoryMap.set(sheetName, category);
+          }
+        }
+      }
       
       // Auto-create category if not found (except for Uncategorized)
       if (!category && !isUncategorized) {
         try {
           console.log(`[Import] Creating new category: ${sheetName}`);
           const slug = sheetName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+          // If a category with this slug already exists in scope, reuse it instead of creating duplicate.
+          const existingCategoryBySlug = categorySlugMap.get(slug);
+          if (existingCategoryBySlug) {
+            category = existingCategoryBySlug;
+            categoryMap.set(sheetName, category);
+            continue;
+          }
+
           const maxSortOrder = await this.categoriesRepository
             .createQueryBuilder('category')
             .select('MAX(category.sortOrder)', 'max')
@@ -1310,6 +1341,7 @@ export class ProductsExcelService {
           category = Array.isArray(savedCategories) ? savedCategories[0] : savedCategories;
           if (category) {
             categoryMap.set(sheetName, category);
+            categorySlugMap.set(category.slug, category);
             createdCategories.push(sheetName);
             console.log(`[Import] Created category: ${sheetName} (ID: ${category.id})`);
           }
