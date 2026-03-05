@@ -1278,9 +1278,10 @@ export class ProductsExcelService {
     const processedProductIds = new Set<string>();
     const productNameToIdMap = new Map<string, string>(); // Track product names -> IDs for variant lookup
 
-    // Process each worksheet (except Instructions and Product Variants on first pass)
+    // Process each worksheet (skip non-product system sheets on first pass)
     for (const worksheet of workbook.worksheets) {
       const sheetName = worksheet.name;
+      const normalizedSheetName = sheetName.trim().toLowerCase();
       const normalizedSheetSlug = sheetName
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '-')
@@ -1292,8 +1293,16 @@ export class ProductsExcelService {
         normalizedSheetNoDash === 'bookingservices' ||
         normalizedSheetNoDash === 'bookingsservices';
       
-      // Skip instructions and variants sheets on first pass (handle variants after products)
-      if (sheetName === 'Instructions' || sheetName === 'Product Variants') continue;
+      // Skip template/system sheets so they are never treated as product categories.
+      if (
+        normalizedSheetName === 'instructions' ||
+        normalizedSheetName === 'product variants' ||
+        normalizedSheetName === 'hsn-sac reference' ||
+        normalizedSheetNoDash === 'productvariants' ||
+        normalizedSheetNoDash === 'hsnsacreference'
+      ) {
+        continue;
+      }
 
       // Find the category for this sheet
       let category = categoryMap.get(sheetName);
