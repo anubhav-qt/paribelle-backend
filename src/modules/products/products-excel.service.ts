@@ -1281,6 +1281,16 @@ export class ProductsExcelService {
     // Process each worksheet (except Instructions and Product Variants on first pass)
     for (const worksheet of workbook.worksheets) {
       const sheetName = worksheet.name;
+      const normalizedSheetSlug = sheetName
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '');
+      const normalizedSheetNoDash = normalizedSheetSlug.replace(/-/g, '');
+      const isBookingServicesSheet =
+        normalizedSheetSlug === 'booking-services' ||
+        normalizedSheetSlug === 'bookings-services' ||
+        normalizedSheetNoDash === 'bookingservices' ||
+        normalizedSheetNoDash === 'bookingsservices';
       
       // Skip instructions and variants sheets on first pass (handle variants after products)
       if (sheetName === 'Instructions' || sheetName === 'Product Variants') continue;
@@ -1290,13 +1300,8 @@ export class ProductsExcelService {
       const isUncategorized = sheetName === 'Uncategorized';
 
       // Handle common sheet aliases to avoid duplicate category creation.
-      if (!category && !isUncategorized) {
-        const normalizedSheetSlug = sheetName
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, '-')
-          .replace(/^-|-$/g, '');
-
-        const normalizedNoDash = normalizedSheetSlug.replace(/-/g, '');
+      if (!category && !isUncategorized && !isBookingServicesSheet) {
+        const normalizedNoDash = normalizedSheetNoDash;
         if (
           normalizedSheetSlug === 'services' ||
           normalizedNoDash === 'bookingservices' ||
@@ -1310,7 +1315,7 @@ export class ProductsExcelService {
       }
       
       // Auto-create category if not found (except for Uncategorized)
-      if (!category && !isUncategorized) {
+      if (!category && !isUncategorized && !isBookingServicesSheet) {
         try {
           console.log(`[Import] Creating new category: ${sheetName}`);
           const slug = sheetName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -1351,7 +1356,7 @@ export class ProductsExcelService {
         }
       }
       
-      if (!category && !isUncategorized) {
+      if (!category && !isUncategorized && !isBookingServicesSheet) {
         continue;
       }
 
@@ -1472,7 +1477,8 @@ export class ProductsExcelService {
           const costPerItem = parseFloat(getCellValue(row, 'Cost Per Item')?.toString() || '0') || null;
 
           // Read Product Type and Booking fields
-          const productType = getCellValue(row, 'Product Type')?.toString().trim().toLowerCase() || 'physical';
+          const rawProductType = getCellValue(row, 'Product Type')?.toString().trim().toLowerCase();
+          const productType = isBookingServicesSheet ? 'booking' : (rawProductType || 'physical');
           const bookingDuration = getCellValue(row, 'Booking Duration')?.toString().trim();
           const bookingDurationUnit = getCellValue(row, 'Booking Duration Unit')?.toString().trim();
           const bookingBufferTime = getCellValue(row, 'Booking Buffer Time')?.toString().trim();
@@ -1619,7 +1625,7 @@ export class ProductsExcelService {
             status,
             productType: productType === 'booking' ? 'booking' : 'physical',
             vendorId: finalVendorId,
-            categories: category ? [category] : [],
+            categories: isBookingServicesSheet ? [] : (category ? [category] : []),
             attributes: Object.keys(attributes).length > 0 ? attributes : null,
             images: productImages.length > 0 ? productImages : null,
             featuredImage: productImages.length > 0 ? productImages[0] : null,
@@ -1646,7 +1652,10 @@ export class ProductsExcelService {
                 await this.productsRepository.update(_id, dataWithoutCategories);
                 
                 // Update categories relationship separately
-                if (category) {
+                if (isBookingServicesSheet) {
+                  existingProduct.categories = [];
+                  await this.productsRepository.save(existingProduct);
+                } else if (category) {
                   existingProduct.categories = [category];
                   await this.productsRepository.save(existingProduct);
                 }
