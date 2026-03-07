@@ -3,6 +3,9 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Vendor } from './vendor.entity';
 import { User } from '../users/user.entity';
 import { VendorPage } from './entities/vendor-page.entity';
+import { Product } from '../products/product.entity';
+import { Order } from '../orders/order.entity';
+import { VendorReview } from '../reviews/vendor-review.entity';
 import { VendorsController } from './vendors.controller';
 import { VendorsService } from './vendors.service';
 import { VendorPagesController } from './vendor-pages.controller';
@@ -17,7 +20,7 @@ import { AdminModule } from '../admin/admin.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Vendor, User, VendorPage]),
+    TypeOrmModule.forFeature([Vendor, User, VendorPage, Product, Order, VendorReview]),
     LocationsModule,
     ReferralsModule,
     InvoicesModule,

@@ -4,6 +4,9 @@ import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { Vendor, VendorStatus } from './vendor.entity';
 import { User, UserRole, UserStatus } from '../users/user.entity';
+import { Product } from '../products/product.entity';
+import { Order } from '../orders/order.entity';
+import { VendorReview } from '../reviews/vendor-review.entity';
 import { LocationsService } from '../locations/locations.service';
 import { City } from '../locations/entities/city.entity';
 import { SubLocation } from '../locations/entities/sub-location.entity';
@@ -18,6 +21,12 @@ export class VendorsService {
     private vendorsRepository: Repository<Vendor>,
     @InjectRepository(User)
     private usersRepository: Repository<User>,
+    @InjectRepository(Product)
+    private productsRepository: Repository<Product>,
+    @InjectRepository(Order)
+    private ordersRepository: Repository<Order>,
+    @InjectRepository(VendorReview)
+    private vendorReviewsRepository: Repository<VendorReview>,
     private locationsService: LocationsService,
     private fileCleanupService: FileCleanupService,
     private referralsService: ReferralsService,
@@ -344,17 +353,36 @@ export class VendorsService {
   }
 
   async remove(id: string): Promise<void> {
-    // Get vendor to delete associated images
     const vendor = await this.vendorsRepository.findOne({ where: { id } });
-
-    if (vendor) {
-      // Delete vendor images (logo, banner, about images, gallery)
-      await this.fileCleanupService.deleteEntityImages(vendor, [
-        'logo',
-        'banner',
-        'aboutImages',
-      ]);
+    if (!vendor) {
+      throw new NotFoundException('Vendor not found');
     }
+
+    // Delete vendor-owned products first so vendor FK constraints are not violated.
+    // This also enforces the admin UI expectation that deleting a vendor removes products.
+    const productCount = await this.productsRepository.count({ where: { vendorId: id } });
+    if (productCount > 0) {
+      await this.productsRepository.delete({ vendorId: id });
+    }
+
+    // Keep historical integrity: vendor with orders should not be hard-deleted.
+    // This check remains after product cleanup because orders keep direct vendor references.
+    const orderCount = await this.ordersRepository.count({ where: { vendorId: id } });
+    if (orderCount > 0) {
+      throw new BadRequestException(
+        `Vendor products were removed, but vendor cannot be deleted because ${orderCount} order${orderCount > 1 ? 's' : ''} exist. Archive/suspend the vendor instead.`
+      );
+    }
+
+    // Cleanup vendor-specific side tables.
+    await this.vendorReviewsRepository.delete({ vendorId: id });
+
+    // Delete vendor images (logo, banner, about images).
+    await this.fileCleanupService.deleteEntityImages(vendor, [
+      'logo',
+      'banner',
+      'aboutImages',
+    ]);
 
     await this.vendorsRepository.delete(id);
   }
