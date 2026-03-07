@@ -81,7 +81,7 @@ INSERT INTO platform_settings (
     'My Marketplace',
     'My Marketplace Private Limited',
     'private_limited',
-    'ajaniljoshijobs@gmail.com',
+    'anubhav.s.joshi@gmail.com',
     '1800-XXX-XXXX',
     'Office Address Line 1',
     'Mumbai',

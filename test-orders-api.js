@@ -12,7 +12,7 @@ async function testOrdersAPI() {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        email: 'ajaniljoshijobs@gmail.com',
+        email: 'anubhav.s.joshi@gmail.com',
         password: 'Admin@123',
       }),
     });

@@ -12,7 +12,7 @@ SELECT
     email_verified_at,
     substring(password, 1, 20) || '...' as password_preview
 FROM users 
-WHERE email = 'ajaniljoshi@gmail.com';
+WHERE email = 'anubhav.s.joshi@gmail.com';
 
 -- Step 2: If user doesn't exist, create it
 -- (Run this only if Step 1 returns no results)
@@ -28,7 +28,7 @@ INSERT INTO users (
     updated_at
 ) 
 SELECT 
-    'ajaniljoshi@gmail.com',
+    'anubhav.s.joshi@gmail.com',
     '$2b$10$Ff4ljOeD9ePZyMLKpy2m/.eeWVdMKt3kgmEahW/yJK8SkDfhvdkDS', -- Admin@123
     'Admin',
     'User',
@@ -38,7 +38,7 @@ SELECT
     NOW(),
     NOW()
 WHERE NOT EXISTS (
-    SELECT 1 FROM users WHERE email = 'ajaniljoshi@gmail.com'
+    SELECT 1 FROM users WHERE email = 'anubhav.s.joshi@gmail.com'
 );
 
 -- Step 3: If user exists but needs fixing, update it
@@ -51,7 +51,7 @@ SET
     first_name = 'Admin',
     last_name = 'User',
     updated_at = NOW()
-WHERE email = 'ajaniljoshi@gmail.com';
+WHERE email = 'anubhav.s.joshi@gmail.com';
 
 -- Step 4: Verify the fix
 SELECT 
@@ -68,9 +68,9 @@ SELECT
     created_at,
     updated_at
 FROM users 
-WHERE email = 'ajaniljoshi@gmail.com';
+WHERE email = 'anubhav.s.joshi@gmail.com';
 
 -- RESULT:
 -- After running the above queries, you should be able to login with:
--- Email: ajaniljoshi@gmail.com
+-- Email: anubhav.s.joshi@gmail.com
 -- Password: Admin@123

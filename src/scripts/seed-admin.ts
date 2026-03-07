@@ -22,7 +22,7 @@ async function seedAdmin() {
     
     const usersService = app.get(UsersService);
 
-    const adminEmail = process.env.ADMIN_EMAIL || 'ajaniljoshijobs@gmail.com';
+    const adminEmail = process.env.ADMIN_EMAIL || 'anubhav.s.joshi@gmail.com';
     const adminPassword = process.env.ADMIN_PASSWORD || 'Admin@123';
 
     // Check if admin already exists

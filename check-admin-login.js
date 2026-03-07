@@ -31,14 +31,14 @@ async function checkAdmin() {
     await client.connect();
     console.log('✅ Connected successfully!');
     
-    console.log('\n📧 Checking admin user: ajaniljoshijobs@gmail.com');
+    console.log('\n📧 Checking admin user: anubhav.s.joshi@gmail.com');
     
     const result = await client.query(
       `SELECT id, email, "firstName", "lastName", role, status, 
               "emailVerifiedAt", password 
        FROM users 
        WHERE email = $1`,
-      ['ajaniljoshijobs@gmail.com']
+      ['anubhav.s.joshi@gmail.com']
     );
     
     if (result.rows.length === 0) {
@@ -84,7 +84,7 @@ async function checkAdmin() {
     }
     
     console.log('\n✅ Admin credentials are now valid:');
-    console.log('   Email:    ajaniljoshijobs@gmail.com');
+    console.log('   Email:    anubhav.s.joshi@gmail.com');
     console.log('   Password: Admin@123');
     
     await client.end();

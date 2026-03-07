@@ -15,7 +15,7 @@ async function checkAdmin() {
     
     const userRepository = AppDataSource.getRepository('User');
     const admin = await userRepository.findOne({ 
-      where: { email: 'ajaniljoshijobs@gmail.com' } 
+      where: { email: 'anubhav.s.joshi@gmail.com' } 
     });
     
     if (admin) {
