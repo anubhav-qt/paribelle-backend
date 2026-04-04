@@ -674,6 +674,20 @@ export class ProductsService {
       return;
     }
 
+    // Check if product has associated bookings
+    const bookingsCount = await this.productsRepository
+      .createQueryBuilder('product')
+      .leftJoin('bookings', 'booking', 'booking.product_id = product.id')
+      .where('product.id = :id', { id })
+      .select('COUNT(booking.id)', 'count')
+      .getRawOne();
+
+    if (bookingsCount && parseInt(bookingsCount.count) > 0) {
+      // Product has bookings - archive it instead of deleting
+      await this.productsRepository.update(id, { status: ProductStatus.ARCHIVED });
+      return;
+    }
+
     // Get product with variants to delete associated images
     const product = await this.productsRepository.findOne({
       where: { id },
