@@ -2018,8 +2018,7 @@ export class ProductsExcelService {
                 errors.push(`Variants Sheet, Row ${rowNumber}: Variant not found or doesn't belong to vendor`);
               }
             } else {
-              // Create new variant
-              // Verify the product exists and belongs to the vendor
+              // Create or update variant — check by SKU first to avoid duplicate-key errors
               const product = await this.productsRepository.findOne({
                 where: { id: finalProductId },
               });
@@ -2033,16 +2032,28 @@ export class ProductsExcelService {
               });
 
               if (product && (!vendorId || product.vendorId === vendorId)) {
-                const newVariant = this.productVariantsRepository.create(variantData);
-                await this.productVariantsRepository.save(newVariant);
-                
+                // Check whether a variant with this SKU already exists
+                const existingBySku = await this.productVariantsRepository.findOne({
+                  where: { sku },
+                  relations: ['product'],
+                });
+
+                if (existingBySku) {
+                  // SKU already in database → update instead of insert
+                  await this.productVariantsRepository.update(existingBySku.id, variantData);
+                  variantsUpdated++;
+                  console.log(`Updated variant by SKU (upsert): ${sku}`);
+                } else {
+                  const newVariant = this.productVariantsRepository.create(variantData);
+                  await this.productVariantsRepository.save(newVariant);
+                  variantsCreated++;
+                  console.log(`Created variant: ${sku}`);
+                }
+
                 // Update product to mark it has variants
                 if (!product.hasVariants && finalProductId) {
                   await this.productsRepository.update(finalProductId, { hasVariants: true });
                 }
-                
-                variantsCreated++;
-                console.log(`Created variant: ${sku}`);
               } else {
                 console.error(`[Variants] Product verification failed - product: ${!!product}, vendorId: ${vendorId}, productVendorId: ${product?.vendorId}`);
                 errors.push(`Variants Sheet, Row ${rowNumber}: Product not found or doesn't belong to vendor`);
@@ -2060,6 +2071,18 @@ export class ProductsExcelService {
       // Wait for all variant operations to complete
       await Promise.all(variantPromises);
       console.log(`Variants processing complete: ${variantsCreated} created, ${variantsUpdated} updated`);
+
+    }
+
+    // Roll up variant stocks to the parent product so it is never shown as sold out
+    for (const pid of Array.from(processedProductIds)) {
+      const product = await this.productsRepository.findOne({ where: { id: pid } });
+      if (product?.hasVariants) {
+        const variants = await this.productVariantsRepository.find({ where: { productId: pid } });
+        const totalStock = variants.reduce((sum, v) => sum + (v.stockQuantity || 0), 0);
+        await this.productsRepository.update(pid, { stockQuantity: totalStock });
+        console.log(`[Import] Updated product "${product.name}" stock to ${totalStock} (sum of ${variants.length} variants)`);
+      }
     }
 
     // Add info about created categories to result
@@ -2114,57 +2137,43 @@ export class ProductsExcelService {
    */
   async generateSampleTemplate(): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook();
-    
-    // Create Fashion sheet with sample products
-    const fashionSheet = workbook.addWorksheet('Fashion');
-    
-    // Use helper for columns
+
+    // ─── Sizes & Colors for the variant product ───────────────────────────────
+    const SIZES = ['S', 'M', 'L', 'XL'];
+    const COLORS = ['Red', 'Blue', 'Green'];
+    const PRODUCT_NAME = 'Classic Cotton T-Shirt';
+    const TOTAL_VARIANTS = SIZES.length * COLORS.length; // 12
+
+    // Color → RGB used for dummy images
+    const COLOR_MAP: Record<string, { r: number; g: number; b: number }> = {
+      Red:   { r: 220, g: 50,  b: 50  },
+      Blue:  { r: 50,  g: 100, b: 220 },
+      Green: { r: 50,  g: 180, b: 80  },
+    };
+
+    // ─── Uncategorized sheet (product row) ────────────────────────────────────
+    const productSheet = workbook.addWorksheet('Uncategorized');
     const columns = this.getProductColumns();
-    fashionSheet.columns = columns;
-    
-    // Use helper for header styling
-    this.styleHeaderRow(fashionSheet, 'FF4A90E2');
+    productSheet.columns = columns;
+    this.styleHeaderRow(productSheet, 'FF4A90E2');
 
-    // Sample Product 1: Simple physical product (no variants)
-    fashionSheet.addRow({
-      _id: '',
-      name: 'Leather Wallet',
-      description: 'Premium genuine leather wallet with multiple card slots',
-      images: 'wallet-brown.jpg, wallet-inside.jpg',
-      hasVariants: 'NO',
-      price: 1299,
-      compareAtPrice: 1599,
-      stockQuantity: 50,
-      status: 'active',
-      variantCount: '',
-      hsnCode: '4202',
-      sacCode: '',
-      gstRate: 18,
-      priceType: 'selling_price_without_gst',
-      productType: 'physical',
-      bookingDuration: '',
-      bookingDurationUnit: '',
-      bookingBufferTime: '',
-      bookingAvailableDays: '',
-      bookingTimeSlots: '',
-      mrp: 1599,
-      basePrice: 1100,
-      gstAmount: 234,
-      costPerItem: 800,
-    });
+    // Build image list: one main image per color + one extra per color
+    const productImageFilenames = COLORS.flatMap(c => [
+      `tshirt-${c.toLowerCase()}-front.jpg`,
+      `tshirt-${c.toLowerCase()}-back.jpg`,
+    ]);
 
-    // Sample Product 2: Product with variants
-    fashionSheet.addRow({
+    productSheet.addRow({
       _id: '',
-      name: 'Cotton T-Shirt',
-      description: 'Comfortable cotton t-shirt available in multiple sizes and colors',
-      images: 'tshirt-front.jpg, tshirt-back.jpg, tshirt-detail.jpg',
+      name: PRODUCT_NAME,
+      description: '<p>Premium quality 100% cotton t-shirt available in multiple sizes (S, M, L, XL) and colours (Red, Blue, Green). Soft, breathable and durable fabric suitable for everyday wear.</p>',
+      images: productImageFilenames.join(', '),
       hasVariants: 'YES',
       price: 499,
       compareAtPrice: 699,
       stockQuantity: 0,
       status: 'active',
-      variantCount: 5,
+      variantCount: TOTAL_VARIANTS,
       hsnCode: '6109',
       sacCode: '',
       gstRate: 12,
@@ -2177,185 +2186,95 @@ export class ProductsExcelService {
       bookingTimeSlots: '',
       mrp: 699,
       basePrice: 445,
-      gstAmount: 60,
-      costPerItem: 300,
+      gstAmount: 54,
+      costPerItem: 280,
     });
 
-    // Create Services sheet with booking product
-    const servicesSheet = workbook.addWorksheet('Services');
-    servicesSheet.columns = columns;
-    
-    // Style header
-    servicesSheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
-    servicesSheet.getRow(1).fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: 'FF4A90E2' },
-    };
-
-    // Sample Product 3: Booking product
-    servicesSheet.addRow({
-      _id: '',
-      name: 'Yoga Class Session',
-      description: 'One-on-one yoga training session with certified instructor',
-      images: 'yoga-class.jpg, instructor.jpg',
-      hasVariants: 'NO',
-      price: 800,
-      compareAtPrice: '',
-      stockQuantity: 0,
-      status: 'active',
-      variantCount: '',
-      hsnCode: '',
-      sacCode: '999293',
-      gstRate: 18,
-      priceType: 'selling_price_without_gst',
-      productType: 'booking',
-      bookingDuration: 60,
-      bookingDurationUnit: 'minutes',
-      bookingBufferTime: 15,
-      bookingAvailableDays: 'monday,tuesday,wednesday,thursday,friday,saturday',
-      bookingTimeSlots: '06:00-07:00,07:00-08:00,08:00-09:00,17:00-18:00,18:00-19:00',
-      mrp: 800,
-      basePrice: 678,
-      gstAmount: 122,
-      costPerItem: 500,
-    });
-
-    // Create Product Variants sheet with sample variants for Cotton T-Shirt
+    // ─── Product Variants sheet (Size × Color matrix) ─────────────────────────
     const variantsSheet = workbook.addWorksheet('Product Variants');
-    
-    // Use helper for columns
     const variantColumns = this.getVariantColumns();
     variantsSheet.columns = variantColumns;
-    
-    // Use helper for header styling
     this.styleHeaderRow(variantsSheet, 'FF9B59B6');
 
-    // Add sample variants
-    variantsSheet.addRow({
-      _variantId: '',
-      _productId: '',
-      productName: 'Cotton T-Shirt',
-      sku: 'TS-M-RED',
-      attributes: 'Size: M, Color: Red',
-      price: 499,
-      compareAtPrice: 699,
-      stock: 15,
-      isActive: 'YES',
+    // Price overrides: XL costs a bit more
+    const priceFor = (size: string): number => size === 'XL' ? 549 : 499;
+
+    SIZES.forEach(size => {
+      COLORS.forEach(color => {
+        variantsSheet.addRow({
+          _variantId: '',
+          _productId: '',
+          productName: PRODUCT_NAME,
+          sku: `CTS-${size}-${color.toUpperCase().substring(0, 3)}`,
+          attributes: `Size: ${size}, Color: ${color}`,
+          price: priceFor(size),
+          compareAtPrice: 699,
+          stock: Math.floor(Math.random() * 20) + 5,
+          isActive: 'YES',
+        });
+      });
     });
 
-    variantsSheet.addRow({
-      _variantId: '',
-      _productId: '',
-      productName: 'Cotton T-Shirt',
-      sku: 'TS-L-BLACK',
-      attributes: 'Size: L, Color: Black',
-      price: 499,
-      compareAtPrice: 699,
-      stock: 20,
-      isActive: 'YES',
-    });
+    this.applyVariantDataValidation(variantsSheet, TOTAL_VARIANTS);
 
-    variantsSheet.addRow({
-      _variantId: '',
-      _productId: '',
-      productName: 'Cotton T-Shirt',
-      sku: 'TS-S-RED',
-      attributes: 'Size: S, Color: Red',
-      price: 499,
-      compareAtPrice: 699,
-      stock: 10,
-      isActive: 'YES',
-    });
-
-    variantsSheet.addRow({
-      _variantId: '',
-      _productId: '',
-      productName: 'Cotton T-Shirt',
-      sku: 'TS-XL-BLACK',
-      attributes: 'Size: XL, Color: Black',
-      price: 549,
-      compareAtPrice: 699,
-      stock: 8,
-      isActive: 'YES',
-    });
-
-    variantsSheet.addRow({
-      _variantId: '',
-      _productId: '',
-      productName: 'Cotton T-Shirt',
-      sku: 'TS-L-BLUE',
-      attributes: 'Size: L, Color: Blue',
-      price: 499,
-      compareAtPrice: 699,
-      stock: 12,
-      isActive: 'YES',
-    });
-
-    // Create Instructions sheet
+    // ─── Instructions sheet ───────────────────────────────────────────────────
     const instructionsSheet = workbook.addWorksheet('📖 Instructions');
-    instructionsSheet.getColumn(1).width = 120;
+    instructionsSheet.getColumn(1).width = 100;
 
-    // Add instructions
-    instructionsSheet.addRow(['PRODUCT IMPORT INSTRUCTIONS']).font = { bold: true, size: 16 };
-    instructionsSheet.addRow([]);
-    instructionsSheet.addRow(['This template contains 3 sample products:']).font = { bold: true };
-    instructionsSheet.addRow(['1. Leather Wallet - A simple physical product without variants']);
-    instructionsSheet.addRow(['2. Cotton T-Shirt - A product with 5 variants (different sizes and colors)']);
-    instructionsSheet.addRow(['3. Yoga Class Session - A booking/service product']);
-    instructionsSheet.addRow([]);
-    instructionsSheet.addRow(['IMPORTANT: Leave the ID columns blank when creating NEW products. IDs are auto-generated.']);
-    instructionsSheet.addRow(['For UPDATES: Keep the existing ID to update that specific product.']);
-    instructionsSheet.addRow([]);
-    instructionsSheet.addRow(['Images:']).font = { bold: true };
-    instructionsSheet.addRow(['• Replace the example image filenames with your actual image files']);
-    instructionsSheet.addRow(['• Format: Comma-separated list (e.g., "product1.jpg, product2.jpg, product3.jpg")']);
-    instructionsSheet.addRow(['• When importing, upload images in a ZIP file along with the Excel']);
-    instructionsSheet.addRow(['• Images must be in an "images" folder within the ZIP file']);
-    instructionsSheet.addRow([]);
-    instructionsSheet.addRow(['Product Variants Sheet:']).font = { bold: true };
-    instructionsSheet.addRow(['• List all variants for products where Has Variants = YES']);
-    instructionsSheet.addRow(['• Use Product Name to match variants to products']);
-    instructionsSheet.addRow(['• Format Variant Attributes as: "Size: M, Color: Red"']);
-    instructionsSheet.addRow(['• Leave Variant ID blank for new variants']);
+    const addBold = (row: number, text: string) => {
+      instructionsSheet.getCell(`A${row}`).value = text;
+      instructionsSheet.getCell(`A${row}`).font = { bold: true };
+    };
+    const add = (row: number, text: string) => {
+      instructionsSheet.getCell(`A${row}`).value = text;
+    };
 
-    // Create HSN-SAC Reference sheet with sample codes
+    addBold(1,  'PRODUCT IMPORT TEMPLATE — Physical Product with Size × Color Variants');
+    add(3,  `This template demonstrates one product (${PRODUCT_NAME}) with ${TOTAL_VARIANTS} variants across ${SIZES.length} sizes and ${COLORS.length} colours.`);
+    add(5,  'SHEETS IN THIS WORKBOOK:');
+    addBold(5, 'SHEETS IN THIS WORKBOOK:');
+    add(6,  `• Uncategorized  — the product header row (hasVariants = YES)`);
+    add(7,  `• Product Variants — one row per Size × Color combination (${SIZES.join(', ')} × ${COLORS.join(', ')})`);
+    add(8,  '• 📖 Instructions — this sheet');
+    add(10, 'HOW TO USE:');
+    addBold(10, 'HOW TO USE:');
+    add(11, '1. Replace the sample data with your own product name, description, price, HSN code, etc.');
+    add(12, '2. In "Product Variants", update SKUs, prices, stock quantities and attributes for each variant.');
+    add(13, '3. Replace the dummy image filenames with your actual image files.');
+    add(14, '4. Place your images in the "images/" folder inside the ZIP.');
+    add(15, '5. Import the ZIP via Admin → Products → Import from ZIP.');
+    add(17, 'VARIANT ATTRIBUTES:');
+    addBold(17, 'VARIANT ATTRIBUTES:');
+    add(18, '• Format: "Size: M, Color: Red"  (key: value, comma-separated)');
+    add(19, '• You can add extra attributes: "Size: M, Color: Red, Material: Cotton"');
+    add(20, '• The "Product Name" column must exactly match the name in the product sheet.');
+    add(22, 'IMAGES:');
+    addBold(22, 'IMAGES:');
+    add(23, '• Product row Images column: comma-separated filenames (e.g. tshirt-red-front.jpg, tshirt-red-back.jpg)');
+    add(24, '• Images must be placed in the "images/" folder inside the ZIP.');
+    add(25, '• Dummy placeholder images are already included in this ZIP for reference.');
+    add(26, '• Supported formats: JPG, PNG, WebP (max 5 MB each).');
+    add(28, 'ID COLUMNS:');
+    addBold(28, 'ID COLUMNS:');
+    add(29, '• Leave ID columns blank → system creates new records.');
+    add(30, '• Populate ID columns with existing UUIDs → system updates those records.');
+
+    // ─── HSN-SAC Reference sheet ──────────────────────────────────────────────
     const sampleHsnCodes: HsnCode[] = [
-      { id: '1', code: '4202', description: 'Trunks, suit-cases, handbags and similar containers', recommendedGstRate: 18, isActive: true } as HsnCode,
-      { id: '2', code: '6109', description: 'T-shirts, singlets and other vests, knitted or crocheted', recommendedGstRate: 12, isActive: true } as HsnCode,
-      { id: '3', code: '999293', description: 'Fitness, yoga and aerobics centers', recommendedGstRate: 18, isActive: true } as HsnCode,
+      { id: '1', code: '6109', description: 'T-shirts, singlets and other vests, knitted or crocheted', recommendedGstRate: 12, isActive: true } as HsnCode,
+      { id: '2', code: '6205', description: 'Men\'s or boys\' shirts, woven', recommendedGstRate: 12, isActive: true } as HsnCode,
+      { id: '3', code: '6204', description: 'Women\'s or girls\' suits, dresses, skirts, trousers, woven', recommendedGstRate: 12, isActive: true } as HsnCode,
+      { id: '4', code: '6403', description: 'Footwear with outer soles of rubber/plastics and leather uppers', recommendedGstRate: 18, isActive: true } as HsnCode,
+      { id: '5', code: '4202', description: 'Trunks, suit-cases, handbags and similar containers', recommendedGstRate: 18, isActive: true } as HsnCode,
     ];
     await this.createHsnSacReferenceSheet(workbook, sampleHsnCodes);
 
-    // Write Excel to buffer
+    // ─── Build ZIP ────────────────────────────────────────────────────────────
     const excelBuffer = await workbook.xlsx.writeBuffer();
-    console.log('✅ Excel buffer created, size:', Buffer.from(excelBuffer as ArrayBuffer).length);
-    
-    // Create a ZIP file containing the Excel and dummy images
-    const archive = archiver('zip', { zlib: { level: 9 } });
-    const buffers: Buffer[] = [];
-    
-    archive.on('data', (chunk) => buffers.push(chunk));
-    
-    const zipPromise = new Promise<Buffer>((resolve, reject) => {
-      archive.on('end', () => {
-        console.log('✅ ZIP archive finalized');
-        resolve(Buffer.concat(buffers));
-      });
-      archive.on('error', (err) => {
-        console.error('❌ ZIP archive error:', err);
-        reject(err);
-      });
-    });
-    
-    // Add Excel file to ZIP
-    console.log('📦 Adding Excel file to ZIP...');
-    archive.append(Buffer.from(excelBuffer as ArrayBuffer), { name: 'products.xlsx' });
-    
-    // Create dummy images (minimal valid 1x1 PNG)
-    const createDummyImage = (color: { r: number; g: number; b: number }): Buffer => {
-      // Create a minimal valid 1x1 PNG with the specified color
-      // This is a complete, valid PNG structure
+    console.log('✅ Template Excel buffer created, size:', Buffer.from(excelBuffer as ArrayBuffer).length);
+
+    // Helper: create a minimal valid 1×1 PNG solid-colour placeholder
+    const createDummyPng = (color: { r: number; g: number; b: number }): Buffer => {
       const crc32 = (data: Buffer): number => {
         let crc = 0xFFFFFFFF;
         for (let i = 0; i < data.length; i++) {
@@ -2366,85 +2285,648 @@ export class ProductsExcelService {
         }
         return crc ^ 0xFFFFFFFF;
       };
-
       const ihdrData = Buffer.from([
-        0x49, 0x48, 0x44, 0x52, // "IHDR"
-        0x00, 0x00, 0x00, 0x01, // Width: 1
-        0x00, 0x00, 0x00, 0x01, // Height: 1
-        0x08, 0x02, 0x00, 0x00, 0x00 // 8-bit RGB, no compression, no filter, no interlace
+        0x49, 0x48, 0x44, 0x52,
+        0x00, 0x00, 0x00, 0x01,
+        0x00, 0x00, 0x00, 0x01,
+        0x08, 0x02, 0x00, 0x00, 0x00,
       ]);
       const ihdrCrc = crc32(ihdrData);
-
-      const idatContent = Buffer.from([
-        0x00, // Filter type: None
-        color.r, color.g, color.b // RGB pixel
-      ]);
-      
-      // Compress IDAT content (simple zlib wrapper)
+      const idatContent = Buffer.from([0x00, color.r, color.g, color.b]);
       const zlib = require('zlib');
       const compressed = zlib.deflateSync(idatContent);
-      
-      const idatData = Buffer.concat([
-        Buffer.from([0x49, 0x44, 0x41, 0x54]), // "IDAT"
-        compressed
-      ]);
+      const idatData = Buffer.concat([Buffer.from([0x49, 0x44, 0x41, 0x54]), compressed]);
       const idatCrc = crc32(idatData);
-
-      const iendData = Buffer.from([0x49, 0x45, 0x4E, 0x44]); // "IEND"
+      const iendData = Buffer.from([0x49, 0x45, 0x4E, 0x44]);
       const iendCrc = crc32(iendData);
-
-      // Assemble PNG
+      const u32be = (n: number) => Buffer.from([(n >>> 24) & 0xFF, (n >>> 16) & 0xFF, (n >>> 8) & 0xFF, n & 0xFF]);
       return Buffer.concat([
-        Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]), // PNG signature
-        Buffer.from([0x00, 0x00, 0x00, 0x0D]), // IHDR length
-        ihdrData,
-        Buffer.from([
-          (ihdrCrc >>> 24) & 0xFF,
-          (ihdrCrc >>> 16) & 0xFF,
-          (ihdrCrc >>> 8) & 0xFF,
-          ihdrCrc & 0xFF
-        ]),
-        Buffer.from([
-          (compressed.length >>> 24) & 0xFF,
-          (compressed.length >>> 16) & 0xFF,
-          (compressed.length >>> 8) & 0xFF,
-          compressed.length & 0xFF
-        ]),
-        idatData,
-        Buffer.from([
-          (idatCrc >>> 24) & 0xFF,
-          (idatCrc >>> 16) & 0xFF,
-          (idatCrc >>> 8) & 0xFF,
-          idatCrc & 0xFF
-        ]),
-        Buffer.from([0x00, 0x00, 0x00, 0x00]), // IEND length
-        iendData,
-        Buffer.from([
-          (iendCrc >>> 24) & 0xFF,
-          (iendCrc >>> 16) & 0xFF,
-          (iendCrc >>> 8) & 0xFF,
-          iendCrc & 0xFF
-        ])
+        Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]),
+        u32be(0x0D), ihdrData, u32be(ihdrCrc),
+        u32be(compressed.length), idatData, u32be(idatCrc),
+        u32be(0x00), iendData, u32be(iendCrc),
       ]);
     };
-    
-    // Add dummy image files to images folder
+
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    const buffers: Buffer[] = [];
+    archive.on('data', (chunk) => buffers.push(chunk));
+
+    const zipPromise = new Promise<Buffer>((resolve, reject) => {
+      archive.on('end', () => resolve(Buffer.concat(buffers)));
+      archive.on('error', reject);
+    });
+
+    archive.append(Buffer.from(excelBuffer as ArrayBuffer), { name: 'products.xlsx' });
+
+    // Add one front + one back dummy image per colour
     console.log('📦 Adding dummy images to ZIP...');
-    archive.append(createDummyImage({ r: 139, g: 69, b: 19 }), { name: 'images/wallet-brown.jpg' });
-    archive.append(createDummyImage({ r: 139, g: 69, b: 19 }), { name: 'images/wallet-inside.jpg' });
-    archive.append(createDummyImage({ r: 255, g: 0, b: 0 }), { name: 'images/tshirt-front.jpg' });
-    archive.append(createDummyImage({ r: 255, g: 0, b: 0 }), { name: 'images/tshirt-back.jpg' });
-    archive.append(createDummyImage({ r: 0, g: 0, b: 255 }), { name: 'images/tshirt-detail.jpg' });
-    archive.append(createDummyImage({ r: 128, g: 0, b: 128 }), { name: 'images/yoga-class.jpg' });
-    archive.append(createDummyImage({ r: 128, g: 0, b: 128 }), { name: 'images/instructor.jpg' });
-    console.log('✅ Added 7 dummy images');
-    
-    // Finalize the archive
-    console.log('📦 Finalizing ZIP archive...');
+    COLORS.forEach(color => {
+      const rgb = COLOR_MAP[color];
+      archive.append(createDummyPng(rgb), { name: `images/tshirt-${color.toLowerCase()}-front.jpg` });
+      archive.append(createDummyPng(rgb), { name: `images/tshirt-${color.toLowerCase()}-back.jpg` });
+    });
+    // README inside images folder
+    archive.append(
+      Buffer.from(
+        `Dummy placeholder images (1×1 px solid colour).\n` +
+        `Replace with your actual product photos.\n\n` +
+        `Included files:\n` +
+        COLORS.flatMap(c => [
+          `  images/tshirt-${c.toLowerCase()}-front.jpg  — ${c} front`,
+          `  images/tshirt-${c.toLowerCase()}-back.jpg   — ${c} back`,
+        ]).join('\n') +
+        `\n\nSupported formats: JPG, PNG, WebP  |  Recommended size: 1200×800 px or larger\n`,
+      ),
+      { name: 'images/README.txt' },
+    );
+    console.log(`✅ Added ${COLORS.length * 2} dummy images`);
+
     archive.finalize();
-    
     const result = await zipPromise;
-    console.log('✅ ZIP file created, size:', result.length);
+    console.log('✅ Template ZIP created, size:', result.length);
     return result;
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // SIMPLE PHYSICAL PRODUCT IMPORT / EXPORT
+  // Lean 11-column format designed for easy day-to-day use.
+  // User assigns their own "Product Code" (e.g. 1, 2, SHIRT-01) which acts as
+  // a stable upsert key — re-importing the same file updates existing products.
+  // ────────────────────────────────────────────────────────────────────────────
+
+  /** 11 columns — everything physical, nothing booking/GST-calculation noise */
+  private getSimpleProductColumns(): any[] {
+    return [
+      { header: 'Product Code',     key: 'productCode',    width: 16 },
+      { header: 'Product Name',     key: 'name',           width: 30 },
+      { header: 'Description',      key: 'description',    width: 50 },
+      { header: 'Category',         key: 'category',       width: 20 },
+      { header: 'Price',            key: 'price',          width: 12 },
+      { header: 'Compare At Price', key: 'compareAtPrice', width: 18 },
+      { header: 'Stock',            key: 'stockQuantity',  width: 12 },
+      { header: 'Status',           key: 'status',         width: 12 },
+      { header: 'Images',           key: 'images',         width: 40 },
+      { header: 'HSN Code',         key: 'hsnCode',        width: 15 },
+      { header: 'GST Rate (%)',     key: 'gstRate',        width: 12 },
+    ];
+  }
+
+  /** 7 columns — one row per size/colour combo */
+  private getSimpleVariantColumns(): any[] {
+    return [
+      { header: 'Product Code',     key: 'productCode',    width: 16 },
+      { header: 'Variant Code',     key: 'variantCode',    width: 16 },
+      { header: 'Attributes',       key: 'attributes',     width: 40 },
+      { header: 'Price',            key: 'price',          width: 12 },
+      { header: 'Compare At Price', key: 'compareAtPrice', width: 18 },
+      { header: 'Stock',            key: 'stock',          width: 12 },
+      { header: 'Active',           key: 'isActive',       width: 10 },
+    ];
+  }
+
+  /** Export physical products as a simple ZIP.
+   *  Pass productIds to export only selected products; omit for all. */
+  async exportSimplePhysicalZip(vendorId: string | null, productIds?: string[]): Promise<Buffer> {
+    const whereCondition: any = { productType: 'physical' };
+    if (vendorId) whereCondition.vendorId = vendorId;
+
+    let products = await this.productsRepository.find({
+      where: whereCondition,
+      relations: ['categories', 'vendor', 'productVariants'],
+    });
+
+    if (productIds && productIds.length > 0) {
+      products = products.filter(p => productIds.includes(p.id));
+    }
+
+    const workbook = new ExcelJS.Workbook();
+
+    // ── Products sheet ────────────────────────────────────────────────────────
+    const productSheet = workbook.addWorksheet('Products');
+    productSheet.columns = this.getSimpleProductColumns();
+    this.styleHeaderRow(productSheet, 'FF2E86C1');
+
+    const localImagePaths: string[] = [];
+
+    for (const product of products) {
+      const allImages: string[] = [];
+      if (product.images?.length) allImages.push(...product.images.filter(Boolean));
+      if (product.featuredImage && !allImages.includes(product.featuredImage)) {
+        allImages.unshift(product.featuredImage);
+      }
+      const imagesList = allImages
+        .map(img => (img.startsWith('http://') || img.startsWith('https://')) ? img : path.basename(img))
+        .join(', ');
+      localImagePaths.push(...allImages.filter(img => !img.startsWith('http')));
+
+      const hasVariants = product.hasVariants && product.productVariants?.length > 0;
+      const totalStock = hasVariants
+        ? product.productVariants.reduce((s, v) => s + (v.stockQuantity || 0), 0)
+        : product.stockQuantity;
+
+      let hsnCode = product.hsnCode || '';
+      if (hsnCode.includes(' - ')) hsnCode = hsnCode.split(' - ')[0].trim();
+
+      productSheet.addRow({
+        productCode:    product.sku || '',
+        name:           product.name,
+        description:    product.description || '',
+        category:       product.categories?.[0]?.name || '',
+        price:          product.price,
+        compareAtPrice: product.compareAtPrice || '',
+        stockQuantity:  totalStock,
+        status:         product.status,
+        images:         imagesList,
+        hsnCode,
+        gstRate:        product.gstRate || '',
+      });
+    }
+
+    // Status dropdown applied AFTER data rows so addRow positions are unaffected
+    for (let row = 2; row <= products.length + 1; row++) {
+      productSheet.getCell(row, 8).dataValidation = {
+        type: 'list', allowBlank: false,
+        formulae: ['"active,draft,archived"'],
+        showErrorMessage: true, errorTitle: 'Invalid Status',
+        error: 'Choose: active, draft or archived',
+      };
+    }
+
+    // ── Variants sheet ────────────────────────────────────────────────────────
+    const allVariants = products.flatMap(p =>
+      (p.hasVariants && p.productVariants?.length)
+        ? p.productVariants.map(v => ({ product: p, variant: v }))
+        : []
+    );
+
+    if (allVariants.length > 0) {
+      const variantSheet = workbook.addWorksheet('Variants');
+      variantSheet.columns = this.getSimpleVariantColumns();
+      this.styleHeaderRow(variantSheet, 'FF8E44AD');
+
+      for (const { product, variant } of allVariants) {
+        const actualAttrs: Record<string, string> = {};
+        if (variant.variantAttributes) {
+          for (const [k, v] of Object.entries(variant.variantAttributes)) {
+            const norm = k.toLowerCase().replace(/\s+/g, '');
+            if (!['stock', 'active', 'isactive', 'stockquantity', 'price', 'compareatprice', 'sku'].includes(norm)) {
+              actualAttrs[k] = String(v);
+            }
+          }
+        }
+        const attributesStr = Object.entries(actualAttrs).map(([k, v]) => `${k}: ${v}`).join(', ');
+
+        variantSheet.addRow({
+          productCode:    product.sku || '',
+          variantCode:    variant.sku || '',
+          attributes:     attributesStr,
+          price:          variant.price,
+          compareAtPrice: variant.compareAtPrice || '',
+          stock:          variant.stockQuantity,
+          isActive:       variant.isActive ? 'YES' : 'NO',
+        });
+      }
+
+      // Active dropdown applied AFTER data rows
+      for (let row = 2; row <= allVariants.length + 1; row++) {
+        variantSheet.getCell(row, 7).dataValidation = {
+          type: 'list', allowBlank: false, formulae: ['"YES,NO"'],
+        };
+      }
+    }
+
+    // ── Build ZIP ─────────────────────────────────────────────────────────────
+    const excelBuffer = await workbook.xlsx.writeBuffer();
+
+    return new Promise<Buffer>((resolve, reject) => {
+      const archive = archiver('zip', { zlib: { level: 9 } });
+      const chunks: Buffer[] = [];
+      archive.on('data', c => chunks.push(c));
+      archive.on('end', () => resolve(Buffer.concat(chunks)));
+      archive.on('error', reject);
+
+      archive.append(Buffer.from(excelBuffer as ArrayBuffer), { name: 'products.xlsx' });
+
+      const addedImages = new Set<string>();
+      for (const imgPath of localImagePaths) {
+        if (addedImages.has(imgPath)) continue;
+        addedImages.add(imgPath);
+        const fullPath = path.join(process.cwd(), 'public', imgPath);
+        if (fs.existsSync(fullPath)) {
+          archive.file(fullPath, { name: `images/${path.basename(imgPath)}` });
+        }
+      }
+
+      archive.finalize();
+    });
+  }
+
+  /** Import physical products from a simple ZIP (products.xlsx + images/ folder).
+   *  Products are upserted by Product Code (= product sku field).
+   *  Variants are upserted by Variant Code (= variant sku field). */
+  async importSimplePhysicalZip(
+    vendorId: string | null,
+    zipBuffer: Buffer,
+  ): Promise<{ created: number; updated: number; errors: string[] }> {
+    const zip = new AdmZip(zipBuffer);
+    const imageMap = new Map<string, MulterFile>();
+    let excelBuffer: Buffer | null = null;
+
+    for (const entry of zip.getEntries()) {
+      if (entry.entryName === 'products.xlsx') {
+        excelBuffer = entry.getData();
+      } else if (entry.entryName.startsWith('images/') && !entry.isDirectory) {
+        const filename = path.basename(entry.entryName).toLowerCase();
+        const buf = entry.getData();
+        imageMap.set(filename, {
+          fieldname: 'images', originalname: filename,
+          encoding: '7bit', mimetype: this.getMimeType(filename),
+          buffer: buf, size: buf.length,
+        } as MulterFile);
+      }
+    }
+
+    if (!excelBuffer) throw new Error('No products.xlsx found in ZIP');
+
+    const resolvedVendorId = vendorId ?? (await this.getOrCreatePlatformVendorForImport()).id;
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(excelBuffer as any);
+
+    let created = 0, updated = 0;
+    const errors: string[] = [];
+
+    // productCode → DB id, used when processing variants
+    const productCodeToId = new Map<string, string>();
+
+    // ── Helper: build header→colIndex map ─────────────────────────────────────
+    const buildHeaderMap = (sheet: ExcelJS.Worksheet): Map<string, number> => {
+      const map = new Map<string, number>();
+      sheet.getRow(1).eachCell((cell, colIdx) => {
+        map.set(cell.value?.toString().trim() ?? '', colIdx);
+      });
+      return map;
+    };
+
+    const getVal = (row: ExcelJS.Row, headers: Map<string, number>, header: string): string | undefined => {
+      const idx = headers.get(header);
+      if (!idx) return undefined;
+      const raw = row.getCell(idx).value;
+      if (raw === null || raw === undefined) return undefined;
+      if (typeof raw === 'object' && 'richText' in (raw as any)) {
+        return (raw as any).richText.map((r: any) => r.text).join('');
+      }
+      return String(raw);
+    };
+
+    // ── Products sheet ────────────────────────────────────────────────────────
+    const productSheet = workbook.getWorksheet('Products');
+    if (!productSheet) {
+      errors.push('No "Products" sheet found. Make sure the sheet is named exactly "Products".');
+      return { created, updated, errors };
+    }
+
+    const productHeaders = buildHeaderMap(productSheet);
+
+    // Collect rows first (eachRow is synchronous; async processing must be sequential)
+    const productRows: Array<{ row: ExcelJS.Row; rn: number }> = [];
+    productSheet.eachRow((row, rn) => { if (rn > 1) productRows.push({ row, rn }); });
+
+    for (const { row, rn } of productRows) {
+      try {
+        const g = (h: string) => getVal(row, productHeaders, h);
+
+        const productCode = g('Product Code')?.trim();
+        const name        = g('Product Name')?.trim();
+        if (!name) continue; // blank row
+
+        const description   = g('Description')?.trim() || '';
+        const categoryName  = g('Category')?.trim() || '';
+        const price         = parseFloat(g('Price') || '0') || 0;
+        const compareAtPrice = parseFloat(g('Compare At Price') || '0') || null;
+        const stockQuantity  = parseInt(g('Stock') || '0') || 0;
+        const rawStatus      = g('Status')?.trim().toLowerCase() || 'active';
+        const status         = ['active', 'draft', 'archived'].includes(rawStatus) ? rawStatus : 'active';
+        const imagesCell     = g('Images')?.trim() || '';
+        let hsnCode          = g('HSN Code')?.trim() || null;
+        if (hsnCode?.includes(' - ')) hsnCode = hsnCode.split(' - ')[0].trim();
+        let gstRate          = parseFloat(g('GST Rate (%)') || '0') || 0;
+
+        if (!gstRate && hsnCode) {
+          gstRate = (await this.getGstRateFromHsnCode(hsnCode)) ?? 18;
+        } else if (!gstRate) {
+          gstRate = 18;
+        }
+
+        // Resolve category
+        let category: Category | null = null;
+        if (categoryName) {
+          category = await this.categoriesRepository.findOne({
+            where: { name: categoryName, isActive: true },
+          }) ?? null;
+        }
+
+        // Process images
+        const productImages: string[] = [];
+        if (imagesCell) {
+          for (const filename of imagesCell.split(',').map(f => f.trim()).filter(Boolean)) {
+            if (filename.startsWith('http://') || filename.startsWith('https://')) {
+              productImages.push(filename);
+            } else {
+              const imageFile = imageMap.get(filename.toLowerCase());
+              if (imageFile) {
+                try {
+                  productImages.push(await this.saveUploadedImage(imageFile, resolvedVendorId));
+                } catch (e) {
+                  errors.push(`Row ${rn}: Failed to upload image "${filename}": ${e.message}`);
+                }
+              }
+            }
+          }
+        }
+
+        const productData: any = {
+          name,
+          description,
+          price,
+          compareAtPrice: compareAtPrice || null,
+          stockQuantity,
+          sku: productCode || `${resolvedVendorId.substring(0, 8)}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          status,
+          productType: 'physical',
+          vendorId: resolvedVendorId,
+          hsnCode,
+          gstRate,
+          images: productImages.length > 0 ? productImages : null,
+          featuredImage: productImages.length > 0 ? productImages[0] : null,
+        };
+
+        // Upsert: find by productCode (sku), then by name within same vendor
+        let existing: Product | null = null;
+        if (productCode) {
+          existing = await this.productsRepository.findOne({
+            where: { sku: productCode },
+            relations: ['categories'],
+          }) ?? null;
+        }
+        if (!existing) {
+          existing = await this.productsRepository.findOne({
+            where: { name, vendorId: resolvedVendorId },
+            relations: ['categories'],
+          }) ?? null;
+        }
+
+        if (existing) {
+          if (!vendorId || existing.vendorId === resolvedVendorId) {
+            await this.productsRepository.update(existing.id, productData);
+            if (category) {
+              existing.categories = [category];
+              await this.productsRepository.save(existing);
+            }
+            updated++;
+            productCodeToId.set(productCode || name, existing.id);
+            console.log(`[SimpleImport] Updated "${name}" (id: ${existing.id})`);
+          } else {
+            errors.push(`Row ${rn}: Product "${name}" belongs to a different vendor`);
+          }
+        } else {
+          // New product — generate unique slug
+          let baseSlug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+          let slug = baseSlug, slugCounter = 1;
+          while (await this.productsRepository.findOne({ where: { slug } })) {
+            slug = `${baseSlug}-${slugCounter++}`;
+          }
+          productData.slug = slug;
+          if (category) productData.categories = [category];
+
+          const savedRaw = await this.productsRepository.save(this.productsRepository.create(productData));
+          const saved = Array.isArray(savedRaw) ? savedRaw[0] : savedRaw;
+          created++;
+          productCodeToId.set(productCode || name, saved.id);
+          console.log(`[SimpleImport] Created "${name}" (id: ${saved.id})`);
+        }
+      } catch (err) {
+        errors.push(`Products Row ${rn}: ${err.message}`);
+      }
+    }
+
+    // ── Variants sheet ────────────────────────────────────────────────────────
+    const variantSheet = workbook.getWorksheet('Variants');
+    if (variantSheet) {
+      const variantHeaders = buildHeaderMap(variantSheet);
+
+      const variantRows: Array<{ row: ExcelJS.Row; rn: number }> = [];
+      variantSheet.eachRow((row, rn) => { if (rn > 1) variantRows.push({ row, rn }); });
+
+      for (const { row, rn } of variantRows) {
+        try {
+          const g = (h: string) => getVal(row, variantHeaders, h);
+
+          const productCode  = g('Product Code')?.trim();
+          const variantCode  = g('Variant Code')?.trim();
+          const attributesStr = g('Attributes')?.trim() || '';
+          const price         = parseFloat(g('Price') || '0') || 0;
+          const compareAtPrice = parseFloat(g('Compare At Price') || '0') || null;
+          const stock          = parseInt(g('Stock') || '0') || 0;
+          const isActive       = (g('Active')?.trim().toUpperCase() ?? 'YES') !== 'NO';
+
+          if (!productCode || !variantCode) {
+            errors.push(`Variants Row ${rn}: Missing Product Code or Variant Code`);
+            continue;
+          }
+
+          const productId = productCodeToId.get(productCode);
+          if (!productId) {
+            errors.push(`Variants Row ${rn}: No product found with code "${productCode}"`);
+            continue;
+          }
+
+          // Parse "Size: M, Color: Red" → { Size: 'M', Color: 'Red' }
+          const variantAttributes: Record<string, string> = {};
+          attributesStr.split(',').forEach(a => {
+            const colonIdx = a.indexOf(':');
+            if (colonIdx > 0) {
+              const k = a.substring(0, colonIdx).trim();
+              const v = a.substring(colonIdx + 1).trim();
+              if (k && v) variantAttributes[k] = v;
+            }
+          });
+
+          const variantData: any = {
+            productId,
+            sku: variantCode,
+            variantAttributes,
+            price,
+            stockQuantity: stock,
+            isActive,
+          };
+          if (compareAtPrice) variantData.compareAtPrice = compareAtPrice;
+
+          // Upsert by variant sku
+          const existingVariant = await this.productVariantsRepository.findOne({
+            where: { sku: variantCode },
+          }) ?? null;
+
+          if (existingVariant) {
+            await this.productVariantsRepository.update(existingVariant.id, variantData);
+            console.log(`[SimpleImport] Updated variant "${variantCode}"`);
+          } else {
+            await this.productVariantsRepository.save(
+              this.productVariantsRepository.create(variantData),
+            );
+            await this.productsRepository.update(productId, { hasVariants: true });
+            console.log(`[SimpleImport] Created variant "${variantCode}"`);
+          }
+        } catch (err) {
+          errors.push(`Variants Row ${rn}: ${err.message}`);
+        }
+      }
+
+    }
+
+    // Roll up variant stocks to the parent product so it is never shown as sold out
+    for (const [, productId] of productCodeToId) {
+      const product = await this.productsRepository.findOne({ where: { id: productId } });
+      if (product?.hasVariants) {
+        const variants = await this.productVariantsRepository.find({ where: { productId } });
+        const totalStock = variants.reduce((sum, v) => sum + (v.stockQuantity || 0), 0);
+        await this.productsRepository.update(productId, { stockQuantity: totalStock });
+        console.log(`[SimpleImport] Updated product "${product.name}" stock to ${totalStock}`);
+      }
+    }
+
+    return { created, updated, errors };
+  }
+
+  /** Generate a simple template ZIP — 1 product with 4×3 size/colour variants */
+  async generateSimpleTemplate(): Promise<Buffer> {
+    const workbook = new ExcelJS.Workbook();
+
+    const addDropdown = (sheet: ExcelJS.Worksheet, colIdx: number, maxRow: number, formula: string) => {
+      for (let row = 2; row <= maxRow; row++) {
+        sheet.getCell(row, colIdx).dataValidation = {
+          type: 'list', allowBlank: false, formulae: [formula],
+        };
+      }
+    };
+
+    // ── Products sheet ────────────────────────────────────────────────────────
+    const productSheet = workbook.addWorksheet('Products');
+    productSheet.columns = this.getSimpleProductColumns();
+    this.styleHeaderRow(productSheet, 'FF2E86C1');
+
+    // Add data rows FIRST, then apply dropdowns (addRow positions after last touched row)
+    productSheet.addRow({
+      productCode: '1', name: 'Classic Cotton T-Shirt',
+      description: 'Comfortable 100% cotton t-shirt available in multiple sizes and colours.',
+      category: 'Clothing', price: 499, compareAtPrice: 699,
+      stockQuantity: 0, status: 'active',
+      images: 'tshirt-red-front.jpg, tshirt-red-back.jpg',
+      hsnCode: '6109', gstRate: 12,
+    });
+    productSheet.addRow({
+      productCode: '2', name: 'Leather Wallet',
+      description: 'Genuine leather slim wallet with 6 card slots.',
+      category: 'Accessories', price: 1299, compareAtPrice: 1599,
+      stockQuantity: 50, status: 'active',
+      images: 'wallet-brown.jpg',
+      hsnCode: '4202', gstRate: 18,
+    });
+    addDropdown(productSheet, 8, 3, '"active,draft,archived"'); // Status on rows 2-3
+
+    // ── Variants sheet ────────────────────────────────────────────────────────
+    const variantSheet = workbook.addWorksheet('Variants');
+    variantSheet.columns = this.getSimpleVariantColumns();
+    this.styleHeaderRow(variantSheet, 'FF8E44AD');
+
+    const sizes = ['S', 'M', 'L', 'XL'];
+    const colors = ['Red', 'Blue', 'Green'];
+    sizes.forEach(size => colors.forEach(color => {
+      variantSheet.addRow({
+        productCode: '1',
+        variantCode: `1-${size}-${color.substring(0, 3).toUpperCase()}`,
+        attributes:  `Size: ${size}, Color: ${color}`,
+        price:          size === 'XL' ? 549 : 499,
+        compareAtPrice: 699,
+        stock:          Math.floor(Math.random() * 15) + 3,
+        isActive:       'YES',
+      });
+    }));
+    addDropdown(variantSheet, 7, 13, '"YES,NO"'); // Active on variant rows 2-13
+
+    // ── Instructions sheet ────────────────────────────────────────────────────
+    const instr = workbook.addWorksheet('Instructions');
+    instr.getColumn(1).width = 100;
+    const b = (r: number, t: string) => { instr.getCell(`A${r}`).value = t; instr.getCell(`A${r}`).font = { bold: true, size: 12 }; };
+    const n = (r: number, t: string) => { instr.getCell(`A${r}`).value = t; };
+
+    b(1,  '📋  PRODUCT IMPORT — QUICK START GUIDE');
+    n(3,  'There are 2 sheets:');
+    n(4,  '  • Products   — one row per product');
+    n(5,  '  • Variants   — one row per size/colour combination (only needed when Has Variants)');
+    b(7,  'PRODUCT CODE — your own short ID');
+    n(8,  '  Enter any value you like:  1   2   3   or   SHIRT-01   WALLET-BRN');
+    n(9,  '  This code is the stable key.  Re-import the same file → existing products are UPDATED, not duplicated.');
+    n(10, '  The Product Code in the Variants sheet must match exactly to link variants to their product.');
+    b(12, 'EVERYDAY WORKFLOW');
+    n(13, '  1. First time: fill in the two sheets, zip with images folder, import.');
+    n(14, '  2. Stock changed → edit the Stock cell(s), re-import.  Done.');
+    n(15, '  3. New product → add a new row with a new Product Code, re-import.');
+    n(16, '  4. Price update → edit Price cell, re-import.');
+    b(18, 'IMAGES');
+    n(19, '  • Images column: comma-separated filenames, e.g.   front.jpg, back.jpg, side.jpg');
+    n(20, '  • Put the actual files in the  images/  folder inside the ZIP before importing.');
+    n(21, '  • You can also paste a full https:// URL — it will be used without uploading.');
+    b(23, 'VARIANTS');
+    n(24, '  • Attributes format:   Size: M, Color: Red   (key: value, comma-separated)');
+    n(25, '  • Variant Code must be unique across ALL variants.  Recommended pattern: PRODCODE-SIZE-COLOR');
+    n(26, '  • For products WITHOUT variants: leave their rows out of the Variants sheet; enter stock on Products sheet.');
+    b(28, 'HSN CODE & GST RATE');
+    n(29, '  • HSN Code: numeric only, e.g.  6109   (no description text)');
+    n(30, '  • GST Rate (%): number only, e.g.  12    Leave blank → auto-filled from HSN code.');
+
+    // ── Build ZIP with dummy images ───────────────────────────────────────────
+    const excelBuffer = await workbook.xlsx.writeBuffer();
+
+    const createPng = (r: number, g: number, b: number): Buffer => {
+      const crc32 = (d: Buffer): number => {
+        let crc = 0xFFFFFFFF;
+        for (let i = 0; i < d.length; i++) {
+          crc ^= d[i];
+          for (let j = 0; j < 8; j++) crc = (crc >>> 1) ^ (0xEDB88320 & -(crc & 1));
+        }
+        return crc ^ 0xFFFFFFFF;
+      };
+      const ihdr = Buffer.from([0x49,0x48,0x44,0x52,0,0,0,1,0,0,0,1,8,2,0,0,0]);
+      const idat = Buffer.concat([Buffer.from([0x49,0x44,0x41,0x54]),
+        require('zlib').deflateSync(Buffer.from([0, r, g, b]))]);
+      const iend = Buffer.from([0x49,0x45,0x4E,0x44]);
+      const u4   = (n: number) => Buffer.from([(n>>>24)&0xFF,(n>>>16)&0xFF,(n>>>8)&0xFF,n&0xFF]);
+      return Buffer.concat([
+        Buffer.from([0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A]),
+        u4(13), ihdr, u4(crc32(ihdr)),
+        u4(idat.length - 4), idat, u4(crc32(idat)),
+        u4(0), iend, u4(crc32(iend)),
+      ]);
+    };
+
+    return new Promise<Buffer>((resolve, reject) => {
+      const archive = archiver('zip', { zlib: { level: 9 } });
+      const chunks: Buffer[] = [];
+      archive.on('data', c => chunks.push(c));
+      archive.on('end', () => resolve(Buffer.concat(chunks)));
+      archive.on('error', reject);
+
+      archive.append(Buffer.from(excelBuffer as ArrayBuffer), { name: 'products.xlsx' });
+      archive.append(createPng(220, 50, 50),  { name: 'images/tshirt-red-front.jpg' });
+      archive.append(createPng(200, 40, 40),  { name: 'images/tshirt-red-back.jpg' });
+      archive.append(createPng(139, 90, 43),  { name: 'images/wallet-brown.jpg' });
+      archive.append(
+        Buffer.from('Replace these placeholder images with your real product photos.\nFormat: JPG, PNG or WebP | Recommended: 1200×800 px or larger\n'),
+        { name: 'images/README.txt' },
+      );
+      archive.finalize();
+    });
   }
 }

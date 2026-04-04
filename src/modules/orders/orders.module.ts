@@ -5,6 +5,7 @@ import { OrderItem } from './order-item.entity';
 import { OrdersService } from './orders.service';
 import { OrdersController } from './orders.controller';
 import { Product } from '../products/product.entity';
+import { ProductVariant } from '../products/product-variant.entity';
 import { User } from '../users/user.entity';
 import { ReviewsModule } from '../reviews/reviews.module';
 import { SimpleEmailModule } from '../simple-email/simple-email.module';
@@ -15,7 +16,7 @@ import { PlatformModule } from '../platform/platform.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Order, OrderItem, Product, User]),
+    TypeOrmModule.forFeature([Order, OrderItem, Product, ProductVariant, User]),
     ReviewsModule,
     SimpleEmailModule,
     StockModule,

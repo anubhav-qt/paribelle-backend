@@ -133,6 +133,64 @@ export class ProductsController {
     res.send(buffer);
   }
 
+  @Get('template-simple/download')
+  @ApiOperation({ summary: 'Download simple physical-product template (ZIP with sample Excel + images)' })
+  async downloadSimpleTemplate(@Res() res: Response) {
+    const buffer = await this.productsExcelService.generateSimpleTemplate();
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename=products-template-simple-${Date.now()}.zip`);
+    res.send(buffer);
+  }
+
+  @Get('export-simple/:vendorId')
+  @ApiOperation({ summary: 'Export physical products as simple ZIP. Pass ?ids=id1,id2 to export selected products.' })
+  @ApiQuery({ name: 'ids', required: false, description: 'Comma-separated product IDs to export (optional)' })
+  async exportSimplePhysical(
+    @Param('vendorId') vendorId: string,
+    @Query('ids') ids: string,
+    @Res() res: Response,
+  ) {
+    const targetVendorId = vendorId === 'all' ? null : vendorId;
+    const productIds = ids ? ids.split(',').map(id => id.trim()).filter(Boolean) : undefined;
+    const buffer = await this.productsExcelService.exportSimplePhysicalZip(targetVendorId, productIds);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename=products-physical-${Date.now()}.zip`);
+    res.send(buffer);
+  }
+
+  @Post('import-simple/:vendorId')
+  @ApiOperation({ summary: 'Import physical products from simple ZIP (products.xlsx + images/)' })
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FileInterceptor('file'))
+  async importSimplePhysical(
+    @Param('vendorId') vendorId: string,
+    @UploadedFile() file: MulterFile,
+  ) {
+    if (!file) throw new BadRequestException('No ZIP file uploaded');
+    const actualVendorId = vendorId === 'all' ? null : vendorId;
+    try {
+      const result = await this.productsExcelService.importSimplePhysicalZip(actualVendorId, file.buffer);
+      const success = result.created > 0 || result.updated > 0;
+      return {
+        success,
+        message: success
+          ? `Import completed: ${result.created} created, ${result.updated} updated${result.errors.length > 0 ? ` with ${result.errors.length} row error(s)` : ''}`
+          : result.errors.length > 0
+            ? `Import failed — no products were created or updated`
+            : 'Import failed: No products were created or updated. Check that the sheet is named "Products".',
+        ...result,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message || 'Import failed due to an unexpected error',
+        errors: [error.message || 'Unknown error'],
+        created: 0,
+        updated: 0,
+      };
+    }
+  }
+
   @Get('slug/:slug')
   @ApiOperation({ summary: 'Get product by slug' })
   async findBySlug(@Param('slug') slug: string) {
@@ -199,24 +257,26 @@ export class ProductsController {
         console.log(`[Import] Orphan cleanup: ${cleanupResult.deleted} images deleted out of ${cleanupResult.orphans.length} orphans found`);
       } catch (cleanupError) {
         console.error('[Import] Failed to cleanup orphan images:', cleanupError);
-        // Don't fail the import if cleanup fails
       }
       
-      // Check if nothing was created/updated
-      if (result.created === 0 && result.updated === 0) {
-        const errorMessage = result.errors.length > 0 
-          ? `Import failed: ${result.errors.join('; ')}` 
-          : 'Import failed: No products were created or updated';
-        throw new BadRequestException(errorMessage);
-      }
-      
+      const success = result.created > 0 || result.updated > 0;
       return {
-        success: true,
-        message: `Import completed: ${result.created} created, ${result.updated} updated${result.errors.length > 0 ? ` with ${result.errors.length} errors` : ''}`,
+        success,
+        message: success
+          ? `Import completed: ${result.created} created, ${result.updated} updated${result.errors.length > 0 ? ` with ${result.errors.length} row error(s)` : ''}`
+          : result.errors.length > 0
+            ? `Import failed — no products were created or updated`
+            : 'Import failed: No products were created or updated. Check your Excel sheet names match category names.',
         ...result,
       };
     } catch (error) {
-      throw new BadRequestException(error.message);
+      return {
+        success: false,
+        message: error.message || 'Import failed due to an unexpected error',
+        errors: [error.message || 'Unknown error'],
+        created: 0,
+        updated: 0,
+      };
     }
   }
 
@@ -248,24 +308,26 @@ export class ProductsController {
         console.log(`[Import] Orphan cleanup: ${cleanupResult.deleted} images deleted out of ${cleanupResult.orphans.length} orphans found`);
       } catch (cleanupError) {
         console.error('[Import] Failed to cleanup orphan images:', cleanupError);
-        // Don't fail the import if cleanup fails
       }
       
-      // Check if nothing was created/updated
-      if (result.created === 0 && result.updated === 0) {
-        const errorMessage = result.errors.length > 0 
-          ? `Import failed: ${result.errors.join('; ')}` 
-          : 'Import failed: No products were created or updated';
-        throw new BadRequestException(errorMessage);
-      }
-      
+      const success = result.created > 0 || result.updated > 0;
       return {
-        success: true,
-        message: `Import completed: ${result.created} created, ${result.updated} updated${result.errors.length > 0 ? ` with ${result.errors.length} errors` : ''}`,
+        success,
+        message: success
+          ? `Import completed: ${result.created} created, ${result.updated} updated${result.errors.length > 0 ? ` with ${result.errors.length} row error(s)` : ''}`
+          : result.errors.length > 0
+            ? `Import failed — no products were created or updated`
+            : 'Import failed: No products were created or updated. Check your Excel sheet names match category names.',
         ...result,
       };
     } catch (error) {
-      throw new BadRequestException(error.message);
+      return {
+        success: false,
+        message: error.message || 'Import failed due to an unexpected error',
+        errors: [error.message || 'Unknown error'],
+        created: 0,
+        updated: 0,
+      };
     }
   }
 

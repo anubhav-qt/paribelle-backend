@@ -41,6 +41,9 @@ export class OrderItem {
   productImage: string;
 
   // Variant details if applicable
+  @Column({ type: 'uuid', nullable: true, name: 'variant_id' })
+  variantId: string | null;
+
   @Column({ type: 'json', nullable: true, name: 'variant_details' })
   variantDetails: any;
 

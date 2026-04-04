@@ -4,6 +4,7 @@ import { Repository, DataSource } from 'typeorm';
 import { Order, OrderStatus, PaymentStatus } from './order.entity';
 import { OrderItem } from './order-item.entity';
 import { Product } from '../products/product.entity';
+import { ProductVariant } from '../products/product-variant.entity';
 import { User } from '../users/user.entity';
 import { SimpleEmailService } from '../simple-email/simple-email.service';
 import { MarketplaceGateway } from '../stock/stock.gateway';
@@ -21,6 +22,8 @@ export class OrdersService {
     private orderItemRepository: Repository<OrderItem>,
     @InjectRepository(Product)
     private productRepository: Repository<Product>,
+    @InjectRepository(ProductVariant)
+    private productVariantsRepository: Repository<ProductVariant>,
     @InjectRepository(User)
     private userRepository: Repository<User>,
     private simpleEmailService: SimpleEmailService,
@@ -83,7 +86,7 @@ export class OrdersService {
 
     // Phase 1: Validate stock availability for ALL products first
     const stockUpdates: Array<{ productId: string; stockQuantity: number }> = [];
-    const productsToDecrement: Array<{ product: any; quantity: number }> = [];
+    const productsToDecrement: Array<{ product: any; item: any }> = [];
     
     for (const item of items) {
       const product = products.find(p => p.id === item.productId);
@@ -93,35 +96,45 @@ export class OrdersService {
 
       // Only check stock for products with inventory tracking enabled
       if (product.trackInventory) {
-        // Ensure stockQuantity is a valid number (handle null/undefined)
-        const availableStock = product.stockQuantity ?? 0;
-        
-        // Check if product has enough stock
-        if (availableStock < item.quantity) {
-          throw new BadRequestException(
-            `Insufficient stock for "${product.name}". Available: ${availableStock}, Requested: ${item.quantity}`
-          );
+        if (item.variantId) {
+          // New variant system: validate against variant stock
+          const variant = await this.productVariantsRepository.findOne({ where: { id: item.variantId } });
+          if (!variant) throw new NotFoundException(`Variant ${item.variantId} not found`);
+          const availableStock = variant.stockQuantity ?? 0;
+          if (availableStock < item.quantity) {
+            throw new BadRequestException(
+              `Insufficient stock for "${product.name}" (${Object.values(variant.variantAttributes || {}).join('/')}). Available: ${availableStock}, Requested: ${item.quantity}`
+            );
+          }
+          productsToDecrement.push({ product, item });
+          stockUpdates.push({ productId: product.id, stockQuantity: product.stockQuantity - item.quantity });
+        } else {
+          // Plain product: validate against product stock
+          const availableStock = product.stockQuantity ?? 0;
+          if (availableStock < item.quantity) {
+            throw new BadRequestException(
+              `Insufficient stock for "${product.name}". Available: ${availableStock}, Requested: ${item.quantity}`
+            );
+          }
+          productsToDecrement.push({ product, item });
+          const newStockQuantity = availableStock - item.quantity;
+          stockUpdates.push({ productId: product.id, stockQuantity: newStockQuantity });
         }
-
-        // Track products that need stock decrement (do this only after ALL validations pass)
-        productsToDecrement.push({ product, quantity: item.quantity });
-        
-        // Track the new stock quantity for WebSocket broadcast
-        const newStockQuantity = availableStock - item.quantity;
-        stockUpdates.push({ 
-          productId: product.id, 
-          stockQuantity: newStockQuantity 
-        });
       }
     }
 
-    // Phase 2: All validations passed, now decrement stock for all products
-    for (const { product, quantity } of productsToDecrement) {
-      await this.productRepository.decrement(
-        { id: product.id },
-        'stockQuantity',
-        quantity
-      );
+    // Phase 2: All validations passed, now decrement stock
+    for (const { product, item } of productsToDecrement) {
+      if (item.variantId) {
+        // Decrement the specific variant
+        await this.productVariantsRepository.decrement({ id: item.variantId }, 'stockQuantity', item.quantity);
+        // Roll up new total to parent product
+        const variants = await this.productVariantsRepository.find({ where: { productId: product.id } });
+        const newTotal = variants.reduce((s, v) => s + (v.stockQuantity || 0), 0);
+        await this.productRepository.update(product.id, { stockQuantity: newTotal });
+      } else {
+        await this.productRepository.decrement({ id: product.id }, 'stockQuantity', item.quantity);
+      }
     }
 
     // Emit stock updates via WebSocket
@@ -292,6 +305,11 @@ export class OrdersService {
           productName: item.product.name,
           productSku: item.product.sku || '',
           productImage: item.product.featuredImage,
+          variantId: item.variantId || null,
+          variantDetails: item.variantId ? {
+            sku: item.variantSku || null,
+            attributes: item.variantAttributes || null,
+          } : null,
         });
 
         orderItems.push(orderItem);
@@ -739,21 +757,20 @@ export class OrdersService {
       if (order.items && order.items.length > 0) {
         console.log(`[updateStatus] Restoring stock for cancelled order ${order.orderNumber}`);
         for (const item of order.items) {
-          await this.productRepository.increment(
-            { id: item.productId },
-            'stockQuantity',
-            item.quantity
-          );
+          if (item.variantId) {
+            await this.productVariantsRepository.increment({ id: item.variantId }, 'stockQuantity', item.quantity);
+            const variants = await this.productVariantsRepository.find({ where: { productId: item.productId } });
+            const newTotal = variants.reduce((s, v) => s + (v.stockQuantity || 0), 0);
+            await this.productRepository.update(item.productId, { stockQuantity: newTotal });
+            console.log(`[updateStatus] Restored ${item.quantity} units to variant ${item.variantId}. New product total: ${newTotal}`);
+          } else {
+            await this.productRepository.increment({ id: item.productId }, 'stockQuantity', item.quantity);
+          }
           
-          // Get updated product stock and broadcast via WebSocket
-          const product = await this.productRepository.findOne({ 
-            where: { id: item.productId } 
-          });
+          // Broadcast updated product stock via WebSocket
+          const product = await this.productRepository.findOne({ where: { id: item.productId } });
           if (product) {
-            this.marketplaceGateway.emitStockUpdate(
-              product.id,
-              product.stockQuantity
-            );
+            this.marketplaceGateway.emitStockUpdate(product.id, product.stockQuantity);
             console.log(`[updateStatus] Restored ${item.quantity} units to product ${product.id}. New stock: ${product.stockQuantity}`);
           }
         }
@@ -875,21 +892,20 @@ export class OrdersService {
     // Restore stock quantities
     console.log(`[cancel] Restoring stock for cancelled order ${order.orderNumber}`);
     for (const item of order.items) {
-      await this.productRepository.increment(
-        { id: item.productId },
-        'stockQuantity',
-        item.quantity
-      );
+      if (item.variantId) {
+        await this.productVariantsRepository.increment({ id: item.variantId }, 'stockQuantity', item.quantity);
+        const variants = await this.productVariantsRepository.find({ where: { productId: item.productId } });
+        const newTotal = variants.reduce((s, v) => s + (v.stockQuantity || 0), 0);
+        await this.productRepository.update(item.productId, { stockQuantity: newTotal });
+        console.log(`[cancel] Restored ${item.quantity} units to variant ${item.variantId}. New product total: ${newTotal}`);
+      } else {
+        await this.productRepository.increment({ id: item.productId }, 'stockQuantity', item.quantity);
+      }
       
-      // Get updated product stock and broadcast via WebSocket
-      const product = await this.productRepository.findOne({ 
-        where: { id: item.productId } 
-      });
+      // Broadcast updated product stock via WebSocket
+      const product = await this.productRepository.findOne({ where: { id: item.productId } });
       if (product) {
-        this.marketplaceGateway.emitStockUpdate(
-          product.id,
-          product.stockQuantity
-        );
+        this.marketplaceGateway.emitStockUpdate(product.id, product.stockQuantity);
         console.log(`[cancel] Restored ${item.quantity} units to product ${product.id}. New stock: ${product.stockQuantity}`);
       }
     }
