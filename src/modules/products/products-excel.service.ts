@@ -159,7 +159,7 @@ export class ProductsExcelService {
   /**
    * Get standard product column definitions (with optional category filters)
    */
-  private getProductColumns(categoryFilters: any[] = []): any[] {
+  private getProductColumns(): any[] {
     const columns: any[] = [
       { header: 'ID', key: '_id', width: 36 },
       { header: 'Product Name', key: 'name', width: 30 },
@@ -185,16 +185,8 @@ export class ProductsExcelService {
       { header: 'Base Price', key: 'basePrice', width: 12 },
       { header: 'GST Amount', key: 'gstAmount', width: 12 },
       { header: 'Cost Per Item', key: 'costPerItem', width: 12 },
+      { header: 'Attributes', key: 'attributes_str', width: 40 },
     ];
-
-    // Add category-specific attribute columns
-    categoryFilters.forEach(filter => {
-      columns.push({
-        header: filter.label,
-        key: `attr_${filter.id}`,
-        width: 20,
-      });
-    });
 
     return columns;
   }
@@ -478,7 +470,7 @@ export class ProductsExcelService {
 
         // Build columns using helper
         console.log(`🔧 Building columns for category: ${category.name}`);
-        const columns = this.getProductColumns(categoryFilters);
+        const columns = this.getProductColumns();
 
         console.log(`✅ Setting ${columns.length} columns for sheet "${category.name}"`);
         console.log(`✅ First 3 columns:`, JSON.stringify(columns.slice(0, 3), null, 2));
@@ -608,13 +600,12 @@ export class ProductsExcelService {
             }
           }
 
-          // Add attribute values
+          // Add attributes as a single string column (key: value, ...)
           if (product.attributes) {
-            Object.entries(product.attributes).forEach(([key, value]) => {
-              if (value !== null && value !== undefined && typeof value !== 'object') {
-                rowData[`attr_${key}`] = value;
-              }
-            });
+            const attrEntries = Object.entries(product.attributes)
+              .filter(([, v]) => v !== null && v !== undefined && typeof v !== 'object')
+              .map(([k, v]) => `${k}: ${v}`);
+            rowData.attributes_str = attrEntries.join(', ');
           }
 
           sheet.addRow(rowData);
@@ -1274,6 +1265,9 @@ export class ProductsExcelService {
     const errors: string[] = [];
     const createdCategories: string[] = [];
     
+    // Track attribute key→values per category for auto-adding to filter config
+    const categoryAttributeValues = new Map<string, Map<string, Set<string>>>(); // categoryId → attrKey → Set<values>
+    
     // First pass: Process product sheets to create/update products
     const processedProductIds = new Set<string>();
     const productNameToIdMap = new Map<string, string>(); // Track product names -> IDs for variant lookup
@@ -1368,9 +1362,6 @@ export class ProductsExcelService {
       if (!category && !isUncategorized && !isBookingServicesSheet) {
         continue;
       }
-
-      // Get category-specific filters if available
-      const categoryFilters = category?.filterConfig?.filters?.filter(f => f.id !== 'priceRange') || [];
 
       // Build column map from header row
       const headerRow = worksheet.getRow(1);
@@ -1571,16 +1562,8 @@ export class ProductsExcelService {
             }
           }
 
-          // Collect attributes from category-specific columns
+          // Parse attributes from "Attributes" column (format: "Color: Red, Size: M")
           const attributes: Record<string, any> = {};
-          categoryFilters.forEach(filter => {
-            const cellValue = getCellValue(row, `attr_${filter.id}`)?.toString().trim();
-            if (cellValue) {
-              attributes[filter.id] = cellValue;
-            }
-          });
-
-          // Also support a generic "Attributes" column (format: "Color: Red, Size: M")
           const genericAttrsCell = getCellValue(row, 'Attributes')?.toString().trim();
           if (genericAttrsCell) {
             genericAttrsCell.split(',').forEach(a => {
@@ -1588,9 +1571,25 @@ export class ProductsExcelService {
               if (colonIdx > 0) {
                 const k = a.substring(0, colonIdx).trim();
                 const v = a.substring(colonIdx + 1).trim();
-                if (k && v && !attributes[k]) {
-                  attributes[k] = v;
+                if (k && v) {
+                  const slugKey = k.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+                  const slugVal = v.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+                  attributes[slugKey] = slugVal;
                 }
+              }
+            });
+          }
+
+          // Track attribute keys+values per category for auto-adding to filter config
+          if (category && Object.keys(attributes).length > 0) {
+            if (!categoryAttributeValues.has(category.id)) {
+              categoryAttributeValues.set(category.id, new Map());
+            }
+            const catAttrs = categoryAttributeValues.get(category.id)!;
+            Object.entries(attributes).forEach(([k, v]) => {
+              if (typeof v !== 'object') {
+                if (!catAttrs.has(k)) catAttrs.set(k, new Set());
+                catAttrs.get(k)!.add(String(v));
               }
             });
           }
@@ -1675,13 +1674,13 @@ export class ProductsExcelService {
                 const { categories: _, ...dataWithoutCategories } = productData;
                 await this.productsRepository.update(_id, dataWithoutCategories);
                 
-                // Update categories relationship separately
-                if (isBookingServicesSheet) {
-                  existingProduct.categories = [];
-                  await this.productsRepository.save(existingProduct);
-                } else if (category) {
-                  existingProduct.categories = [category];
-                  await this.productsRepository.save(existingProduct);
+                // Update categories relationship separately — re-fetch to avoid overwriting update with stale data
+                if (isBookingServicesSheet || category) {
+                  const refreshed = await this.productsRepository.findOne({ where: { id: _id }, relations: ['categories'] });
+                  if (refreshed) {
+                    refreshed.categories = isBookingServicesSheet ? [] : (category ? [category] : refreshed.categories);
+                    await this.productsRepository.save(refreshed);
+                  }
                 }
                 updated++;
                 processedProductIds.add(_id);
@@ -1739,6 +1738,50 @@ export class ProductsExcelService {
     // This ensures products are actually in the database when variants try to look them up
     console.log(`[Import] All product sheets processed. Flushing database writes...`);
     console.log(`[Import] Created: ${created}, Updated: ${updated}`);
+    
+    // Auto-register imported attributes to category filter configs
+    for (const [categoryId, attrMap] of categoryAttributeValues) {
+      try {
+        const cat = await this.categoriesRepository.findOne({ where: { id: categoryId } });
+        if (!cat) continue;
+
+        // Initialize filterConfig if missing
+        if (!cat.filterConfig) cat.filterConfig = { filters: [] };
+        if (!cat.filterConfig.filters) cat.filterConfig.filters = [];
+
+        let updated = false;
+        for (const [attrKey, values] of attrMap) {
+          const attrId = attrKey.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+          let existingFilter = cat.filterConfig.filters.find((f: any) => f.id === attrId);
+
+          if (!existingFilter) {
+            // Create new filter entry
+            existingFilter = { id: attrId, label: attrKey, type: 'select', options: [] };
+            cat.filterConfig.filters.push(existingFilter);
+            updated = true;
+            console.log(`[Import] Created filter "${attrKey}" for category ${cat.name}`);
+          }
+
+          // Add any new option values
+          for (const val of values) {
+            const valueSlug = val.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+            const exists = existingFilter.options?.some((o: any) => o.value === valueSlug);
+            if (!exists) {
+              if (!existingFilter.options) existingFilter.options = [];
+              existingFilter.options.push({ value: valueSlug, label: val });
+              updated = true;
+              console.log(`[Import] Added option "${val}" to filter "${attrKey}" in category ${cat.name}`);
+            }
+          }
+        }
+
+        if (updated) {
+          await this.categoriesRepository.save(cat);
+        }
+      } catch (err) {
+        console.error(`[Import] Error auto-registering attributes for category ${categoryId}:`, err.message);
+      }
+    }
     
     // Wait a bit to ensure database transactions are committed
     await new Promise(resolve => setTimeout(resolve, 100));
@@ -2615,6 +2658,9 @@ export class ProductsExcelService {
 
     const productHeaders = buildHeaderMap(productSheet);
 
+    // Track attribute key→values per category for auto-adding to filter config
+    const simpleCategoryAttrs = new Map<string, Map<string, Set<string>>>();
+
     // Collect rows first (eachRow is synchronous; async processing must be sequential)
     const productRows: Array<{ row: ExcelJS.Row; rn: number }> = [];
     productSheet.eachRow((row, rn) => { if (rn > 1) productRows.push({ row, rn }); });
@@ -2681,8 +2727,24 @@ export class ProductsExcelService {
             if (colonIdx > 0) {
               const k = a.substring(0, colonIdx).trim();
               const v = a.substring(colonIdx + 1).trim();
-              if (k && v) parsedAttributes[k] = v;
+              if (k && v) {
+                const slugKey = k.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+                const slugVal = v.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+                parsedAttributes[slugKey] = slugVal;
+              }
             }
+          });
+        }
+
+        // Track per-category attribute values for auto-adding to filter config
+        if (category && Object.keys(parsedAttributes).length > 0) {
+          if (!simpleCategoryAttrs.has(category.id)) {
+            simpleCategoryAttrs.set(category.id, new Map());
+          }
+          const catAttrs = simpleCategoryAttrs.get(category.id)!;
+          Object.entries(parsedAttributes).forEach(([k, v]) => {
+            if (!catAttrs.has(k)) catAttrs.set(k, new Set());
+            catAttrs.get(k)!.add(v);
           });
         }
 
@@ -2720,18 +2782,30 @@ export class ProductsExcelService {
 
         if (existing) {
           if (!vendorId || existing.vendorId === resolvedVendorId) {
-            // Merge attributes: preserve existing (e.g. booking) and layer in new ones
-            if (Object.keys(parsedAttributes).length > 0 && existing.attributes) {
-              productData.attributes = { ...existing.attributes, ...parsedAttributes };
+            // Apply all updates directly to the loaded entity, then single .save()
+            existing.name = name;
+            existing.description = description;
+            existing.price = price;
+            existing.compareAtPrice = compareAtPrice || (0 as any);
+            existing.stockQuantity = stockQuantity;
+            existing.status = status as any;
+            existing.hsnCode = hsnCode || '';
+            existing.gstRate = gstRate;
+            if (productImages.length > 0) {
+              existing.images = productImages;
+              existing.featuredImage = productImages[0];
             }
-            await this.productsRepository.update(existing.id, productData);
+            // Merge attributes: preserve existing (e.g. booking/tour) and layer in new ones
+            if (Object.keys(parsedAttributes).length > 0) {
+              existing.attributes = { ...(existing.attributes || {}), ...parsedAttributes };
+            }
             if (category) {
               existing.categories = [category];
-              await this.productsRepository.save(existing);
             }
+            await this.productsRepository.save(existing);
             updated++;
             productCodeToId.set(productCode || name, existing.id);
-            console.log(`[SimpleImport] Updated "${name}" (id: ${existing.id})`);
+            console.log(`[SimpleImport] Updated "${name}" (id: ${existing.id}), attributes: ${JSON.stringify(existing.attributes)}`);
           } else {
             errors.push(`Row ${rn}: Product "${name}" belongs to a different vendor`);
           }
@@ -2753,6 +2827,47 @@ export class ProductsExcelService {
         }
       } catch (err) {
         errors.push(`Products Row ${rn}: ${err.message}`);
+      }
+    }
+
+    // Auto-register imported attributes to category filter configs
+    for (const [categoryId, attrMap] of simpleCategoryAttrs) {
+      try {
+        const cat = await this.categoriesRepository.findOne({ where: { id: categoryId } });
+        if (!cat) continue;
+
+        if (!cat.filterConfig) cat.filterConfig = { filters: [] };
+        if (!cat.filterConfig.filters) cat.filterConfig.filters = [];
+
+        let catUpdated = false;
+        for (const [attrKey, values] of attrMap) {
+          const attrId = attrKey.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+          let existingFilter = cat.filterConfig.filters.find((f: any) => f.id === attrId);
+
+          if (!existingFilter) {
+            existingFilter = { id: attrId, label: attrKey, type: 'select', options: [] };
+            cat.filterConfig.filters.push(existingFilter);
+            catUpdated = true;
+            console.log(`[SimpleImport] Created filter "${attrKey}" for category ${cat.name}`);
+          }
+
+          for (const val of values) {
+            const valueSlug = val.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+            const exists = existingFilter.options?.some((o: any) => o.value === valueSlug);
+            if (!exists) {
+              if (!existingFilter.options) existingFilter.options = [];
+              existingFilter.options.push({ value: valueSlug, label: val });
+              catUpdated = true;
+              console.log(`[SimpleImport] Added option "${val}" to filter "${attrKey}" in category ${cat.name}`);
+            }
+          }
+        }
+
+        if (catUpdated) {
+          await this.categoriesRepository.save(cat);
+        }
+      } catch (err) {
+        console.error(`[SimpleImport] Error auto-registering attributes for category ${categoryId}:`, err.message);
       }
     }
 
