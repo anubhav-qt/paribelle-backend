@@ -587,6 +587,8 @@ export class ProductsService {
   async update(id: string, productData: any): Promise<Product | null> {
     const { 
       categoryIds, 
+      newFilterOptions,
+      categoryId: filterCategoryId,
       variations, 
       vendor, 
       reviews, 
@@ -654,6 +656,35 @@ export class ProductsService {
         // Auto-initialize filters for new categories
         for (const categoryId of categoryIds) {
           await this.categoriesService.autoInitializeFilters(categoryId);
+        }
+      }
+    }
+    
+    // If new filter options are provided, add them to the category
+    if (newFilterOptions && filterCategoryId) {
+      const category = await this.categoriesRepository.findOne({
+        where: { id: filterCategoryId },
+      });
+      
+      if (category && category.filterConfig?.filters) {
+        let updated = false;
+        
+        category.filterConfig.filters = category.filterConfig.filters.map((filter: any) => {
+          if (newFilterOptions[filter.id]) {
+            const newOption = newFilterOptions[filter.id];
+            const optionExists = filter.options?.some((opt: any) => opt.value === newOption.value);
+            
+            if (!optionExists) {
+              filter.options = [...(filter.options || []), newOption];
+              updated = true;
+              console.log(`Added new ${filter.label} option: ${newOption.label}`);
+            }
+          }
+          return filter;
+        });
+        
+        if (updated) {
+          await this.categoriesRepository.save(category);
         }
       }
     }
