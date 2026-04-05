@@ -611,7 +611,7 @@ export class ProductsExcelService {
           // Add attribute values
           if (product.attributes) {
             Object.entries(product.attributes).forEach(([key, value]) => {
-              if (key !== 'booking') {
+              if (value !== null && value !== undefined && typeof value !== 'object') {
                 rowData[`attr_${key}`] = value;
               }
             });
@@ -1580,6 +1580,21 @@ export class ProductsExcelService {
             }
           });
 
+          // Also support a generic "Attributes" column (format: "Color: Red, Size: M")
+          const genericAttrsCell = getCellValue(row, 'Attributes')?.toString().trim();
+          if (genericAttrsCell) {
+            genericAttrsCell.split(',').forEach(a => {
+              const colonIdx = a.indexOf(':');
+              if (colonIdx > 0) {
+                const k = a.substring(0, colonIdx).trim();
+                const v = a.substring(colonIdx + 1).trim();
+                if (k && v && !attributes[k]) {
+                  attributes[k] = v;
+                }
+              }
+            });
+          }
+
           // Add booking attributes if product is a booking type
           if (productType === 'booking' && bookingDuration && bookingDurationUnit) {
             attributes.booking = {
@@ -2369,6 +2384,7 @@ export class ProductsExcelService {
       { header: 'Images',           key: 'images',         width: 40 },
       { header: 'HSN Code',         key: 'hsnCode',        width: 15 },
       { header: 'GST Rate (%)',     key: 'gstRate',        width: 12 },
+      { header: 'Attributes',       key: 'attributes',     width: 40 },
     ];
   }
 
@@ -2428,6 +2444,15 @@ export class ProductsExcelService {
       let hsnCode = product.hsnCode || '';
       if (hsnCode.includes(' - ')) hsnCode = hsnCode.split(' - ')[0].trim();
 
+      // Build attributes string (key: value, ...) excluding nested objects like booking/tour metadata
+      let attributesStr = '';
+      if (product.attributes) {
+        const attrEntries = Object.entries(product.attributes)
+          .filter(([, v]) => v !== null && v !== undefined && typeof v !== 'object')
+          .map(([k, v]) => `${k}: ${v}`);
+        attributesStr = attrEntries.join(', ');
+      }
+
       productSheet.addRow({
         productCode:    product.sku || '',
         name:           product.name,
@@ -2440,6 +2465,7 @@ export class ProductsExcelService {
         images:         imagesList,
         hsnCode,
         gstRate:        product.gstRate || '',
+        attributes:     attributesStr,
       });
     }
 
@@ -2646,6 +2672,20 @@ export class ProductsExcelService {
           }
         }
 
+        // Parse attributes column: "Color: Red, Size: M" → { color: "red", size: "m" }
+        const attributesCell = g('Attributes')?.trim() || '';
+        const parsedAttributes: Record<string, string> = {};
+        if (attributesCell) {
+          attributesCell.split(',').forEach(a => {
+            const colonIdx = a.indexOf(':');
+            if (colonIdx > 0) {
+              const k = a.substring(0, colonIdx).trim();
+              const v = a.substring(colonIdx + 1).trim();
+              if (k && v) parsedAttributes[k] = v;
+            }
+          });
+        }
+
         const productData: any = {
           name,
           description,
@@ -2660,6 +2700,7 @@ export class ProductsExcelService {
           gstRate,
           images: productImages.length > 0 ? productImages : null,
           featuredImage: productImages.length > 0 ? productImages[0] : null,
+          ...(Object.keys(parsedAttributes).length > 0 ? { attributes: parsedAttributes } : {}),
         };
 
         // Upsert: find by productCode (sku), then by name within same vendor
@@ -2679,6 +2720,10 @@ export class ProductsExcelService {
 
         if (existing) {
           if (!vendorId || existing.vendorId === resolvedVendorId) {
+            // Merge attributes: preserve existing (e.g. booking) and layer in new ones
+            if (Object.keys(parsedAttributes).length > 0 && existing.attributes) {
+              productData.attributes = { ...existing.attributes, ...parsedAttributes };
+            }
             await this.productsRepository.update(existing.id, productData);
             if (category) {
               existing.categories = [category];
@@ -2824,6 +2869,7 @@ export class ProductsExcelService {
       stockQuantity: 0, status: 'active',
       images: 'tshirt-red-front.jpg, tshirt-red-back.jpg',
       hsnCode: '6109', gstRate: 12,
+      attributes: 'Color: Red, Size: M, Material: Cotton',
     });
     productSheet.addRow({
       productCode: '2', name: 'Leather Wallet',
@@ -2832,6 +2878,7 @@ export class ProductsExcelService {
       stockQuantity: 50, status: 'active',
       images: 'wallet-brown.jpg',
       hsnCode: '4202', gstRate: 18,
+      attributes: 'Color: Brown, Material: Leather',
     });
     addDropdown(productSheet, 8, 3, '"active,draft,archived"'); // Status on rows 2-3
 
@@ -2885,6 +2932,11 @@ export class ProductsExcelService {
     b(28, 'HSN CODE & GST RATE');
     n(29, '  • HSN Code: numeric only, e.g.  6109   (no description text)');
     n(30, '  • GST Rate (%): number only, e.g.  12    Leave blank → auto-filled from HSN code.');
+    b(32, 'ATTRIBUTES');
+    n(33, '  • Format:   Color: Red, Size: M, Material: Cotton   (key: value, comma-separated)');
+    n(34, '  • These are product-level attributes used for filtering on the storefront.');
+    n(35, '  • Common attributes: Color, Size, Material, Brand, Weight, etc.');
+    n(36, '  • Leave blank if the product has no filterable attributes.');
 
     // ── Build ZIP with dummy images ───────────────────────────────────────────
     const excelBuffer = await workbook.xlsx.writeBuffer();
