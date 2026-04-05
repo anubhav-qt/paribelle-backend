@@ -186,6 +186,7 @@ export class ProductsService {
       .leftJoinAndSelect('product.vendor', 'vendor')
       .leftJoinAndSelect('vendor.locationCity', 'city')
       .leftJoinAndSelect('vendor.locationSubLocation', 'subLocation')
+      .leftJoinAndSelect('product.productVariants', 'productVariants')
       .select([
         'product',
         'category.id',
@@ -200,6 +201,7 @@ export class ProductsService {
         'city.name',
         'subLocation.id',
         'subLocation.name',
+        'productVariants',
       ])
       .where('category.id IN (:...categoryIds)', { categoryIds })
       .andWhere('product.status = :status', { status: ProductStatus.ACTIVE });
