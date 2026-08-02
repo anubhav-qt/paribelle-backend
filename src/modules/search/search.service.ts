@@ -21,11 +21,16 @@ export class SearchService {
     private cacheManager: Cache,
   ) {}
 
-  async getSuggestions(query: string) {
-    // Check cache first
-    const cacheKey = CACHE_KEYS.SEARCH_SUGGESTIONS(query);
+  /**
+   * @param vendorId Restricts suggestions to one storefront's catalogue. Each
+   *   shop on the platform is its own store, so a shopper searching on one
+   *   should never be suggested another shop's products.
+   */
+  async getSuggestions(query: string, vendorId?: string) {
+    // Check cache first — keyed per storefront so stores can't share entries.
+    const cacheKey = CACHE_KEYS.SEARCH_SUGGESTIONS(`${vendorId || 'all'}:${query}`);
     const cached = await this.cacheManager.get(cacheKey);
-    
+
     if (cached) {
       return cached as any;
     }
@@ -39,6 +44,7 @@ export class SearchService {
         where: {
           name: ILike(searchPattern),
           status: ProductStatus.ACTIVE,
+          ...(vendorId ? { vendorId } : {}),
         },
         take: 5,
         select: ['id', 'name', 'slug', 'featuredImage', 'price'],

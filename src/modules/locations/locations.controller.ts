@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Delete, Body, Param, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiQuery } from '@nestjs/swagger';
+import { AdminOnly } from '../../common/decorators/admin-only.decorator';
 import { LocationsService } from './locations.service';
 
 @ApiTags('locations')
@@ -37,12 +38,14 @@ export class LocationsController {
   }
 
   @Post('cities')
+  @AdminOnly()
   @ApiOperation({ summary: 'Create a new city' })
   async createCity(@Body() body: { name: string; state?: string; country?: string }) {
     return this.locationsService.createCity(body.name, body.state, body.country, true);
   }
 
   @Post('sub-locations')
+  @AdminOnly()
   @ApiOperation({ summary: 'Create a new sub-location' })
   async createSubLocation(
     @Body() body: { name: string; cityId: string; zipCode?: string },
@@ -55,6 +58,7 @@ export class LocationsController {
   }
 
   @Post('find-or-create-city')
+  @AdminOnly()
   @ApiOperation({ summary: 'Find existing city or create new one' })
   async findOrCreateCity(
     @Body() body: { name: string; state?: string; country?: string },
@@ -67,6 +71,7 @@ export class LocationsController {
   }
 
   @Post('find-or-create-sub-location')
+  @AdminOnly()
   @ApiOperation({ summary: 'Find existing sub-location or create new one' })
   async findOrCreateSubLocation(
     @Body() body: { name: string; cityId: string; zipCode?: string },
@@ -79,6 +84,7 @@ export class LocationsController {
   }
 
   @Delete('cities/:id')
+  @AdminOnly()
   @ApiOperation({ summary: 'Delete a city' })
   async deleteCity(@Param('id') id: string) {
     await this.locationsService.deleteCity(id);
@@ -86,6 +92,7 @@ export class LocationsController {
   }
 
   @Delete('sub-locations/:id')
+  @AdminOnly()
   @ApiOperation({ summary: 'Delete a sub-location' })
   async deleteSubLocation(@Param('id') id: string) {
     await this.locationsService.deleteSubLocation(id);

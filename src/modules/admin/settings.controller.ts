@@ -1,7 +1,15 @@
-import { Controller, Get, Post, Put, Delete, Param, Body } from '@nestjs/common';
-import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { Controller, Get, Post, Put, Delete, Param, Body, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { UserRole } from '../users/user.entity';
 import { SettingsService } from './settings.service';
 
+/**
+ * Reads are public — the storefront needs the store name, currency and logo
+ * before anyone logs in. Every write is admin-only.
+ */
 @ApiTags('settings')
 @Controller('settings')
 export class SettingsController {
@@ -43,7 +51,10 @@ export class SettingsController {
   }
 
   @Get('admin/all')
-  @ApiOperation({ summary: 'Get all settings with metadata' })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get all settings with metadata (admin only)' })
   async getAllSettings() {
     const settings = await this.settingsService.getSettings();
     // Parse any string values that look like JSON to actual objects/arrays
@@ -106,7 +117,10 @@ export class SettingsController {
   }
 
   @Post()
-  @ApiOperation({ summary: 'Create or update setting' })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Create or update setting (admin only)' })
   async createOrUpdateSetting(
     @Body() body: { key: string; value: any; description?: string; type?: string }
   ) {
@@ -114,7 +128,10 @@ export class SettingsController {
   }
 
   @Put(':key')
-  @ApiOperation({ summary: 'Update setting' })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update setting (admin only)' })
   async updateSetting(
     @Param('key') key: string,
     @Body() body: { value: any; description?: string }
@@ -123,14 +140,20 @@ export class SettingsController {
   }
 
   @Delete(':key')
-  @ApiOperation({ summary: 'Delete setting' })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Delete setting (admin only)' })
   async deleteSetting(@Param('key') key: string) {
     await this.settingsService.deleteSetting(key);
     return { message: 'Setting deleted successfully' };
   }
 
   @Get('admin/notification-email')
-  @ApiOperation({ summary: 'Get admin notification email' })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get admin notification email (admin only)' })
   async getAdminNotificationEmail() {
     const email = await this.settingsService.getAdminNotificationEmail();
     return { 
@@ -141,7 +164,10 @@ export class SettingsController {
   }
 
   @Post('admin/notification-email')
-  @ApiOperation({ summary: 'Set admin notification email' })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Set admin notification email (admin only)' })
   async setAdminNotificationEmail(@Body() body: { email: string }) {
     if (!body.email || !body.email.includes('@')) {
       return { 

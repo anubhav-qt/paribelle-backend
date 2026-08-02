@@ -2,9 +2,13 @@ import { Controller, Get, Delete, Query, Res } from '@nestjs/common';
 import { MonitoringService } from './monitoring.service';
 import { ApiTags, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { Response } from 'express';
+import { AdminOnly } from '../../common/decorators/admin-only.decorator';
+import { UserRole } from '../users/user.entity';
 
+/** Request logs and timings — administrators only, all of it. */
 @ApiTags('monitoring')
 @Controller('monitoring')
+@AdminOnly(UserRole.SUPER_ADMIN)
 export class MonitoringController {
   constructor(private readonly monitoringService: MonitoringService) {}
 

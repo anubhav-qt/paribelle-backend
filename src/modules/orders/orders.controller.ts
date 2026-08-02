@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Body, Param, Patch, UseGuards, Request, Query, Res, NotFoundException } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { AdminOnly } from '../../common/decorators/admin-only.decorator';
 import { OrderStatus } from './order.entity';
 import { ReviewsService } from '../reviews/reviews.service';
 import { Response } from 'express';
@@ -30,8 +31,8 @@ export class OrdersController {
   }
 
   @Get('admin/all')
+  @AdminOnly()
   findAllForAdmin(@Request() req) {
-    // TODO: Add admin role check guard
     return this.ordersService.findAllForAdmin();
   }
 
@@ -47,11 +48,13 @@ export class OrdersController {
   }
 
   @Patch(':id/status')
+  @AdminOnly()
   updateStatus(@Param('id') id: string, @Body() body: { status: OrderStatus }) {
     return this.ordersService.updateStatus(id, body.status);
   }
 
   @Patch(':id/payment-status')
+  @AdminOnly()
   updatePaymentStatus(@Param('id') id: string, @Body() body: { paymentStatus: string }) {
     return this.ordersService.updatePaymentStatus(id, body.paymentStatus);
   }

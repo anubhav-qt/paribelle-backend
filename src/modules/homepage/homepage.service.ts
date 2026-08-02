@@ -19,7 +19,7 @@ export class HomepageService {
   async getHomepageData(cityId?: string, subLocationId?: string, vendorSlug?: string) {
     try {
       console.log('[HomepageService] Fetching homepage data...', { cityId, subLocationId, vendorSlug });
-      
+
       // If vendorSlug is provided, get the vendor
       let vendorId: string | undefined;
       let vendor: Vendor | null = null;
@@ -27,8 +27,18 @@ export class HomepageService {
         vendor = await this.getVendorBySlug(vendorSlug);
         vendorId = vendor?.id;
         console.log('[HomepageService] Vendor found:', vendorId, 'categoryDisplayMode:', vendor?.categoryDisplayMode);
+      } else {
+        // The root domain is the platform's own shop, not an aggregate of every
+        // vendor. `root_vendor_slug` names the vendor that owns it, so the root
+        // homepage shows that store's catalogue only. Unset means "show all".
+        const rootVendorSlug = await this.settingsService.getSetting('root_vendor_slug');
+        if (rootVendorSlug) {
+          const rootVendor = await this.getVendorBySlug(String(rootVendorSlug));
+          vendorId = rootVendor?.id;
+          console.log('[HomepageService] Root store vendor:', rootVendorSlug, vendorId);
+        }
       }
-      
+
       // Fetch all data in parallel
       const [
         locationFilterEnabled,
@@ -46,7 +56,9 @@ export class HomepageService {
         vendor ? Promise.resolve(vendor.categoryDisplayMode || 'sidebar') : this.settingsService.getSetting('category_display_mode'),
         this.settingsService.getSetting('marketplace_logo'),
         this.settingsService.getSetting('marketplace_name'),
-        this.categoriesService.findAllRootCategories(),
+        // A vendor store gets the global categories plus its own; the root site
+        // gets the global ones only.
+        this.categoriesService.findAllRootCategories(vendor?.id),
         this.getUncategorizedProducts(cityId, subLocationId, vendorId),
         this.getBookingProducts(cityId, subLocationId, vendorId),
       ]);
@@ -88,13 +100,23 @@ export class HomepageService {
     }
   }
 
+  /** Flattens a category tree so every level gets its own product bucket. */
+  private flattenCategories(categories: any[]): any[] {
+    return categories.flatMap((category) => [
+      category,
+      ...this.flattenCategories(category.children || []),
+    ]);
+  }
+
   private async getProductsByCategories(
     categories: any[],
     cityId?: string,
     subLocationId?: string,
     vendorId?: string,
   ) {
-    const productPromises = categories.map(async (category) => {
+    // Storefronts browse by subcategory (Kurtis, Jewellery), not just by the
+    // top-level parent, so each descendant needs its own bucket.
+    const productPromises = this.flattenCategories(categories).map(async (category) => {
       try {
         const filters: any = { productType: 'physical' };
         if (cityId) filters.cityId = cityId;

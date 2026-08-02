@@ -163,7 +163,8 @@ export class FooterSettingsService {
 
   private async createDefaultSettings(): Promise<FooterSettings> {
     const defaultSettings = this.footerSettingsRepository.create({
-      aboutText: 'Your one-stop destination for quality products from trusted vendors across multiple categories.',
+      aboutText:
+        'Designer kurtis and artificial jewellery, designed in Jaipur with new pieces every season.',
       socialLinks: [
         { platform: 'facebook', url: 'https://facebook.com', enabled: true },
         { platform: 'twitter', url: 'https://twitter.com', enabled: true },
@@ -200,16 +201,15 @@ export class FooterSettingsService {
             { label: 'Privacy Policy', url: '/privacy-policy' },
             { label: 'Terms of Service', url: '/terms-of-service' },
             { label: 'Cookie Policy', url: '/cookie-policy' },
-            { label: 'Become a Vendor', url: '/vendor-registration' },
           ],
         },
       ],
       contactInfo: {
-        phone: '+1 (555) 123-4567',
-        email: 'support@marketplace.com',
-        address: '123 Market Street\nCity, State 12345',
+        phone: '',
+        email: 'hello@paribelle.com',
+        address: '',
       },
-      copyrightText: 'All rights reserved.',
+      copyrightText: '© PariBelle. All rights reserved.',
       showCategories: true,
       maxCategoriesDisplay: 6,
     });

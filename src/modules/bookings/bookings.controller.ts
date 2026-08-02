@@ -1,8 +1,15 @@
-import { Controller, Get, Post, Patch, Param, Query, Body, NotFoundException } from '@nestjs/common';
-import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { Controller, Get, Post, Patch, Param, Query, Body, UseGuards, NotFoundException, ForbiddenException, Request } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { AdminOnly } from '../../common/decorators/admin-only.decorator';
+import { UserRole } from '../users/user.entity';
 import { BookingsService } from './bookings.service';
 import { BookingStatus } from './booking.entity';
 
+/**
+ * Slot availability is public so customers can browse before signing in.
+ * Everything else needs a session, and the vendor-wide views need an admin.
+ */
 @ApiTags('bookings')
 @Controller('bookings')
 export class BookingsController {
@@ -19,18 +26,29 @@ export class BookingsController {
   }
 
   @Get('vendor/:vendorId')
+  @AdminOnly()
   @ApiOperation({ summary: 'Get all bookings for a vendor' })
   async findByVendor(@Param('vendorId') vendorId: string) {
     return this.bookingsService.findByVendor(vendorId);
   }
 
   @Get('user/:userId')
-  @ApiOperation({ summary: 'Get all bookings for a user' })
-  async findByUser(@Param('userId') userId: string) {
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get all bookings for a user (own, or any as admin)' })
+  async findByUser(@Param('userId') userId: string, @Request() req) {
+    const isAdmin =
+      req.user.role === UserRole.SUPER_ADMIN ||
+      req.user.role === UserRole.VENDOR_ADMIN;
+    if (req.user.id !== userId && !isAdmin) {
+      throw new ForbiddenException('You may only read your own bookings');
+    }
     return this.bookingsService.findByUser(userId);
   }
 
   @Post()
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Create a new booking' })
   async create(@Body() createBookingDto: any) {
     console.log('=== BOOKING CREATE ENDPOINT HIT ===');
@@ -42,6 +60,8 @@ export class BookingsController {
   }
 
   @Get(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Get booking by ID' })
   async findOne(@Param('id') id: string) {
     console.log('=== BOOKING FINDONE ENDPOINT HIT ===');
@@ -57,6 +77,8 @@ export class BookingsController {
   }
 
   @Patch(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Update booking details (status, payment, address)' })
   async update(
     @Param('id') id: string,
@@ -66,6 +88,7 @@ export class BookingsController {
   }
 
   @Patch(':id/status')
+  @AdminOnly()
   @ApiOperation({ summary: 'Update booking status' })
   async updateStatus(
     @Param('id') id: string,
@@ -75,6 +98,7 @@ export class BookingsController {
   }
 
   @Patch(':id/payment')
+  @AdminOnly()
   @ApiOperation({ summary: 'Update booking payment reference' })
   async updatePayment(
     @Param('id') id: string,

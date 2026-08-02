@@ -36,7 +36,9 @@ export class User {
   @Column({ nullable: true })
   phone: string;
 
-  @Column()
+  // Never comes back from an ordinary find(). The only caller that needs it is
+  // the login check, via UsersService.findByEmailWithPassword().
+  @Column({ select: false })
   password: string;
 
   @Column({ name: 'first_name' })

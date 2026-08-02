@@ -1,8 +1,11 @@
-import { Controller, Get, Post, Put, Patch, Delete, Body, Param, UseGuards, NotFoundException, Request } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Delete, Body, Param, UseGuards, NotFoundException, ForbiddenException, Request } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { UsersService } from './users.service';
-import { User } from './user.entity';
+import { UpdateUserDto } from './dto/update-user.dto';
+import { User, UserRole } from './user.entity';
 
 @ApiTags('users')
 @Controller('users')
@@ -10,7 +13,10 @@ export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Get all users' })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get all users (admin only)' })
   async findAll(): Promise<User[]> {
     return this.usersService.findAll();
   }
@@ -36,8 +42,14 @@ export class UsersController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Get user by ID' })
-  async findOne(@Param('id') id: string): Promise<User> {
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get user by ID (own account, or any as admin)' })
+  async findOne(@Param('id') id: string, @Request() req): Promise<User> {
+    if (req.user.id !== id && req.user.role !== UserRole.SUPER_ADMIN) {
+      throw new ForbiddenException('You may only read your own account');
+    }
+
     const user = await this.usersService.findOne(id);
     if (!user) {
       throw new NotFoundException(`User with ID ${id} not found`);
@@ -84,8 +96,11 @@ export class UsersController {
   }
 
   @Put(':id')
-  @ApiOperation({ summary: 'Update user' })
-  async update(@Param('id') id: string, @Body() userData: Partial<User>): Promise<User> {
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update user (admin only)' })
+  async update(@Param('id') id: string, @Body() userData: UpdateUserDto): Promise<User> {
     const user = await this.usersService.update(id, userData);
     if (!user) {
       throw new NotFoundException(`User with ID ${id} not found`);
@@ -94,7 +109,10 @@ export class UsersController {
   }
 
   @Delete(':id')
-  @ApiOperation({ summary: 'Delete user' })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Delete user (admin only)' })
   async remove(@Param('id') id: string): Promise<void> {
     return this.usersService.remove(id);
   }

@@ -27,7 +27,7 @@ export class AuthService {
   ) {}
 
   async validateUser(email: string, password: string): Promise<any> {
-    const user = await this.usersService.findByEmail(email);
+    const user = await this.usersService.findByEmailWithPassword(email);
     if (user && (await bcrypt.compare(password, user.password))) {
       // Check if email is verified for non-Google users
       if (!user.emailVerifiedAt && !user.email.includes('google')) {

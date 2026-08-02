@@ -83,7 +83,7 @@ export class InvoicePdfService {
    * Add modern header (Amazon/Flipkart style)
    */
   private async addModernHeader(doc: any, invoice: Invoice): Promise<void> {
-    const appName = await this.settingsService.getSetting('marketplace_name') || 'GaliCart';
+    const appName = await this.settingsService.getSetting('marketplace_name') || 'PariBelle';
     
     // Top border - different color for vendor invoices
     const headerColor = invoice.type === 'vendor' ? '#e0f2fe' : '#f8f9fa';
@@ -160,7 +160,7 @@ export class InvoicePdfService {
       .fillColor('#000000')
       .text(leftLabel, leftX, startY);
 
-    const appName = await this.settingsService.getSetting('marketplace_name') || 'GaliCart';
+    const appName = await this.settingsService.getSetting('marketplace_name') || 'PariBelle';
     const appAddress = this.configService.get('APP_ADDRESS') || '';
     const appPhone = this.configService.get('APP_PHONE') || '';
     const appEmail = this.configService.get('APP_EMAIL') || '';

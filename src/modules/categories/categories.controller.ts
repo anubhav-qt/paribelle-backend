@@ -1,8 +1,13 @@
-import { Controller, Get, Post, Put, Delete, Param, Body, Query } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBody, ApiQuery } from '@nestjs/swagger';
+import { Controller, Get, Post, Put, Delete, Param, Body, Query, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBody, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { UserRole } from '../users/user.entity';
 import { CategoriesService } from './categories.service';
 import { UpdateCategoryFiltersDto } from './dto/category-filter.dto';
 
+/** Browsing the category tree is public; changing it is admin-only. */
 @ApiTags('categories')
 @Controller('categories')
 export class CategoriesController {
@@ -15,7 +20,10 @@ export class CategoriesController {
   }
 
   @Post()
-  @ApiOperation({ summary: 'Create a new category' })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Create a new category (admin only)' })
   async create(@Body() categoryData: any) {
     return this.categoriesService.create(categoryData);
   }
@@ -64,13 +72,19 @@ export class CategoriesController {
   }
 
   @Put(':id')
-  @ApiOperation({ summary: 'Update category' })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update category (admin only)' })
   async update(@Param('id') id: string, @Body() categoryData: any) {
     return this.categoriesService.update(id, categoryData);
   }
 
   @Delete(':id')
-  @ApiOperation({ summary: 'Delete category' })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Delete category (admin only)' })
   async delete(@Param('id') id: string) {
     await this.categoriesService.remove(id);
     return { message: 'Category deleted successfully' };
@@ -89,6 +103,9 @@ export class CategoriesController {
   }
 
   @Put(':id/filters')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Update category filters (Admin only)' })
   @ApiBody({ type: UpdateCategoryFiltersDto })
   async updateFilters(

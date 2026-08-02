@@ -1,5 +1,7 @@
 import { Controller, Get, Post, Put, Delete, Param, Body, Patch, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { AdminOnly } from '../../common/decorators/admin-only.decorator';
+import { UserRole } from '../users/user.entity';
 import { VendorsService } from './vendors.service';
 import { Vendor } from './vendor.entity';
 
@@ -12,6 +14,15 @@ export class VendorsController {
   @ApiOperation({ summary: 'Get all vendors' })
   async findAll() {
     return this.vendorsService.findAll();
+  }
+
+  @Get('root-store')
+  @ApiOperation({
+    summary:
+      'Get the vendor that owns the root domain store, or null when the root aggregates every vendor',
+  })
+  async getRootStore() {
+    return this.vendorsService.findRootStore();
   }
 
   @Get('by-slug/:slug/products')
@@ -53,12 +64,14 @@ export class VendorsController {
   }
 
   @Post()
+  @AdminOnly()
   @ApiOperation({ summary: 'Create a new vendor' })
   async create(@Body() vendorData: Partial<Vendor>) {
     return this.vendorsService.create(vendorData);
   }
 
   @Patch(':id')
+  @AdminOnly()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Update a vendor' })
   async update(@Param('id') id: string, @Body() vendorData: Partial<Vendor>) {
@@ -120,6 +133,7 @@ export class VendorsController {
   }
 
   @Delete(':id')
+  @AdminOnly(UserRole.SUPER_ADMIN)
   @ApiOperation({ summary: 'Delete a vendor' })
   async remove(@Param('id') id: string) {
     await this.vendorsService.remove(id);
@@ -127,6 +141,7 @@ export class VendorsController {
   }
 
   @Put(':id/hero-banners')
+  @AdminOnly()
   @ApiOperation({ summary: 'Update vendor hero banners' })
   async updateHeroBanners(
     @Param('id') id: string,
@@ -156,6 +171,7 @@ export class VendorsController {
   }
 
   @Put(':id/theme')
+  @AdminOnly()
   @ApiOperation({ summary: 'Update vendor theme configuration' })
   async updateTheme(
     @Param('id') id: string,
@@ -185,6 +201,7 @@ export class VendorsController {
   }
 
   @Patch(':id/about')
+  @AdminOnly()
   @ApiOperation({ summary: 'Update vendor about section' })
   async updateAbout(
     @Param('id') id: string,
@@ -204,6 +221,7 @@ export class VendorsController {
   }
 
   @Patch(':id/seo')
+  @AdminOnly()
   @ApiOperation({ summary: 'Update vendor SEO settings' })
   async updateSeo(
     @Param('id') id: string,
@@ -223,6 +241,7 @@ export class VendorsController {
   }
 
   @Patch(':id/policies')
+  @AdminOnly()
   @ApiOperation({ summary: 'Update vendor return and cancellation policies' })
   async updatePolicies(
     @Param('id') id: string,

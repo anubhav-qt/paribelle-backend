@@ -1,7 +1,11 @@
-import { Controller, Get, Post, Put, Patch, Delete, Param, Query, Body, UseInterceptors, UploadedFile, UploadedFiles, Res, HttpStatus, BadRequestException } from '@nestjs/common';
-import { FileInterceptor, FileFieldsInterceptor } from '@nestjs/platform-express';
-import { ApiTags, ApiOperation, ApiQuery, ApiConsumes } from '@nestjs/swagger';
+import { Controller, Get, Post, Put, Patch, Delete, Param, Query, Body, UseGuards, UseInterceptors, UploadedFile, Res, HttpStatus, BadRequestException } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiTags, ApiOperation, ApiQuery, ApiConsumes, ApiBearerAuth } from '@nestjs/swagger';
 import { Response } from 'express';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { UserRole } from '../users/user.entity';
 import { ProductsService } from './products.service';
 import { ProductsExcelService } from './products-excel.service';
 import { Product } from './product.entity';
@@ -72,67 +76,6 @@ export class ProductsController {
     return this.productsService.findAll(pageNum, limitNum, status, search, vendorId, isUncategorized, cityId, subLocationId, productType);
   }
 
-  @Get('template/download')
-  @ApiOperation({ summary: 'Download product template with sample data and images' })
-  async downloadTemplate(@Res() res: Response) {
-    const buffer = await this.productsExcelService.generateSampleTemplate();
-    
-    res.setHeader(
-      'Content-Type',
-      'application/zip',
-    );
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename=products-template-${Date.now()}.zip`,
-    );
-    
-    res.send(buffer);
-  }
-
-  @Get('export/:vendorId')
-  @ApiOperation({ summary: 'Export vendor products to Excel' })
-  async exportProducts(
-    @Param('vendorId') vendorId: string,
-    @Res() res: Response,
-  ) {
-    // Handle 'all' for admin to export all products
-    const targetVendorId = vendorId === 'all' ? null : vendorId;
-    const buffer = await this.productsExcelService.exportToExcel(targetVendorId);
-    
-    res.setHeader(
-      'Content-Type',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    );
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename=products-${vendorId}-${Date.now()}.xlsx`,
-    );
-    
-    res.send(buffer);
-  }
-
-  @Get('export-zip/:vendorId')
-  @ApiOperation({ summary: 'Export vendor products to ZIP with images' })
-  async exportToZip(
-    @Param('vendorId') vendorId: string,
-    @Res() res: Response,
-  ) {
-    // Handle 'all' for admin to export all products
-    const targetVendorId = vendorId === 'all' ? null : vendorId;
-    const buffer = await this.productsExcelService.exportToZip(targetVendorId);
-    
-    res.setHeader(
-      'Content-Type',
-      'application/zip',
-    );
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename=products-${vendorId}-${Date.now()}.zip`,
-    );
-    
-    res.send(buffer);
-  }
-
   @Get('template-simple/download')
   @ApiOperation({ summary: 'Download simple physical-product template (ZIP with sample Excel + images)' })
   async downloadSimpleTemplate(@Res() res: Response) {
@@ -159,7 +102,10 @@ export class ProductsController {
   }
 
   @Post('import-simple/:vendorId')
-  @ApiOperation({ summary: 'Import physical products from simple ZIP (products.xlsx + images/)' })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Import physical products from simple ZIP (admin only)' })
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(FileInterceptor('file'))
   async importSimplePhysical(
@@ -210,128 +156,37 @@ export class ProductsController {
   }
 
   @Post()
-  @ApiOperation({ summary: 'Create a new product' })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Create a new product (admin only)' })
   async create(@Body() productData: Partial<Product>) {
     return this.productsService.create(productData);
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Update a product' })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update a product (admin only)' })
   async update(@Param('id') id: string, @Body() productData: Partial<Product>) {
     return this.productsService.update(id, productData);
   }
 
   @Delete(':id')
-  @ApiOperation({ summary: 'Delete a product' })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Delete a product (admin only)' })
   async remove(@Param('id') id: string) {
     await this.productsService.remove(id);
     return { message: 'Product deleted successfully' };
   }
 
-  @Post('import/:vendorId')
-  @ApiOperation({ summary: 'Import vendor products from Excel with images' })
-  @ApiConsumes('multipart/form-data')
-  @UseInterceptors(FileFieldsInterceptor([
-    { name: 'file', maxCount: 1 },
-    { name: 'images', maxCount: 50 }
-  ]))
-  async importProducts(
-    @Param('vendorId') vendorId: string,
-    @UploadedFiles() files: { file?: MulterFile[], images?: MulterFile[] },
-  ) {
-    if (!files.file || files.file.length === 0) {
-      throw new BadRequestException('No Excel file uploaded');
-    }
-
-    try {
-      const result = await this.productsExcelService.importFromExcelWithImages(
-        vendorId,
-        files.file[0].buffer,
-        files.images || [],
-      );
-      
-      // Cleanup orphan images right after import (regardless of success/failure)
-      console.log('[Import] Cleaning up orphan images after import...');
-      try {
-        const cleanupResult = await this.productsService.cleanupOrphanImages(vendorId || undefined, true);
-        console.log(`[Import] Orphan cleanup: ${cleanupResult.deleted} images deleted out of ${cleanupResult.orphans.length} orphans found`);
-      } catch (cleanupError) {
-        console.error('[Import] Failed to cleanup orphan images:', cleanupError);
-      }
-      
-      const success = result.created > 0 || result.updated > 0;
-      return {
-        success,
-        message: success
-          ? `Import completed: ${result.created} created, ${result.updated} updated${result.errors.length > 0 ? ` with ${result.errors.length} row error(s)` : ''}`
-          : result.errors.length > 0
-            ? `Import failed — no products were created or updated`
-            : 'Import failed: No products were created or updated. Check your Excel sheet names match category names.',
-        ...result,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: error.message || 'Import failed due to an unexpected error',
-        errors: [error.message || 'Unknown error'],
-        created: 0,
-        updated: 0,
-      };
-    }
-  }
-
-  @Post('import-zip/:vendorId')
-  @ApiOperation({ summary: 'Import vendor products from ZIP (Excel + Images)' })
-  @ApiConsumes('multipart/form-data')
-  @UseInterceptors(FileInterceptor('file'))
-  async importProductsZip(
-    @Param('vendorId') vendorId: string,
-    @UploadedFile() file: MulterFile,
-  ) {
-    if (!file) {
-      throw new BadRequestException('No ZIP file uploaded');
-    }
-
-    // Convert 'all' to null for platform vendor (admin imports)
-    const actualVendorId = vendorId === 'all' ? null : vendorId;
-
-    try {
-      const result = await this.productsExcelService.importFromZip(
-        actualVendorId,
-        file.buffer,
-      );
-      
-      // Cleanup orphan images right after import (regardless of success/failure)
-      console.log('[Import] Cleaning up orphan images after import...');
-      try {
-        const cleanupResult = await this.productsService.cleanupOrphanImages(actualVendorId || undefined, true);
-        console.log(`[Import] Orphan cleanup: ${cleanupResult.deleted} images deleted out of ${cleanupResult.orphans.length} orphans found`);
-      } catch (cleanupError) {
-        console.error('[Import] Failed to cleanup orphan images:', cleanupError);
-      }
-      
-      const success = result.created > 0 || result.updated > 0;
-      return {
-        success,
-        message: success
-          ? `Import completed: ${result.created} created, ${result.updated} updated${result.errors.length > 0 ? ` with ${result.errors.length} row error(s)` : ''}`
-          : result.errors.length > 0
-            ? `Import failed — no products were created or updated`
-            : 'Import failed: No products were created or updated. Check your Excel sheet names match category names.',
-        ...result,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: error.message || 'Import failed due to an unexpected error',
-        errors: [error.message || 'Unknown error'],
-        created: 0,
-        updated: 0,
-      };
-    }
-  }
-
   @Post('admin/cleanup-orphan-images')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Find and optionally delete orphan images from Cloudinary (Admin only)' })
   @ApiQuery({ name: 'delete', required: false, description: 'Set to "true" to actually delete orphans' })
   @ApiQuery({ name: 'vendorId', required: false, description: 'Filter by vendor ID (optional)' })

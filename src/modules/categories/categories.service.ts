@@ -22,23 +22,29 @@ export class CategoriesService {
     });
   }
 
+  /**
+   * Loads root categories for a given owner, with their descendants attached.
+   *
+   * TypeORM's `findTrees({ where })` silently ignores the `where` clause, so
+   * every caller that relied on it was getting the whole category table back —
+   * which is why vendor stores and the root site both showed each other's
+   * categories. Scoping the roots by hand and hydrating each subtree separately
+   * is the only way to filter a closure-table tree reliably.
+   */
+  private async loadScopedTrees(vendorId?: string): Promise<Category[]> {
+    const treeRepository = this.categoriesRepository.manager.getTreeRepository(Category);
+
+    const roots = await this.categoriesRepository.find({
+      where: { parent: IsNull(), vendorId: vendorId ?? IsNull() },
+      order: { sortOrder: 'ASC', name: 'ASC' },
+    });
+
+    return Promise.all(roots.map((root) => treeRepository.findDescendantsTree(root)));
+  }
+
   async findRootCategories(vendorId?: string, withProductCounts = false): Promise<Category[]> {
-    const manager = this.categoriesRepository.manager;
-    
-    let trees: Category[];
-    
-    if (vendorId) {
-      // Get vendor-specific categories only
-      trees = await manager.getTreeRepository(Category).findTrees({
-        where: { vendorId },
-      } as any);
-    } else {
-      // Get global categories only
-      trees = await manager.getTreeRepository(Category).findTrees({
-        where: { vendorId: IsNull() },
-      } as any);
-    }
-    
+    const trees = await this.loadScopedTrees(vendorId);
+
     // Filter to only include active categories and their active children
     const activeCategories = this.filterActiveCategories(trees);
     
@@ -88,39 +94,22 @@ export class CategoriesService {
   }
 
   async findAllRootCategories(vendorId?: string): Promise<Category[]> {
-    const manager = this.categoriesRepository.manager;
-    
+    const globalTrees = await this.loadScopedTrees();
+
     if (vendorId) {
-      // Return both global and vendor categories merged
-      const globalTrees = await manager.getTreeRepository(Category).findTrees({
-        where: { vendorId: IsNull() },
-      } as any);
-      
-      const vendorTrees = await manager.getTreeRepository(Category).findTrees({
-        where: { vendorId },
-      } as any);
-      
+      // A vendor store sees the platform's global categories plus its own.
+      const vendorTrees = await this.loadScopedTrees(vendorId);
       return [...globalTrees, ...vendorTrees];
     }
-    
-    const trees = await manager.getTreeRepository(Category).findTrees({
-      where: { vendorId: IsNull() },
-    } as any);
-    return trees;
+
+    return globalTrees;
   }
 
   async findVendorCategories(vendorId: string, withProductCounts = false): Promise<Category[]> {
-    const manager = this.categoriesRepository.manager;
-    
     // Get both global categories and vendor-specific categories
-    const globalTrees = await manager.getTreeRepository(Category).findTrees({
-      where: { vendorId: IsNull() },
-    } as any);
-    
-    const vendorTrees = await manager.getTreeRepository(Category).findTrees({
-      where: { vendorId },
-    } as any);
-    
+    const globalTrees = await this.loadScopedTrees();
+    const vendorTrees = await this.loadScopedTrees(vendorId);
+
     // Deduplicate categories by ID while preserving tree structure
     const seenIds = new Set<string>();
     

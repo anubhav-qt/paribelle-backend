@@ -13,6 +13,7 @@ import { SubLocation } from '../locations/entities/sub-location.entity';
 import { FileCleanupService } from '../../common/services/file-cleanup.service';
 import { ReferralsService } from '../referrals/referrals.service';
 import { InvoicesService } from '../invoices/invoices.service';
+import { SettingsService } from '../admin/settings.service';
 
 @Injectable()
 export class VendorsService {
@@ -31,7 +32,23 @@ export class VendorsService {
     private fileCleanupService: FileCleanupService,
     private referralsService: ReferralsService,
     private invoicesService: InvoicesService,
+    private settingsService: SettingsService,
   ) {}
+
+  /**
+   * The vendor that owns the root domain's storefront.
+   *
+   * The platform gives every shop its own subdomain, and the root domain is
+   * simply the house shop. `root_vendor_slug` names it so storefront surfaces
+   * can scope to its catalogue instead of aggregating every vendor. Returns
+   * null when the setting is unset, which keeps the older marketplace-style
+   * behaviour available.
+   */
+  async findRootStore(): Promise<Vendor | null> {
+    const slug = await this.settingsService.getSetting('root_vendor_slug');
+    if (!slug) return null;
+    return this.vendorsRepository.findOne({ where: { slug: String(slug) } });
+  }
 
   async findAll(): Promise<Vendor[]> {
     return this.vendorsRepository.find({
