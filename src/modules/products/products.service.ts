@@ -725,7 +725,22 @@ export class ProductsService {
     return this.findOne(id);
   }
 
-  async remove(id: string): Promise<void> {
+  /**
+   * A product with order or booking history is never hard-deleted — that
+   * would leave historical orders pointing at nothing. It is archived
+   * instead, and the caller must be told which one happened: a client that
+   * unconditionally reports "deleted" looks broken when a repeat click on an
+   * already-archived product with history does nothing and correctly so.
+   */
+  async remove(id: string): Promise<{ outcome: 'deleted' | 'archived' | 'already_archived' }> {
+    const product = await this.productsRepository.findOne({
+      where: { id },
+      relations: ['productVariants'],
+    });
+    if (!product) {
+      throw new BadRequestException('Product not found');
+    }
+
     // Check if product has associated orders
     const orderItemsCount = await this.productsRepository
       .createQueryBuilder('product')
@@ -733,12 +748,6 @@ export class ProductsService {
       .where('product.id = :id', { id })
       .select('COUNT(orderItem.id)', 'count')
       .getRawOne();
-
-    if (orderItemsCount && parseInt(orderItemsCount.count) > 0) {
-      // Product has been ordered - archive it instead of deleting
-      await this.productsRepository.update(id, { status: ProductStatus.ARCHIVED });
-      return;
-    }
 
     // Check if product has associated bookings
     const bookingsCount = await this.productsRepository
@@ -748,35 +757,36 @@ export class ProductsService {
       .select('COUNT(booking.id)', 'count')
       .getRawOne();
 
-    if (bookingsCount && parseInt(bookingsCount.count) > 0) {
-      // Product has bookings - archive it instead of deleting
+    const hasHistory =
+      (orderItemsCount && parseInt(orderItemsCount.count) > 0) ||
+      (bookingsCount && parseInt(bookingsCount.count) > 0);
+
+    if (hasHistory) {
+      if (product.status === ProductStatus.ARCHIVED) {
+        // Nothing to change — this is the case that used to report "deleted"
+        // while doing nothing.
+        return { outcome: 'already_archived' };
+      }
       await this.productsRepository.update(id, { status: ProductStatus.ARCHIVED });
-      return;
+      return { outcome: 'archived' };
     }
 
-    // Get product with variants to delete associated images
-    const product = await this.productsRepository.findOne({
-      where: { id },
-      relations: ['productVariants'],
-    });
+    // Delete product images
+    await this.fileCleanupService.deleteEntityImages(product, [
+      'images',
+      'featuredImage',
+    ]);
 
-    if (product) {
-      // Delete product images
-      await this.fileCleanupService.deleteEntityImages(product, [
-        'images',
-        'featuredImage',
-      ]);
-
-      // Delete variant images
-      if (product.productVariants && product.productVariants.length > 0) {
-        for (const variant of product.productVariants) {
-          await this.fileCleanupService.deleteEntityImages(variant, ['images']);
-        }
+    // Delete variant images
+    if (product.productVariants && product.productVariants.length > 0) {
+      for (const variant of product.productVariants) {
+        await this.fileCleanupService.deleteEntityImages(variant, ['images']);
       }
     }
 
     // Delete product from database (cascades to variants)
     await this.productsRepository.delete(id);
+    return { outcome: 'deleted' };
   }
 
   /**

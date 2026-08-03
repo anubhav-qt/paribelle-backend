@@ -192,8 +192,17 @@ export class ProductsController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Delete a product (admin only)' })
   async remove(@Param('id') id: string) {
-    await this.productsService.remove(id);
-    return { message: 'Product deleted successfully' };
+    const { outcome } = await this.productsService.remove(id);
+
+    const message = {
+      deleted: 'Product deleted successfully',
+      archived:
+        'This product has order or booking history, so it was archived instead of deleted — deleting it would break past orders.',
+      already_archived:
+        'This product has order or booking history and is already archived. It cannot be permanently deleted.',
+    }[outcome];
+
+    return { message, outcome };
   }
 
   @Post('admin/cleanup-orphan-images')
