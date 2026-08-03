@@ -216,18 +216,24 @@ export class PaymentsService {
     }
 
     const event = body.event;
-    const payloadData = body.payload.payment.entity;
 
-    // Handle different webhook events
+    // Refund events carry `payload.refund.entity`, not `payload.payment.entity`
+    // — reading the payment path for them meant the refund handler either threw
+    // or acted on the wrong record.
     switch (event) {
       case 'payment.captured':
-        await this.handlePaymentCaptured(payloadData);
+        await this.handlePaymentCaptured(body.payload?.payment?.entity);
         break;
       case 'payment.failed':
-        await this.handlePaymentFailed(payloadData);
+        await this.handlePaymentFailed(body.payload?.payment?.entity);
         break;
       case 'refund.created':
-        await this.handleRefundCreated(payloadData);
+        await this.handleRefundCreated(body.payload?.refund?.entity);
+        break;
+      case 'refund.processed':
+        // The money has actually moved. This is the only place an order is
+        // allowed to become REFUNDED.
+        await this.handleRefundProcessed(body.payload?.refund?.entity);
         break;
       default:
         console.log('Unhandled webhook event:', event);
@@ -258,28 +264,78 @@ export class PaymentsService {
       payment.status = PaymentStatus.FAILED;
       payment.failureReason = paymentData.error_description || 'Payment failed';
       await this.paymentRepository.save(payment);
+
+      // Don't strand the order in `pending` holding stock nobody can buy.
+      if (payment.orderId) {
+        await this.ordersService.markPaymentFailed(
+          payment.orderId,
+          payment.failureReason,
+        );
+      }
     }
   }
 
+  /**
+   * Razorpay has accepted the refund but not yet settled it. Record the amount
+   * against the payment; the order stays in REFUND_PENDING until
+   * `refund.processed` arrives.
+   */
   private async handleRefundCreated(refundData: any) {
+    const payment = await this.findPaymentForRefund(refundData);
+    if (!payment) return;
+
+    const refundAmount = (refundData.amount ?? 0) / 100;
+    payment.refundedAmount = (payment.refundedAmount || 0) + refundAmount;
+    payment.refundTransactionId = refundData.id;
+    payment.refundedAt = new Date();
+    payment.status =
+      payment.refundedAmount >= payment.amount
+        ? PaymentStatus.REFUNDED
+        : PaymentStatus.PARTIALLY_REFUNDED;
+
+    await this.paymentRepository.save(payment);
+    console.log(`[webhook] refund.created for payment ${payment.id} (${refundAmount})`);
+  }
+
+  /**
+   * The refund has settled. This is the point at which the customer's money is
+   * genuinely back, and the only place the order becomes REFUNDED.
+   */
+  private async handleRefundProcessed(refundData: any) {
+    const payment = await this.findPaymentForRefund(refundData);
+    if (!payment) return;
+
+    // `refund.created` may or may not have arrived first, and either event can
+    // be redelivered — take the gateway's total rather than adding to ours.
+    const refundAmount = (refundData.amount ?? 0) / 100;
+    payment.refundedAmount = Math.max(payment.refundedAmount || 0, refundAmount);
+    payment.refundTransactionId = refundData.id;
+    payment.refundedAt = new Date();
+    payment.status =
+      payment.refundedAmount >= payment.amount
+        ? PaymentStatus.REFUNDED
+        : PaymentStatus.PARTIALLY_REFUNDED;
+
+    await this.paymentRepository.save(payment);
+
+    if (payment.status === PaymentStatus.REFUNDED && payment.orderId) {
+      await this.ordersService.markRefundSettled(payment.orderId);
+    }
+    console.log(`[webhook] refund.processed for payment ${payment.id} (${refundAmount})`);
+  }
+
+  private async findPaymentForRefund(refundData: any): Promise<Payment | null> {
+    if (!refundData?.payment_id) {
+      console.warn('[webhook] refund event without payment_id, ignoring');
+      return null;
+    }
     const payment = await this.paymentRepository.findOne({
       where: { gatewayPaymentId: refundData.payment_id },
     });
-
-    if (payment) {
-      const refundAmount = refundData.amount / 100;
-      payment.refundedAmount = (payment.refundedAmount || 0) + refundAmount;
-      payment.refundTransactionId = refundData.id;
-      payment.refundedAt = new Date();
-      
-      if (payment.refundedAmount >= payment.amount) {
-        payment.status = PaymentStatus.REFUNDED;
-      } else {
-        payment.status = PaymentStatus.PARTIALLY_REFUNDED;
-      }
-
-      await this.paymentRepository.save(payment);
+    if (!payment) {
+      console.warn(`[webhook] no payment found for gateway payment ${refundData.payment_id}`);
     }
+    return payment ?? null;
   }
 
   getRazorpayKeyId(): string {

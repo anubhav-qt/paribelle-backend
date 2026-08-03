@@ -111,19 +111,32 @@ export class ProductsController {
   async importSimplePhysical(
     @Param('vendorId') vendorId: string,
     @UploadedFile() file: MulterFile,
+    @Query('dryRun') dryRun?: string,
   ) {
     if (!file) throw new BadRequestException('No ZIP file uploaded');
     const actualVendorId = vendorId === 'all' ? null : vendorId;
+    // `?dryRun=true` validates the whole workbook and reports every row error
+    // without writing anything.
+    const isDryRun = dryRun === 'true' || dryRun === '1';
     try {
-      const result = await this.productsExcelService.importSimplePhysicalZip(actualVendorId, file.buffer);
+      const result = await this.productsExcelService.importSimplePhysicalZip(
+        actualVendorId,
+        file.buffer,
+        { dryRun: isDryRun },
+      );
       const success = result.created > 0 || result.updated > 0;
+      const rowErrors = result.errors.length > 0 ? ` with ${result.errors.length} row error(s)` : '';
       return {
         success,
-        message: success
-          ? `Import completed: ${result.created} created, ${result.updated} updated${result.errors.length > 0 ? ` with ${result.errors.length} row error(s)` : ''}`
-          : result.errors.length > 0
-            ? `Import failed — no products were created or updated`
-            : 'Import failed: No products were created or updated. Check that the sheet is named "Products".',
+        message: isDryRun
+          ? result.errors.length > 0
+            ? `Validation found ${result.errors.length} problem(s). Nothing was imported.`
+            : `Validation passed: ${result.created} would be created, ${result.updated} updated. Nothing was imported.`
+          : success
+            ? `Import completed: ${result.created} created, ${result.updated} updated${rowErrors}`
+            : result.errors.length > 0
+              ? `Import failed — no products were created or updated`
+              : 'Import failed: No products were created or updated. Check that the sheet is named "Products".',
         ...result,
       };
     } catch (error) {

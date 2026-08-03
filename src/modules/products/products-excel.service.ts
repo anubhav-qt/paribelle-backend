@@ -12,14 +12,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import archiver from 'archiver';
 import AdmZip from 'adm-zip';
+import { gstRateFor } from './gst-rates';
 
-// GST rate applied on import, per category slug — this storefront only sells
-// two kinds of goods so a fixed rate beats a free-text per-row column that
-// vendors regularly get wrong. Matches the seeded rates in seed.ts.
-export const CATEGORY_GST_RATES: Record<string, number> = {
-  kurtis: 5,
-  jewellery: 3,
-};
+export { CATEGORY_GST_RULES, gstRateFor } from './gst-rates';
 
 // Define Multer File type to avoid Express namespace issues
 interface MulterFile {
@@ -49,6 +44,95 @@ export class ProductsExcelService {
     private usersRepository: Repository<User>,
     private cloudinaryService: CloudinaryService,
   ) {}
+
+  /**
+   * The single top-level directory every entry sits under, as a prefix ending
+   * in `/` — or `''` when the archive has no such wrapper. Only a directory
+   * shared by *every* entry counts, so a flat ZIP with an `images/` folder is
+   * left alone.
+   */
+  private findCommonZipRoot(names: string[]): string {
+    if (names.length === 0) return '';
+
+    const firstSegment = (name: string) => {
+      const slash = name.indexOf('/');
+      return slash === -1 ? null : name.slice(0, slash);
+    };
+
+    const root = firstSegment(names[0]);
+    if (!root) return '';
+    if (!names.every((n) => firstSegment(n) === root)) return '';
+
+    return `${root}/`;
+  }
+
+  /**
+   * Codes are matched case- and whitespace-insensitively. Spreadsheets pick up
+   * trailing spaces and inconsistent capitalisation constantly, and a variant
+   * silently failing to find its product is a far worse outcome than tolerating
+   * "BANDESH-02" vs "bandesh-02 ".
+   */
+  private normalizeCode(code: string | undefined | null): string {
+    return (code ?? '').trim().toLowerCase();
+  }
+
+  /**
+   * Look a listed image name up in the ZIP. Sellers routinely leave the
+   * extension off ("brown-jacket-01"), so an exact miss retries against the
+   * known image extensions before giving up.
+   */
+  private resolveImageEntry(
+    name: string,
+    imageMap: Map<string, MulterFile>,
+  ): { filename: string; file: MulterFile } | null {
+    const base = path.basename(name).trim().toLowerCase();
+    if (!base) return null;
+
+    const exact = imageMap.get(base);
+    if (exact) return { filename: base, file: exact };
+
+    for (const ext of ['jpeg', 'jpg', 'png', 'webp', 'gif']) {
+      const candidate = `${base}.${ext}`;
+      const file = imageMap.get(candidate);
+      if (file) return { filename: candidate, file };
+    }
+
+    return null;
+  }
+
+  /**
+   * Images for a product when the `Images` column is blank, by the naming
+   * convention the export uses: `<product-code>-<nn>.<ext>`. Returned in `nn`
+   * order so the featured image is the one the seller numbered first.
+   */
+  private imagesForCodeByConvention(
+    code: string | undefined,
+    imageMap: Map<string, MulterFile>,
+  ): string[] {
+    const prefix = this.normalizeCode(code);
+    if (!prefix) return [];
+
+    const pattern = new RegExp(
+      `^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-(\\d+)\\.(?:jpe?g|png|gif|webp)$`,
+    );
+
+    return Array.from(imageMap.keys())
+      .map((filename) => ({ filename, match: pattern.exec(filename) }))
+      .filter((entry): entry is { filename: string; match: RegExpExecArray } => entry.match !== null)
+      .sort((a, b) => Number(a.match[1]) - Number(b.match[1]))
+      .map((entry) => entry.filename);
+  }
+
+  /** Find a product by SKU, ignoring case and surrounding whitespace. */
+  private async findProductBySku(sku: string): Promise<Product | null> {
+    return (
+      (await this.productsRepository
+        .createQueryBuilder('product')
+        .leftJoinAndSelect('product.categories', 'categories')
+        .where('LOWER(TRIM(product.sku)) = :sku', { sku: this.normalizeCode(sku) })
+        .getOne()) ?? null
+    );
+  }
 
   private async getOrCreatePlatformVendorForImport(): Promise<Vendor> {
     let platformVendor = await this.vendorsRepository.findOne({ where: { slug: 'marketplace-platform' } });
@@ -355,20 +439,36 @@ export class ProductsExcelService {
 
   /** Import physical products from a simple ZIP (products.xlsx + images/ folder).
    *  Products are upserted by Product Code (= product sku field).
-   *  Variants are upserted by Variant Code (= variant sku field). */
+   *  Variants are upserted by Variant Code (= variant sku field).
+   *
+   *  Pass `dryRun` to validate the whole workbook and report every row error
+   *  without writing anything — the counts come back as what *would* happen. */
   async importSimplePhysicalZip(
     vendorId: string | null,
     zipBuffer: Buffer,
-  ): Promise<{ created: number; updated: number; errors: string[] }> {
+    options: { dryRun?: boolean } = {},
+  ): Promise<{ created: number; updated: number; errors: string[]; dryRun: boolean }> {
+    const dryRun = options.dryRun === true;
     const zip = new AdmZip(zipBuffer);
     const imageMap = new Map<string, MulterFile>();
     let excelBuffer: Buffer | null = null;
 
-    for (const entry of zip.getEntries()) {
-      if (entry.entryName === 'products.xlsx') {
+    // Zipping a *folder* (the natural thing to do on Windows) puts everything
+    // under one wrapper directory — `Paribelle/products.xlsx`. Strip a single
+    // common root so those ZIPs import the same as a flat one.
+    const entries = zip.getEntries().filter((e) => !e.isDirectory);
+    const normalizedNames = entries.map((e) => e.entryName.replace(/\\/g, '/'));
+    const commonRoot = this.findCommonZipRoot(normalizedNames);
+
+    entries.forEach((entry, i) => {
+      const relPath = normalizedNames[i].slice(commonRoot.length);
+      if (relPath.toLowerCase() === 'products.xlsx') {
         excelBuffer = entry.getData();
-      } else if (entry.entryName.startsWith('images/') && !entry.isDirectory) {
-        const filename = path.basename(entry.entryName).toLowerCase();
+      } else if (/\.(jpe?g|png|gif|webp)$/i.test(relPath)) {
+        // Index every image in the ZIP by bare filename, wherever it sits.
+        // Requiring an `images/` prefix meant a wrapper folder silently
+        // produced a catalogue with no pictures at all.
+        const filename = path.basename(relPath).toLowerCase();
         const buf = entry.getData();
         imageMap.set(filename, {
           fieldname: 'images', originalname: filename,
@@ -376,9 +476,14 @@ export class ProductsExcelService {
           buffer: buf, size: buf.length,
         } as MulterFile);
       }
-    }
+    });
 
-    if (!excelBuffer) throw new Error('No products.xlsx found in ZIP');
+    if (!excelBuffer) {
+      throw new Error(
+        'No products.xlsx found in ZIP. The ZIP must contain a file named products.xlsx ' +
+        '(either at the top level or inside a single wrapper folder).',
+      );
+    }
 
     const resolvedVendorId = vendorId ?? (await this.getOrCreatePlatformVendorForImport()).id;
 
@@ -388,8 +493,13 @@ export class ProductsExcelService {
     let created = 0, updated = 0;
     const errors: string[] = [];
 
-    // productCode → DB id, used when processing variants
+    // normalized productCode (or `name:<name>` when a row has no code) → DB id,
+    // used when processing variants
     const productCodeToId = new Map<string, string>();
+
+    // Same keys, mapped to the row that claimed them, so a duplicate is a row
+    // error rather than a silent overwrite.
+    const seenRowKeys = new Map<string, number>();
 
     // ── Helper: build header→colIndex map ─────────────────────────────────────
     const buildHeaderMap = (sheet: ExcelJS.Worksheet): Map<string, number> => {
@@ -415,7 +525,7 @@ export class ProductsExcelService {
     const productSheet = workbook.getWorksheet('Products');
     if (!productSheet) {
       errors.push('No "Products" sheet found. Make sure the sheet is named exactly "Products".');
-      return { created, updated, errors };
+      return { created, updated, errors, dryRun };
     }
 
     const productHeaders = buildHeaderMap(productSheet);
@@ -456,24 +566,41 @@ export class ProductsExcelService {
           errors.push(`Row ${rn}: Unknown category "${categoryName}" — it must match an existing category name exactly`);
           continue;
         }
-        const gstRate = CATEGORY_GST_RATES[category.slug] ?? 18;
+        // Derived from category *and* price — apparel crosses a rate band at
+        // ₹1,000 per piece, so the rate cannot come from the category alone.
+        const gstRate = gstRateFor(category.slug, price);
 
-        // Process images
+        // Process images. Every image is resolved by *name* — either the names
+        // listed in the Images column, or failing that the `<product-code>-<nn>`
+        // convention. Nothing is ever matched positionally, which is what used
+        // to land one product's photos on another.
+        const listedNames = imagesCell
+          ? imagesCell.split(',').map(f => f.trim()).filter(Boolean)
+          : this.imagesForCodeByConvention(productCode, imageMap);
+
+        if (imagesCell && listedNames.length === 0) {
+          errors.push(`Row ${rn}: Images column could not be parsed`);
+        }
+
         const productImages: string[] = [];
-        if (imagesCell) {
-          for (const filename of imagesCell.split(',').map(f => f.trim()).filter(Boolean)) {
-            if (filename.startsWith('http://') || filename.startsWith('https://')) {
-              productImages.push(filename);
-            } else {
-              const imageFile = imageMap.get(filename.toLowerCase());
-              if (imageFile) {
-                try {
-                  productImages.push(await this.saveUploadedImage(imageFile, resolvedVendorId));
-                } catch (e) {
-                  errors.push(`Row ${rn}: Failed to upload image "${filename}": ${e.message}`);
-                }
-              }
-            }
+        for (const filename of listedNames) {
+          if (filename.startsWith('http://') || filename.startsWith('https://')) {
+            productImages.push(filename);
+            continue;
+          }
+          const resolved = this.resolveImageEntry(filename, imageMap);
+          if (!resolved) {
+            errors.push(`Row ${rn}: Image "${filename}" is not in the ZIP`);
+            continue;
+          }
+          if (dryRun) {
+            productImages.push(resolved.filename);
+            continue;
+          }
+          try {
+            productImages.push(await this.saveUploadedImage(resolved.file, resolvedVendorId));
+          } catch (e) {
+            errors.push(`Row ${rn}: Failed to upload image "${filename}": ${e.message}`);
           }
         }
 
@@ -523,19 +650,45 @@ export class ProductsExcelService {
           ...(Object.keys(parsedAttributes).length > 0 ? { attributes: parsedAttributes } : {}),
         };
 
-        // Upsert: find by productCode (sku), then by name within same vendor
-        let existing: Product | null = null;
-        if (productCode) {
-          existing = await this.productsRepository.findOne({
-            where: { sku: productCode },
-            relations: ['categories'],
-          }) ?? null;
+        // Two rows resolving to the same product silently overwrite each other,
+        // images included — that is issue 2's "images on the wrong product".
+        // Reject the second row instead.
+        const rowKey = this.normalizeCode(productCode) || `name:${name.trim().toLowerCase()}`;
+        if (seenRowKeys.has(rowKey)) {
+          errors.push(
+            `Row ${rn}: duplicate ${productCode ? `Product Code "${productCode}"` : `Product Name "${name}"`} ` +
+            `— already used by row ${seenRowKeys.get(rowKey)}`,
+          );
+          continue;
         }
-        if (!existing) {
-          existing = await this.productsRepository.findOne({
-            where: { name, vendorId: resolvedVendorId },
-            relations: ['categories'],
-          }) ?? null;
+        seenRowKeys.set(rowKey, rn);
+
+        // Upsert by Product Code when the row has one — the code is the stable
+        // key, so an unrecognised code means "new product", full stop.
+        //
+        // Falling through to a name match here is what put images on the wrong
+        // product: a catalogue where several rows share a name ("Co-ord set")
+        // but carry distinct codes had every row after the first resolve to the
+        // *first* row's product and overwrite it. Only codeless rows, which the
+        // template documents as name-matched, may match by name.
+        const existing: Product | null = productCode
+          ? await this.findProductBySku(productCode)
+          : (await this.productsRepository.findOne({
+              where: { name, vendorId: resolvedVendorId },
+              relations: ['categories'],
+            })) ?? null;
+
+        if (dryRun) {
+          if (existing && vendorId && existing.vendorId !== resolvedVendorId) {
+            errors.push(`Row ${rn}: Product "${name}" belongs to a different vendor`);
+          } else if (existing) {
+            updated++;
+          } else {
+            created++;
+          }
+          // Give variants something to resolve against without touching the DB.
+          productCodeToId.set(rowKey, existing?.id ?? `dry-run:${rowKey}`);
+          continue;
         }
 
         if (existing) {
@@ -560,7 +713,7 @@ export class ProductsExcelService {
             }
             await this.productsRepository.save(existing);
             updated++;
-            productCodeToId.set(productCode || name, existing.id);
+            productCodeToId.set(rowKey, existing.id);
             console.log(`[SimpleImport] Updated "${name}" (id: ${existing.id}), attributes: ${JSON.stringify(existing.attributes)}`);
           } else {
             errors.push(`Row ${rn}: Product "${name}" belongs to a different vendor`);
@@ -578,7 +731,7 @@ export class ProductsExcelService {
           const savedRaw = await this.productsRepository.save(this.productsRepository.create(productData));
           const saved = Array.isArray(savedRaw) ? savedRaw[0] : savedRaw;
           created++;
-          productCodeToId.set(productCode || name, saved.id);
+          productCodeToId.set(rowKey, saved.id);
           console.log(`[SimpleImport] Created "${name}" (id: ${saved.id})`);
         }
       } catch (err) {
@@ -587,7 +740,7 @@ export class ProductsExcelService {
     }
 
     // Auto-register imported attributes to category filter configs
-    for (const [categoryId, attrMap] of simpleCategoryAttrs) {
+    for (const [categoryId, attrMap] of (dryRun ? [] : simpleCategoryAttrs)) {
       try {
         const cat = await this.categoriesRepository.findOne({ where: { id: categoryId } });
         if (!cat) continue;
@@ -652,11 +805,28 @@ export class ProductsExcelService {
             continue;
           }
 
-          const productId = productCodeToId.get(productCode);
+          // Resolve against this run's products first, then fall back to the
+          // database. A variant whose product row was skipped, errored, or
+          // simply left out of this upload still has a product to attach to —
+          // requiring the product to be in *this* sheet was the cause of the
+          // "No product found with code" errors.
+          let productId = productCodeToId.get(this.normalizeCode(productCode));
           if (!productId) {
-            errors.push(`Variants Row ${rn}: No product found with code "${productCode}"`);
+            const existingProduct = await this.findProductBySku(productCode);
+            if (existingProduct) {
+              productId = existingProduct.id;
+              productCodeToId.set(this.normalizeCode(productCode), productId);
+            }
+          }
+          if (!productId) {
+            errors.push(
+              `Variants Row ${rn}: No product found with code "${productCode}". ` +
+              `Add a row with that Product Code to the Products sheet, or check for a typo.`,
+            );
             continue;
           }
+
+          if (dryRun) continue;
 
           // Parse "Size: M, Color: Red" → { Size: 'M', Color: 'Red' }
           const variantAttributes: Record<string, string> = {};
@@ -702,7 +872,7 @@ export class ProductsExcelService {
     }
 
     // Roll up variant stocks to the parent product so it is never shown as sold out
-    for (const [, productId] of productCodeToId) {
+    for (const [, productId] of (dryRun ? [] : productCodeToId)) {
       const product = await this.productsRepository.findOne({ where: { id: productId } });
       if (product?.hasVariants) {
         const variants = await this.productVariantsRepository.find({ where: { productId } });
@@ -712,7 +882,7 @@ export class ProductsExcelService {
       }
     }
 
-    return { created, updated, errors };
+    return { created, updated, errors, dryRun };
   }
 
   /** Generate a simple template ZIP — one Kurtis product (with size variants) and one Jewellery product */

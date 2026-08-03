@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Patch, UseGuards, Request, Query, Res, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Patch, UseGuards, Request, Query, Res, Headers, NotFoundException } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminOnly } from '../../common/decorators/admin-only.decorator';
@@ -15,8 +15,8 @@ export class OrdersController {
   ) {}
 
   @Post()
-  create(@Request() req, @Body() createOrderDto: any) {
-    return this.ordersService.create(req.user.id, createOrderDto);
+  create(@Request() req, @Body() createOrderDto: any, @Headers('idempotency-key') idempotencyKey?: string) {
+    return this.ordersService.create(req.user.id, createOrderDto, idempotencyKey);
   }
 
   @Get()
@@ -45,6 +45,18 @@ export class OrdersController {
   @Patch(':id/cancel')
   cancel(@Param('id') id: string, @Request() req, @Body() body: { reason?: string }) {
     return this.ordersService.cancel(id, req.user.id, body.reason);
+  }
+
+  /**
+   * The customer's payment attempt failed or they dismissed the gateway. Lets
+   * the checkout page release the order immediately rather than waiting on a
+   * webhook that never arrives when the modal is simply closed.
+   */
+  @Patch(':id/payment-failed')
+  async paymentFailed(@Param('id') id: string, @Request() req, @Body() body: { reason?: string }) {
+    const order = await this.ordersService.findOne(id, req.user.id);
+    if (!order) throw new NotFoundException('Order not found');
+    return this.ordersService.markPaymentFailed(id, body?.reason || 'Payment not completed');
   }
 
   @Patch(':id/status')

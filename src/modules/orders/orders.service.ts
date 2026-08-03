@@ -36,8 +36,24 @@ export class OrdersService {
     private dataSource: DataSource,
   ) {}
 
-  async create(userId: string, createOrderDto: any) {
+  async create(userId: string, createOrderDto: any, idempotencyKey?: string) {
     const { items, shippingAddress, billingAddress, paymentMethod, subtotal, shippingCost, tax, totalAmount, useWalletBalance } = createOrderDto;
+
+    // Replay protection. A double-click, an impatient refresh or a client
+    // retry after a timeout all arrive as a second POST for an order that was
+    // already placed; return what that attempt created instead of charging the
+    // customer twice.
+    const normalizedKey = typeof idempotencyKey === 'string' ? idempotencyKey.trim().slice(0, 64) : '';
+    if (normalizedKey) {
+      const existing = await this.orderRepository.find({
+        where: { userId, idempotencyKey: normalizedKey },
+        relations: ['items'],
+      });
+      if (existing.length > 0) {
+        console.log(`[create] Replayed idempotency key ${normalizedKey}; returning ${existing.length} existing order(s)`);
+        return existing.length === 1 ? existing[0] : existing;
+      }
+    }
 
     console.log('Create order DTO received:', {
       subtotal, shippingCost, tax, totalAmount,
@@ -84,58 +100,97 @@ export class OrdersService {
       throw new NotFoundException('One or more products not found');
     }
 
-    // Phase 1: Validate stock availability for ALL products first
-    const stockUpdates: Array<{ productId: string; stockQuantity: number }> = [];
-    const productsToDecrement: Array<{ product: any; item: any }> = [];
-    
+    // Every requested quantity must be a positive whole number. Without this a
+    // crafted request with a negative quantity would *increase* stock on the
+    // decrement below and push the order total the wrong way.
     for (const item of items) {
-      const product = products.find(p => p.id === item.productId);
-      if (!product) {
-        throw new NotFoundException(`Product ${item.productId} not found`);
+      const quantity = Number(item.quantity);
+      if (!Number.isInteger(quantity) || quantity < 1) {
+        throw new BadRequestException(
+          `Invalid quantity for product ${item.productId}: quantity must be a whole number of at least 1`,
+        );
       }
+      item.quantity = quantity;
+    }
 
-      // Only check stock for products with inventory tracking enabled
-      if (product.trackInventory) {
+    // Reserve stock atomically.
+    //
+    // The client-side checks are advisory only — the shopper's cart may be
+    // hours stale and the request can be crafted by hand. Validating and then
+    // decrementing in two steps still oversells whenever two orders for the
+    // last unit interleave between the two, so each reservation is a single
+    // conditional UPDATE that only succeeds while the stock is actually there.
+    // The whole set runs in one transaction, so a shortfall on the third line
+    // gives the first two back.
+    const stockUpdates: Array<{ productId: string; stockQuantity: number }> = [];
+
+    await this.dataSource.transaction(async (manager) => {
+      for (const item of items) {
+        const product = products.find(p => p.id === item.productId);
+        if (!product) {
+          throw new NotFoundException(`Product ${item.productId} not found`);
+        }
+
+        // Only track stock for products with inventory tracking enabled
+        if (!product.trackInventory) continue;
+
         if (item.variantId) {
-          // New variant system: validate against variant stock
-          const variant = await this.productVariantsRepository.findOne({ where: { id: item.variantId } });
+          const variant = await manager.findOne(ProductVariant, { where: { id: item.variantId } });
           if (!variant) throw new NotFoundException(`Variant ${item.variantId} not found`);
-          const availableStock = variant.stockQuantity ?? 0;
-          if (availableStock < item.quantity) {
+          if (variant.productId !== product.id) {
             throw new BadRequestException(
-              `Insufficient stock for "${product.name}" (${Object.values(variant.variantAttributes || {}).join('/')}). Available: ${availableStock}, Requested: ${item.quantity}`
+              `Variant ${item.variantId} does not belong to product "${product.name}"`,
             );
           }
-          productsToDecrement.push({ product, item });
-          stockUpdates.push({ productId: product.id, stockQuantity: product.stockQuantity - item.quantity });
+
+          const reserved = await manager
+            .createQueryBuilder()
+            .update(ProductVariant)
+            .set({ stockQuantity: () => `"stockQuantity" - ${item.quantity}` })
+            .where('id = :id AND "stockQuantity" >= :quantity', {
+              id: item.variantId,
+              quantity: item.quantity,
+            })
+            .execute();
+
+          if (!reserved.affected) {
+            const label = Object.values(variant.variantAttributes || {}).join('/');
+            throw new BadRequestException(
+              `Insufficient stock for "${product.name}"${label ? ` (${label})` : ''}. ` +
+              `Available: ${variant.stockQuantity ?? 0}, Requested: ${item.quantity}`,
+            );
+          }
+
+          // Roll the new total up to the parent product
+          const variants = await manager.find(ProductVariant, { where: { productId: product.id } });
+          const newTotal = variants.reduce((s, v) => s + (v.stockQuantity || 0), 0);
+          await manager.update(Product, product.id, { stockQuantity: newTotal });
+          stockUpdates.push({ productId: product.id, stockQuantity: newTotal });
         } else {
-          // Plain product: validate against product stock
-          const availableStock = product.stockQuantity ?? 0;
-          if (availableStock < item.quantity) {
+          const reserved = await manager
+            .createQueryBuilder()
+            .update(Product)
+            .set({ stockQuantity: () => `"stockQuantity" - ${item.quantity}` })
+            .where('id = :id AND "stockQuantity" >= :quantity', {
+              id: product.id,
+              quantity: item.quantity,
+            })
+            .execute();
+
+          if (!reserved.affected) {
             throw new BadRequestException(
-              `Insufficient stock for "${product.name}". Available: ${availableStock}, Requested: ${item.quantity}`
+              `Insufficient stock for "${product.name}". ` +
+              `Available: ${product.stockQuantity ?? 0}, Requested: ${item.quantity}`,
             );
           }
-          productsToDecrement.push({ product, item });
-          const newStockQuantity = availableStock - item.quantity;
-          stockUpdates.push({ productId: product.id, stockQuantity: newStockQuantity });
+
+          stockUpdates.push({
+            productId: product.id,
+            stockQuantity: (product.stockQuantity ?? 0) - item.quantity,
+          });
         }
       }
-    }
-
-    // Phase 2: All validations passed, now decrement stock
-    for (const { product, item } of productsToDecrement) {
-      if (item.variantId) {
-        // Decrement the specific variant
-        await this.productVariantsRepository.decrement({ id: item.variantId }, 'stockQuantity', item.quantity);
-        // Roll up new total to parent product
-        const variants = await this.productVariantsRepository.find({ where: { productId: product.id } });
-        const newTotal = variants.reduce((s, v) => s + (v.stockQuantity || 0), 0);
-        await this.productRepository.update(product.id, { stockQuantity: newTotal });
-      } else {
-        await this.productRepository.decrement({ id: product.id }, 'stockQuantity', item.quantity);
-      }
-    }
+    });
 
     // Emit stock updates via WebSocket
     if (stockUpdates.length > 0) {
@@ -243,6 +298,7 @@ export class OrdersService {
       // Create order
       const order = this.orderRepository.create({
         orderNumber,
+        idempotencyKey: normalizedKey || null,
         userId,
         vendorId,
         // Vendor snapshot (for invoices and historical accuracy)
@@ -916,10 +972,14 @@ export class OrdersService {
       order.customerNotes = (order.customerNotes || '') + `\nCancellation reason: ${reason}`;
     }
 
-    // If order was paid, mark for refund and create credit note
+    // If order was paid, mark a refund as owed and create the credit note. The
+    // status stays REFUND_PENDING until Razorpay confirms via the
+    // `refund.processed` webhook — see PaymentsService.
     if (order.paymentStatus === PaymentStatus.PAID) {
-      order.paymentStatus = PaymentStatus.REFUNDED;
-      
+      order.paymentStatus = PaymentStatus.REFUND_PENDING;
+      order.adminNotes = (order.adminNotes || '') +
+        `\nRefund owed (order cancelled) at ${new Date().toISOString()}`;
+
       try {
         console.log(`[cancel] Creating credit note for cancelled order ${order.orderNumber}`);
         await this.invoicesService.createCreditNote(order.id, reason || 'Order cancelled by customer');
@@ -943,6 +1003,96 @@ export class OrdersService {
     this.marketplaceGateway.emitOrderStatusUpdate(order.id, OrderStatus.CANCELLED, order.userId);
 
     return this.orderRepository.save(order);
+  }
+
+  /**
+   * Razorpay has confirmed the money is back with the customer. The only place
+   * an order is allowed to reach REFUNDED — everything upstream can do no more
+   * than mark a refund as owed.
+   */
+  async markRefundSettled(orderId: string) {
+    const order = await this.orderRepository.findOne({ where: { id: orderId } });
+    if (!order) {
+      console.warn(`[markRefundSettled] Order ${orderId} not found`);
+      return null;
+    }
+
+    if (order.paymentStatus === PaymentStatus.REFUNDED) {
+      return order; // Webhook redelivery.
+    }
+
+    order.paymentStatus = PaymentStatus.REFUNDED;
+    order.adminNotes = (order.adminNotes || '') +
+      `\nRefund settled by payment gateway at ${new Date().toISOString()}`;
+
+    const saved = await this.orderRepository.save(order);
+    this.marketplaceGateway.emitOrderStatusUpdate(order.id, order.status, order.userId);
+    return saved;
+  }
+
+  /**
+   * The payment failed or the customer abandoned the gateway. The order was
+   * created before payment was attempted and is holding stock, so release it
+   * and take the order out of play rather than leaving it pending forever.
+   *
+   * Safe to call more than once — Razorpay redelivers webhooks, and the
+   * checkout page reports dismissals too.
+   */
+  async markPaymentFailed(orderId: string, reason?: string) {
+    const order = await this.orderRepository.findOne({
+      where: { id: orderId },
+      relations: ['items'],
+    });
+
+    if (!order) {
+      console.warn(`[markPaymentFailed] Order ${orderId} not found`);
+      return null;
+    }
+
+    // Already paid (a late failure event for a retried payment), or already
+    // dealt with — leave it alone.
+    if (order.paymentStatus === PaymentStatus.PAID) {
+      console.log(`[markPaymentFailed] Order ${order.orderNumber} is already paid; ignoring`);
+      return order;
+    }
+    if (order.status === OrderStatus.CANCELLED) {
+      return order;
+    }
+    if (order.status !== OrderStatus.PENDING) {
+      console.warn(
+        `[markPaymentFailed] Order ${order.orderNumber} is ${order.status}; not cancelling automatically`,
+      );
+      return order;
+    }
+
+    // Release the stock reserved when the order was placed.
+    for (const item of order.items) {
+      if (item.variantId) {
+        await this.productVariantsRepository.increment({ id: item.variantId }, 'stockQuantity', item.quantity);
+        const variants = await this.productVariantsRepository.find({ where: { productId: item.productId } });
+        const newTotal = variants.reduce((s, v) => s + (v.stockQuantity || 0), 0);
+        await this.productRepository.update(item.productId, { stockQuantity: newTotal });
+      } else {
+        await this.productRepository.increment({ id: item.productId }, 'stockQuantity', item.quantity);
+      }
+
+      const product = await this.productRepository.findOne({ where: { id: item.productId } });
+      if (product) {
+        this.marketplaceGateway.emitStockUpdate(product.id, product.stockQuantity);
+      }
+    }
+
+    order.status = OrderStatus.CANCELLED;
+    order.paymentStatus = PaymentStatus.FAILED;
+    order.cancelledAt = new Date();
+    order.adminNotes = (order.adminNotes || '') +
+      `\nCancelled automatically — payment failed at ${new Date().toISOString()}` +
+      (reason ? `: ${reason}` : '');
+
+    const saved = await this.orderRepository.save(order);
+    this.marketplaceGateway.emitOrderStatusUpdate(order.id, OrderStatus.CANCELLED, order.userId);
+    console.log(`[markPaymentFailed] Cancelled ${order.orderNumber} and released its stock`);
+    return saved;
   }
 
   async requestRefund(id: string, userId: string, reason: string) {
@@ -972,7 +1122,8 @@ export class OrdersService {
       // For COD, just mark as cancelled/returned, no payment refund needed
       order.adminNotes = (order.adminNotes || '') + `\nCOD order cancelled/returned: ${reason} at ${new Date().toISOString()}`;
     } else {
-      order.paymentStatus = PaymentStatus.REFUNDED;
+      // Requested, not settled — the webhook moves this to REFUNDED.
+      order.paymentStatus = PaymentStatus.REFUND_PENDING;
       order.adminNotes = (order.adminNotes || '') + `\nRefund requested: ${reason} at ${new Date().toISOString()}`;
     }
 
@@ -1686,13 +1837,13 @@ export class OrdersService {
     // Update order status
     order.status = OrderStatus.RETURNED;
     order.returnedAt = new Date();
-    order.adminNotes = (order.adminNotes || '') + 
-      `\nItem received and verified at: ${new Date().toISOString()}\nRefund processed.`;
+    order.adminNotes = (order.adminNotes || '') +
+      `\nItem received and verified at: ${new Date().toISOString()}\nRefund owed.`;
 
-    // Process refund
+    // Refund is owed; the `refund.processed` webhook marks it settled.
     if (order.paymentStatus === PaymentStatus.PAID) {
-      order.paymentStatus = PaymentStatus.REFUNDED;
-      
+      order.paymentStatus = PaymentStatus.REFUND_PENDING;
+
       try {
         console.log(`[confirmItemReceived] Creating credit note for returned order ${order.orderNumber}`);
         await this.invoicesService.createCreditNote(

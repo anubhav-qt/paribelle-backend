@@ -10,6 +10,7 @@ import { FileCleanupService } from '../../common/services/file-cleanup.service';
 import { CloudinaryService } from '../../common/services/cloudinary.service';
 import { MarketplaceGateway } from '../stock/stock.gateway';
 import { ConfigService } from '@nestjs/config';
+import { gstRateFor } from './gst-rates';
 
 @Injectable()
 export class ProductsService {
@@ -495,10 +496,7 @@ export class ProductsService {
     if (!data.priceType) {
       data.priceType = 'mrp_with_gst'; // Default to tax-inclusive pricing
     }
-    if (!data.gstRate && data.gstRate !== 0) {
-      data.gstRate = 18.00; // Default to 18% GST
-    }
-    
+
     // Validate image URLs in production
     if (data.images && Array.isArray(data.images)) {
       this.validateImageUrls(data.images);
@@ -519,7 +517,15 @@ export class ProductsService {
         await this.categoriesService.autoInitializeFilters(categoryId);
       }
     }
-    
+
+    // Derive GST from the category and the item's own price unless the caller
+    // states a rate explicitly. Apparel changes band at ₹1,000 per piece, so a
+    // rate fixed at creation time goes stale the moment the price is edited —
+    // `update` recomputes it for the same reason.
+    if (data.gstRate === undefined || data.gstRate === null || data.gstRate === '') {
+      data.gstRate = gstRateFor(categories[0]?.slug, Number(data.price));
+    }
+
     // If new filter options are provided, add them to the category
     if (newFilterOptions && categoryId) {
       const category = await this.categoriesRepository.findOne({
@@ -603,10 +609,37 @@ export class ProductsService {
     if (data.hasOwnProperty('priceType') && !data.priceType) {
       data.priceType = 'mrp_with_gst';
     }
-    if (data.hasOwnProperty('gstRate') && !data.gstRate && data.gstRate !== 0) {
-      data.gstRate = 18.00;
+
+    // Recompute the GST rate whenever the price or the category moves, because
+    // apparel crosses a rate band at ₹1,000 per piece — editing a kurti from
+    // ₹950 to ₹1,200 changes its rate from 5% to 12%. An explicit gstRate in
+    // the payload still wins.
+    const gstRateGiven =
+      data.hasOwnProperty('gstRate') && data.gstRate !== null && data.gstRate !== '';
+    const priceChanged = data.hasOwnProperty('price');
+    const categoryChanged = Array.isArray(categoryIds) && categoryIds.length > 0;
+
+    if (!gstRateGiven && (priceChanged || categoryChanged)) {
+      const existing = await this.productsRepository.findOne({
+        where: { id },
+        relations: ['categories'],
+      });
+
+      const slug = categoryChanged
+        ? (await this.categoriesRepository.findOne({ where: { id: categoryIds[0] } }))?.slug
+        : existing?.categories?.[0]?.slug;
+
+      const unitPrice = priceChanged ? Number(data.price) : Number(existing?.price);
+      data.gstRate = gstRateFor(slug, unitPrice);
+    } else if (data.hasOwnProperty('gstRate') && !gstRateGiven) {
+      // Explicitly blanked — fall back to the derived rate rather than 18%.
+      const existing = await this.productsRepository.findOne({
+        where: { id },
+        relations: ['categories'],
+      });
+      data.gstRate = gstRateFor(existing?.categories?.[0]?.slug, Number(existing?.price));
     }
-    
+
     // Validate image URLs in production
     if (data.images && Array.isArray(data.images)) {
       this.validateImageUrls(data.images);

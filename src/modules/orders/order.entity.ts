@@ -31,6 +31,13 @@ export enum PaymentStatus {
   PENDING = 'pending',
   PAID = 'paid',
   FAILED = 'failed',
+  /**
+   * A refund is owed and has been requested, but the money has not moved yet.
+   * Cancelling a paid order lands here; only Razorpay's `refund.processed`
+   * webhook advances it to REFUNDED. Before this existed, cancelling flipped
+   * straight to REFUNDED and the books claimed refunds that never happened.
+   */
+  REFUND_PENDING = 'refund_pending',
   REFUNDED = 'refunded',
 }
 
@@ -41,6 +48,14 @@ export class Order {
 
   @Column({ unique: true, name: 'order_number' })
   orderNumber: string;
+
+  /**
+   * Client-supplied key for the checkout attempt that created this order.
+   * Replaying the same key for the same user returns the existing orders
+   * instead of placing duplicates. Null for orders placed before this existed.
+   */
+  @Column({ type: 'varchar', length: 64, nullable: true, name: 'idempotency_key' })
+  idempotencyKey: string | null;
 
   // Order amounts
   @Column({ type: 'decimal', precision: 10, scale: 2 })
