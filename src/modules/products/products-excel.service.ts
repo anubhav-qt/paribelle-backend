@@ -931,22 +931,59 @@ export class ProductsExcelService {
     productSheet.columns = this.getSimpleProductColumns();
     this.styleHeaderRow(productSheet, 'FF2E86C1');
 
-    // Add data rows FIRST, then apply dropdowns (addRow positions after last touched row)
+    // Worked examples, each demonstrating a different case. The Instructions
+    // sheet refers to these rows by their Product Code, so keep the codes and
+    // the guidance in step if you edit either.
     productSheet.addRow({
-      productCode: 'KUR-001', name: 'Chanderi Silk Anarkali Kurti',
+      // Case 1 — sized garment. Stock is left blank on purpose: for a product
+      // with variants it is overwritten by the sum of its variant stock.
+      productCode: 'KUR-001', name: 'Chanderi Silk Anarkali — Rose',
       category: 'Kurtis', price: 3499, compareAtPrice: 4299,
-      stockQuantity: 0,
-      images: 'anarkali-front.jpg, anarkali-back.jpg',
+      stockQuantity: null,
+      images: 'anarkali-rose-01.png, anarkali-rose-02.png',
       description: 'A floor-length anarkali in handwoven chanderi silk, with fine gota detailing at the neckline.',
       attributes: 'Fabric: Chanderi, Colour: Rose, Sleeve: Three-Quarter, Occasion: Festive',
     });
     productSheet.addRow({
+      // Case 2 — the SAME design in another colour is its own product, because
+      // it needs its own photographs. Note the Images cell omits extensions,
+      // which is allowed.
+      productCode: 'KUR-002', name: 'Chanderi Silk Anarkali — Indigo',
+      category: 'Kurtis', price: 3499, compareAtPrice: 4299,
+      stockQuantity: null,
+      images: 'anarkali-indigo-01, anarkali-indigo-02',
+      description: 'The same handwoven chanderi anarkali, in a deep indigo with silver gota detailing.',
+      attributes: 'Fabric: Chanderi, Colour: Indigo, Sleeve: Three-Quarter, Occasion: Festive',
+    });
+    productSheet.addRow({
+      // Case 3 — one product carrying TWO variant axes (size and colour).
+      // Works, but every combination shares these photographs.
+      productCode: 'KUR-003', name: 'Cotton Straight Kurti',
+      category: 'Kurtis', price: 899, compareAtPrice: 1299,
+      stockQuantity: null,
+      images: 'cotton-kurti-01.png',
+      description: 'An everyday straight-cut kurti in breathable cotton, with side slits and a mandarin collar.',
+      attributes: 'Fabric: Cotton, Sleeve: Short, Occasion: Daily',
+    });
+    productSheet.addRow({
+      // Case 4 — no sizes at all. No rows on the Variants sheet, so Stock here
+      // is what the storefront uses.
       productCode: 'JWL-001', name: 'Kundan Jhumka Earrings',
       category: 'Jewellery', price: 899, compareAtPrice: 1199,
       stockQuantity: 50,
-      images: 'jhumka.jpg',
+      images: 'jhumka-gold-01.png',
       description: 'Classic dome jhumkas set with kundan stones and finished with pearl drops.',
       attributes: 'Type: Earrings, Finish: Gold-tone, Stone: Kundan, Occasion: Wedding',
+    });
+    productSheet.addRow({
+      // Case 5 — Images left blank. Every file in the ZIP named
+      // jwl-002-01, jwl-002-02, … is attached automatically, in number order.
+      productCode: 'JWL-002', name: 'Pearl Drop Necklace',
+      category: 'Jewellery', price: 1499, compareAtPrice: 1999,
+      stockQuantity: 12,
+      images: '',
+      description: 'A single-strand necklace of graduated freshwater pearls on a gold-tone chain.',
+      attributes: 'Type: Necklace, Finish: Gold-tone, Stone: Pearl, Occasion: Wedding',
     });
 
     // ── Variants sheet ────────────────────────────────────────
@@ -954,19 +991,31 @@ export class ProductsExcelService {
     variantSheet.columns = this.getSimpleVariantColumns();
     this.styleHeaderRow(variantSheet, 'FF8E44AD');
 
-    const sizes = ['S', 'M', 'L', 'XL'];
-    sizes.forEach(size => {
-      variantSheet.addRow({
-        productCode: 'KUR-001',
-        variantCode: `KUR-001-${size}`,
-        attributes:  `Size: ${size}`,
-        price:          size === 'XL' ? 3699 : 3499,
-        compareAtPrice: 4299,
-        stock:          Math.floor(Math.random() * 15) + 3,
-        isActive:       'YES',
-      });
-    });
-    addDropdown(variantSheet, 7, sizes.length + 1, '"YES,NO"');
+    // KUR-001 — one axis (size). Every row repeats the SAME Product Code; only
+    // the Variant Code changes. XL is priced higher to show per-size pricing.
+    const rows: Array<Record<string, any>> = [
+      { productCode: 'KUR-001', variantCode: 'KUR-001-S',  attributes: 'Size: S',  price: 3499, compareAtPrice: 4299, stock: 6,  isActive: 'YES' },
+      { productCode: 'KUR-001', variantCode: 'KUR-001-M',  attributes: 'Size: M',  price: 3499, compareAtPrice: 4299, stock: 11, isActive: 'YES' },
+      { productCode: 'KUR-001', variantCode: 'KUR-001-L',  attributes: 'Size: L',  price: 3499, compareAtPrice: 4299, stock: 8,  isActive: 'YES' },
+      { productCode: 'KUR-001', variantCode: 'KUR-001-XL', attributes: 'Size: XL', price: 3699, compareAtPrice: 4499, stock: 3,  isActive: 'YES' },
+
+      // KUR-002 — same sizes, different product. Stock 0 on L shows how a sold
+      // out size appears: the button is greyed out rather than hidden.
+      { productCode: 'KUR-002', variantCode: 'KUR-002-M',  attributes: 'Size: M',  price: 3499, compareAtPrice: 4299, stock: 5,  isActive: 'YES' },
+      { productCode: 'KUR-002', variantCode: 'KUR-002-L',  attributes: 'Size: L',  price: 3499, compareAtPrice: 4299, stock: 0,  isActive: 'YES' },
+
+      // KUR-003 — two axes. One row per COMBINATION: 2 sizes x 2 colours = 4.
+      // The product page shows a Size row and a Colour row of buttons.
+      { productCode: 'KUR-003', variantCode: 'KUR-003-M-BLU', attributes: 'Size: M, Colour: Blue',  price: 899, compareAtPrice: 1299, stock: 7, isActive: 'YES' },
+      { productCode: 'KUR-003', variantCode: 'KUR-003-L-BLU', attributes: 'Size: L, Colour: Blue',  price: 899, compareAtPrice: 1299, stock: 9, isActive: 'YES' },
+      { productCode: 'KUR-003', variantCode: 'KUR-003-M-GRN', attributes: 'Size: M, Colour: Green', price: 899, compareAtPrice: 1299, stock: 4, isActive: 'YES' },
+      { productCode: 'KUR-003', variantCode: 'KUR-003-L-GRN', attributes: 'Size: L, Colour: Green', price: 899, compareAtPrice: 1299, stock: 2, isActive: 'YES' },
+    ];
+    rows.forEach(row => variantSheet.addRow(row));
+    addDropdown(variantSheet, 7, rows.length + 1, '"YES,NO"');
+
+    // JWL-001 and JWL-002 deliberately appear nowhere on this sheet — a
+    // product without sizes simply has no variant rows.
 
     // ── Instructions sheet ────────────────────────────────────────
     const instr = workbook.addWorksheet('Instructions');
@@ -974,35 +1023,75 @@ export class ProductsExcelService {
     const b = (r: number, t: string) => { instr.getCell(`A${r}`).value = t; instr.getCell(`A${r}`).font = { bold: true, size: 12 }; };
     const n = (r: number, t: string) => { instr.getCell(`A${r}`).value = t; };
 
-    b(1,  '📋  PRODUCT IMPORT — QUICK START GUIDE');
-    n(3,  'There are 2 sheets:');
-    n(4,  '  • Products   — one row per product');
-    n(5,  '  • Variants   — one row per size combination (only needed for products with sizes)');
-    b(7,  'CATEGORY — must match exactly');
-    n(8,  '  Enter exactly "Kurtis" or "Jewellery". Any other value is rejected as an error —');
-    n(9,  '  it will NOT create a new category.');
-    b(11, 'PRODUCT CODE — your own short ID (optional)');
-    n(12, '  Enter any value you like:  1   2   3   or   KUR-001   JWL-002');
-    n(13, '  This code is the stable key.  Re-import the same file → existing products are UPDATED, not duplicated.');
-    n(14, '  Leave it blank and the product is matched by name instead.');
-    n(15, '  The Product Code in the Variants sheet must match exactly to link variants to their product.');
-    b(17, 'EVERYDAY WORKFLOW');
-    n(18, '  1. First time: fill in the two sheets, zip with images folder, import.');
-    n(19, '  2. Stock changed → edit the Stock cell(s), re-import.  Done.');
-    n(20, '  3. New product → add a new row with a new Product Code, re-import.');
-    n(21, '  4. Price update → edit Price cell, re-import.');
-    b(23, 'IMAGES');
-    n(24, '  • Images column: comma-separated filenames, e.g.   front.jpg, back.jpg, side.jpg');
-    n(25, '  • Put the actual files in the  images/  folder inside the ZIP before importing.');
-    n(26, '  • You can also paste a full https:// URL — it will be used without uploading.');
-    b(28, 'VARIANTS');
-    n(29, '  • Attributes format:   Size: M   (key: value, comma-separated for more than one)');
-    n(30, '  • Variant Code must be unique across ALL variants.  Recommended pattern: PRODCODE-SIZE');
-    n(31, '  • For products WITHOUT variants: leave their rows out of the Variants sheet; enter stock on Products sheet.');
-    b(33, 'ATTRIBUTES — powers the storefront filters');
-    n(34, '  • Kurtis:     Fabric, Colour, Size, Sleeve, Occasion');
-    n(35, '  • Jewellery:  Type, Finish, Stone, Occasion');
-    n(36, '  • Format:   Fabric: Chanderi, Colour: Rose, Occasion: Festive   (key: value, comma-separated)');
+    b(1,  '📋  PRODUCT IMPORT — GUIDE');
+    n(2,  'The Products and Variants sheets are filled in with worked examples. Overwrite them with your own.');
+    n(4,  '  • Products  — one row per product');
+    n(5,  '  • Variants  — one row per size/colour COMBINATION (only for products that have them)');
+
+    b(7,  'THE GOLDEN RULE');
+    n(8,  '  Every variant row REPEATS its parent\'s Product Code. Only the Variant Code changes.');
+    n(9,  '  Look at KUR-001 on the Variants sheet: four rows, all saying "KUR-001".');
+    n(10, '  Numbering the Product Code down the block (KUR-001, KUR-002, KUR-003...) is the single');
+    n(11, '  most common mistake — those variants have no product to attach to and will be rejected.');
+
+    b(13, 'ONE PRODUCT, OR SEVERAL?');
+    n(14, '  Different SIZE  → one product, one variant row per size.            (see KUR-001)');
+    n(15, '  Different COLOUR → usually a SEPARATE product, because the photos differ. (see KUR-001 vs KUR-002)');
+    n(16, '  You CAN put colour in variants (see KUR-003), but every combination then shares');
+    n(17, '  the same photographs — picking "Green" will not change the pictures.');
+    n(18, '  No sizes at all → no variant rows whatsoever.                        (see JWL-001)');
+
+    b(20, 'PRODUCT CODE — the stable key');
+    n(21, '  Any short ID you like: KUR-001, JWL-002, or even 1, 2, 3.');
+    n(22, '  Re-importing the same code UPDATES that product instead of duplicating it.');
+    n(23, '  Never reuse a code for a different product. Leave it blank and the product is');
+    n(24, '  matched by name instead — risky if two products share a name.');
+
+    b(26, 'VARIANT CODE — must be unique across the WHOLE catalogue');
+    n(27, '  Always prefix it with the product code: KUR-001-M, KUR-001-L.');
+    n(28, '  A bare "M" or "L" will collide with another product\'s variant and move it.');
+
+    b(30, 'STOCK');
+    n(31, '  Product HAS variants  → leave Stock blank on the Products sheet. It is replaced by');
+    n(32, '                          the total of its variant rows.');
+    n(33, '  Product has NO variants → Stock on the Products sheet is what customers see.');
+    n(34, '  Stock 0 on a variant  → that size shows as greyed out and cannot be ordered.');
+
+    b(36, 'CATEGORY — must match exactly');
+    n(37, '  Exactly "Kurtis" or "Jewellery". Anything else is rejected — it will NOT create a new category.');
+
+    b(39, 'IMAGES');
+    n(40, '  • Comma-separated filenames:  front.png, back.png     (the extension is optional)');
+    n(41, '  • Put the files in the images/ folder in the ZIP. The first one becomes the thumbnail.');
+    n(42, '  • Leave the cell BLANK and any file named <product-code>-01, -02 … is picked up');
+    n(43, '    automatically, in number order.                                    (see JWL-002)');
+    n(44, '  • A full https:// URL is used as-is, without uploading.');
+
+    b(46, 'ATTRIBUTES — the two columns do DIFFERENT things');
+    n(47, '  Products sheet  → storefront FILTERS in the category sidebar.');
+    n(48, '  Variants sheet  → the selectable BUTTONS on the product page.');
+    n(49, '  Format for both:  Key: Value, Key: Value      e.g.  Size: M, Colour: Blue');
+    n(50, '  Capitalise the key on the Variants sheet ("Size", not "size") and keep it consistent.');
+    n(51, '  Suggested filter keys — Kurtis: Fabric, Colour, Sleeve, Occasion');
+    n(52, '                          Jewellery: Type, Finish, Stone, Occasion');
+
+    b(54, 'GST — set automatically, do not enter it');
+    n(55, '  Kurtis: 5% up to ₹1,000 per piece, 12% above.   Jewellery: 3% flat.');
+    n(56, '  Recalculated whenever you change a price.');
+
+    b(58, 'BEFORE YOU IMPORT FOR REAL');
+    n(59, '  Add ?dryRun=true to the import request to validate the whole workbook and list every');
+    n(60, '  problem without writing anything. Fix, then import properly.');
+
+    b(62, 'PACKAGING THE ZIP');
+    n(63, '  products.xlsx plus an images/ folder. Zipping the folder itself is fine —');
+    n(64, '  a single wrapper directory is detected and ignored.');
+
+    b(66, 'EVERYDAY WORKFLOW');
+    n(67, '  Stock changed  → edit the Stock cell(s), re-import.');
+    n(68, '  Price update   → edit Price, re-import. GST follows automatically.');
+    n(69, '  New product    → add a row with a new Product Code, re-import.');
+    n(70, '  Tip: use Export on the admin Products page to get the current catalogue in this format.');
 
     // ── Build ZIP with dummy images ───────────────────────────────────────────
     const excelBuffer = await workbook.xlsx.writeBuffer();
@@ -1037,11 +1126,27 @@ export class ProductsExcelService {
       archive.on('error', reject);
 
       archive.append(Buffer.from(excelBuffer as ArrayBuffer), { name: 'products.xlsx' });
-      archive.append(createPng(214, 176, 176), { name: 'images/anarkali-front.jpg' });
-      archive.append(createPng(200, 160, 160), { name: 'images/anarkali-back.jpg' });
-      archive.append(createPng(212, 175, 55),  { name: 'images/jhumka.jpg' });
+
+      // One placeholder per filename the example rows reference, so the
+      // template imports cleanly as-is and can be used to check the flow.
+      // jwl-002-* are named by convention: the JWL-002 row leaves Images blank.
+      archive.append(createPng(214, 176, 176), { name: 'images/anarkali-rose-01.png' });
+      archive.append(createPng(200, 160, 160), { name: 'images/anarkali-rose-02.png' });
+      archive.append(createPng(75, 90, 160),   { name: 'images/anarkali-indigo-01.png' });
+      archive.append(createPng(60, 74, 140),   { name: 'images/anarkali-indigo-02.png' });
+      archive.append(createPng(150, 190, 200), { name: 'images/cotton-kurti-01.png' });
+      archive.append(createPng(212, 175, 55),  { name: 'images/jhumka-gold-01.png' });
+      archive.append(createPng(238, 232, 220), { name: 'images/jwl-002-01.png' });
+      archive.append(createPng(225, 218, 205), { name: 'images/jwl-002-02.png' });
       archive.append(
-        Buffer.from('Replace these placeholder images with your real product photos.\nFormat: JPG, PNG or WebP | Recommended: 1200×800 px or larger\n'),
+        Buffer.from(
+          'Replace these placeholder images with your real product photos.\n' +
+          'Format: JPG, PNG or WebP | Recommended: 1200x800 px or larger\n\n' +
+          'Filenames here match the Images column on the Products sheet.\n' +
+          'jwl-002-01 / jwl-002-02 are matched by naming convention instead:\n' +
+          'the JWL-002 row leaves its Images cell blank, so every file called\n' +
+          '<product-code>-01, -02 ... is attached automatically in number order.\n',
+        ),
         { name: 'images/README.txt' },
       );
       archive.finalize();
