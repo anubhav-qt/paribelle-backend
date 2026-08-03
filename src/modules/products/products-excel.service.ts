@@ -123,6 +123,28 @@ export class ProductsExcelService {
       .map((entry) => entry.filename);
   }
 
+  /**
+   * The product a mistyped variant code probably meant.
+   *
+   * The common mistake is incrementing the Product Code down a block of size
+   * rows — `BANDESH-01, BANDESH-02, BANDESH-03…` — when every row should repeat
+   * the one product's code and vary only the Variant Code. Strip the trailing
+   * number and, if exactly one known product shares the stem, name it.
+   *
+   * Only ever used to phrase an error. Acting on this automatically would
+   * reintroduce the mis-attachment this importer was fixed for.
+   */
+  private suggestProductCode(code: string, known: Map<string, string>): string | null {
+    const stem = this.normalizeCode(code).replace(/[-_]?\d+$/, '');
+    if (!stem) return null;
+
+    const matches = Array.from(known.keys()).filter(
+      (candidate) => candidate.replace(/[-_]?\d+$/, '') === stem,
+    );
+
+    return matches.length === 1 ? matches[0].toUpperCase() : null;
+  }
+
   /** Find a product by SKU, ignoring case and surrounding whitespace. */
   private async findProductBySku(sku: string): Promise<Product | null> {
     return (
@@ -819,9 +841,16 @@ export class ProductsExcelService {
             }
           }
           if (!productId) {
+            // Don't guess — silently attaching a variant to a similarly-named
+            // product is how images ended up on the wrong item. Name the likely
+            // candidate and let a human decide.
+            const suggestion = this.suggestProductCode(productCode, productCodeToId);
             errors.push(
               `Variants Row ${rn}: No product found with code "${productCode}". ` +
-              `Add a row with that Product Code to the Products sheet, or check for a typo.`,
+              (suggestion
+                ? `Did you mean "${suggestion}"? Every variant of a product repeats that ` +
+                  `product's code — only the Variant Code changes per size.`
+                : `Add a row with that Product Code to the Products sheet, or check for a typo.`),
             );
             continue;
           }
