@@ -843,8 +843,16 @@ export class OrdersService {
         });
       }
 
-      // Create credit note (negative invoice) for cancelled order
-      if (order.paymentStatus === 'paid') {
+      // A paid order that is cancelled owes the customer money. Park it in
+      // REFUND_PENDING — the same state `cancel()` uses — so it is visible as
+      // a refund waiting to be settled rather than sitting at "paid" as if
+      // nothing were owed. Only the `refund.processed` webhook may promote it
+      // to REFUNDED; see `markRefundSettled`.
+      if (order.paymentStatus === PaymentStatus.PAID) {
+        order.paymentStatus = PaymentStatus.REFUND_PENDING;
+        order.adminNotes = (order.adminNotes || '') +
+          `\nRefund owed (order cancelled) at ${new Date().toISOString()}`;
+
         try {
           console.log(`[updateStatus] Creating credit note for cancelled order ${order.orderNumber}`);
           await this.invoicesService.createCreditNote(order.id, 'Order cancelled');

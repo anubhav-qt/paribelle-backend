@@ -168,6 +168,7 @@ export class ProductsService {
 
     // Get products
     const products = await queryBuilder.getMany();
+    products.forEach((product) => this.attachDerivedAttributes(product));
 
     return {
       products,
@@ -231,50 +232,89 @@ export class ProductsService {
       );
     }
 
-    // Apply dynamic filters based on product attributes
+    // Attribute filters. A product matches when at least one of its variants
+    // carries the value, because that is where attributes live — the shopper
+    // asking for "Size: M" wants the products they can actually buy in M, not
+    // the ones whose catalogue entry once mentioned M.
     if (filters) {
+      let clauseIndex = 0;
+
       Object.entries(filters).forEach(([key, value]) => {
         // Skip filters that are already handled above
         if (key === 'cityId' || key === 'subLocationId' || key === 'vendorId') {
           return;
         }
-        
+
         // Handle productType filter
         if (key === 'productType' && value) {
           queryBuilder.andWhere('product.productType = :productType', { productType: value });
           return;
         }
-        
+
+        // `price` is a column, not an attribute.
+        if (key === 'price' && value && typeof value === 'object' &&
+            value.min !== undefined && value.max !== undefined) {
+          queryBuilder.andWhere('product.price BETWEEN :priceMin AND :priceMax', {
+            priceMin: value.min,
+            priceMax: value.max,
+          });
+          return;
+        }
+
+        // Parameterised throughout: filter keys arrive straight from the query
+        // string, and the old code interpolated them into the SQL text.
+        const p = `attr${clauseIndex++}`;
+
         if (Array.isArray(value) && value.length > 0) {
-          // For checkbox/multiselect filters
           queryBuilder.andWhere(
-            `product.attributes->>'${key}' IN (:...${key}Values)`,
-            { [`${key}Values`]: value }
+            this.variantAttributeExists(`LOWER(fv.attr_value) IN (:...${p}Values)`, p),
+            {
+              [`${p}Key`]: key,
+              [`${p}Values`]: value.map((v) => String(v).toLowerCase()),
+            },
           );
-        } else if (typeof value === 'object' && value.min !== undefined && value.max !== undefined) {
-          // For range filters (e.g., price)
-          if (key === 'price') {
-            queryBuilder.andWhere(
-              `product.price BETWEEN :${key}Min AND :${key}Max`,
-              { [`${key}Min`]: value.min, [`${key}Max`]: value.max }
-            );
-          } else {
-            queryBuilder.andWhere(
-              `CAST(product.attributes->>'${key}' AS DECIMAL) BETWEEN :${key}Min AND :${key}Max`,
-              { [`${key}Min`]: value.min, [`${key}Max`]: value.max }
-            );
-          }
-        } else if (value) {
-          // For single value filters
+        } else if (value && typeof value === 'object' &&
+                   value.min !== undefined && value.max !== undefined) {
           queryBuilder.andWhere(
-            `product.attributes->>'${key}' = :${key}Value`,
-            { [`${key}Value`]: value }
+            this.variantAttributeExists(
+              `fv.attr_value ~ '^[0-9.]+$' AND CAST(fv.attr_value AS DECIMAL) BETWEEN :${p}Min AND :${p}Max`,
+              p,
+            ),
+            { [`${p}Key`]: key, [`${p}Min`]: value.min, [`${p}Max`]: value.max },
+          );
+        } else if (value) {
+          queryBuilder.andWhere(
+            this.variantAttributeExists(`LOWER(fv.attr_value) = :${p}Value`, p),
+            { [`${p}Key`]: key, [`${p}Value`]: String(value).toLowerCase() },
           );
         }
       });
     }
 
-    return queryBuilder.getMany();
+    const results = await queryBuilder.getMany();
+    return results.map((product) => this.attachDerivedAttributes(product));
+  }
+
+  /**
+   * `EXISTS` over the product's variant attributes, matching the attribute
+   * name case-insensitively.
+   *
+   * Attribute keys are entered by hand in the admin and in the import sheet,
+   * so "Colour", "colour" and "COLOUR" all occur in real data; a filter whose
+   * id is `colour` has to find all three. `jsonb_each_text` flattens each
+   * variant's attributes into name/value rows so the comparison can be done
+   * in SQL rather than by pulling every product into memory.
+   */
+  private variantAttributeExists(valueCondition: string, param: string): string {
+    return `EXISTS (
+      SELECT 1
+      FROM product_variants fpv
+      CROSS JOIN LATERAL jsonb_each_text(fpv.variant_attributes) AS fv(attr_key, attr_value)
+      WHERE fpv.product_id = product.id
+        AND fpv.is_active = TRUE
+        AND LOWER(fv.attr_key) = LOWER(:${param}Key)
+        AND ${valueCondition}
+    )`;
   }
 
   /**
@@ -337,12 +377,13 @@ export class ProductsService {
       .andWhere('vendor.kycStatus = :kycStatus', { kycStatus: 'approved' }) // Only show products from verified vendors
       .getOne();
     
-    // If product has variants, fetch them
-    if (product && product.hasVariants) {
-      const variants = await this.getProductVariants(product.id);
-      (product as any).productVariants = variants;
+    // Variants are always needed here: they hold the product's attributes, so
+    // even a product with nothing for the shopper to choose between has one.
+    if (product) {
+      (product as any).productVariants = await this.getProductVariants(product.id);
+      this.attachDerivedAttributes(product);
     }
-    
+
     return product;
   }
 
@@ -354,6 +395,36 @@ export class ProductsService {
       where: { productId },
       order: { createdAt: 'ASC' },
     });
+  }
+
+  /**
+   * Expose the product-level attributes as a read-only `attributes` field.
+   *
+   * Nothing stores this — it is recomputed from the variants on every read, as
+   * the keys every variant agrees on. The admin product form and the export
+   * both want "this product's Fabric" rather than "each variant's Fabric", and
+   * this gives them that without the database keeping a second copy that can
+   * drift out of step with the variants. Writes go the other way, through
+   * `storeAttributesOnVariants`.
+   */
+  private attachDerivedAttributes<T extends { productVariants?: ProductVariant[] }>(
+    product: T,
+  ): T {
+    const variants = product.productVariants || [];
+    const derived: Record<string, string> = {};
+
+    if (variants.length > 0) {
+      const [first, ...rest] = variants;
+      for (const [key, value] of Object.entries(first.variantAttributes || {})) {
+        const asString = String(value);
+        if (rest.every((v) => String((v.variantAttributes || {})[key]) === asString)) {
+          derived[key] = asString;
+        }
+      }
+    }
+
+    (product as any).attributes = derived;
+    return product;
   }
 
   /**
@@ -428,44 +499,76 @@ export class ProductsService {
       .andWhere('vendor.kycStatus = :kycStatus', { kycStatus: 'approved' }) // Only show products from verified vendors
       .getOne();
     
-    // If product has variants, fetch them and generate variantOptions
-    if (product && product.hasVariants) {
+    if (product) {
       const variants = await this.getProductVariants(product.id);
       (product as any).productVariants = variants;
-      
-      // Generate variantOptions from variants for frontend selector
-      if (variants && variants.length > 0) {
-        const attributeKeys = new Set<string>();
-        variants.forEach(variant => {
-          if (variant.variantAttributes) {
-            Object.keys(variant.variantAttributes).forEach(key => attributeKeys.add(key));
-          }
-        });
-        
-        const variantOptions: any[] = [];
-        attributeKeys.forEach(key => {
-          const values = new Set<string>();
-          variants.forEach(variant => {
-            if (variant.variantAttributes && variant.variantAttributes[key]) {
-              values.add(variant.variantAttributes[key]);
-            }
-          });
-          variantOptions.push({
-            name: key.charAt(0).toUpperCase() + key.slice(1),
-            values: Array.from(values)
-          });
-        });
-        
-        (product as any).variantOptions = variantOptions;
+      this.attachDerivedAttributes(product);
+
+      if (product.hasVariants && variants.length > 0) {
+        (product as any).variantOptions = this.buildVariantOptions(variants);
       }
     }
-    
+
     return product;
   }
 
+  /**
+   * The choices to offer on the product page, derived from the variants.
+   *
+   * Two things here are load-bearing for the variant picker:
+   *
+   * Keys are grouped case-insensitively and reported under the spelling the
+   * data actually uses. A catalogue that has picked up both `Size` (typed in
+   * the admin) and `size` (from an older import that lower-cased its keys)
+   * used to produce *two* options, both displayed as "Size", each aware of
+   * only half the variants — so choosing from one left the other unsatisfiable
+   * and the picker refused every further click. The name is also no longer
+   * re-capitalised: the browser looks attributes up by this exact key, and
+   * turning `size` into `Size` meant every lookup missed.
+   *
+   * Each option carries a stable `id`. Without one every option rendered under
+   * the same undefined React key, and React reused the wrong button state
+   * between them.
+   */
+  private buildVariantOptions(
+    variants: ProductVariant[],
+  ): Array<{ id: string; name: string; label: string; values: string[] }> {
+    // lower-cased key → the spelling to use, and its values in first-seen order
+    const groups = new Map<string, { name: string; values: string[] }>();
+
+    for (const variant of variants) {
+      for (const [key, rawValue] of Object.entries(variant.variantAttributes || {})) {
+        const value = rawValue == null ? '' : String(rawValue);
+        if (!value) continue;
+
+        const groupKey = key.toLowerCase();
+        let group = groups.get(groupKey);
+        if (!group) {
+          group = { name: key, values: [] };
+          groups.set(groupKey, group);
+        }
+        if (!group.values.some((v) => v.toLowerCase() === value.toLowerCase())) {
+          group.values.push(value);
+        }
+      }
+    }
+
+    // A key every variant shares one value for is a property of the product,
+    // not a choice — offering "Fabric: Chanderi" as the only option asks the
+    // shopper to pick from a list of one.
+    return Array.from(groups.entries())
+      .filter(([, group]) => group.values.length > 1)
+      .map(([groupKey, group]) => ({
+        id: groupKey,
+        name: group.name,
+        label: group.name.charAt(0).toUpperCase() + group.name.slice(1),
+        values: group.values,
+      }));
+  }
+
   async create(productData: any): Promise<Product> {
-    const { categoryIds, newFilterOptions, categoryId, variations, variants, variantOptions, ...data } = productData;
-    
+    const { categoryIds, newFilterOptions, categoryId, variations, variants, variantOptions, attributes, ...data } = productData;
+
     // Platform vendor ID for products created by super admin
     const PLATFORM_VENDOR_ID = '00000000-0000-0000-0000-000000000001';
     
@@ -582,12 +685,151 @@ export class ProductsService {
           stockQuantity: variant.stock,
           isActive: true,
         });
-        
+
         await this.productVariantsRepository.save(productVariant);
       }
     }
-    
+
+    await this.storeAttributesOnVariants(parentProduct, attributes);
+
     return parentProduct;
+  }
+
+  /**
+   * Put a product's filterable attributes where filtering looks for them: on
+   * its variants.
+   *
+   * Callers (the admin form, the import sheet) still describe a product's
+   * Fabric or Finish at the product level, which reads naturally — every
+   * variant of a chanderi kurti is chanderi. There is no `products.attributes`
+   * column to put that in any more, so it is folded into each variant
+   * underneath the variant's own keys: a variant that states its own Size
+   * keeps it.
+   *
+   * A product with no variants gets one, mirroring its SKU, price and stock,
+   * purely so its attributes have somewhere to live. `hasVariants` is left
+   * alone — this is not an option to offer the shopper, and flipping it would
+   * make the product page demand a selection before allowing a purchase.
+   */
+  private async storeAttributesOnVariants(
+    product: Product,
+    attributes: Record<string, any> | null | undefined,
+  ): Promise<void> {
+    if (!attributes || typeof attributes !== 'object') return;
+
+    // `booking` and `tour` are nested metadata, not filter values.
+    const filterable = Object.fromEntries(
+      Object.entries(attributes).filter(
+        ([key, value]) =>
+          key !== 'booking' &&
+          key !== 'tour' &&
+          value !== null &&
+          value !== undefined &&
+          value !== '' &&
+          typeof value !== 'object',
+      ),
+    );
+
+    const metadata = Object.fromEntries(
+      Object.entries(attributes).filter(([key]) => key === 'booking' || key === 'tour'),
+    );
+    if (Object.keys(metadata).length > 0) {
+      await this.productsRepository.update(product.id, {
+        metadata: { ...(product.metadata || {}), ...metadata },
+      });
+    }
+
+    if (Object.keys(filterable).length === 0) return;
+
+    const existing = await this.productVariantsRepository.find({
+      where: { productId: product.id },
+    });
+
+    if (existing.length > 0) {
+      // Keys the shopper picks between belong to the variant and are never
+      // overwritten from the product. Everything else on the variant was put
+      // there by the product last time round, so it is replaced rather than
+      // merged — otherwise an attribute the admin deletes lives on forever.
+      const variantOwned = this.variantOwnedKeys(product, existing);
+
+      for (const variant of existing) {
+        const own = Object.fromEntries(
+          Object.entries(variant.variantAttributes || {}).filter(([key]) =>
+            variantOwned.has(key.toLowerCase()),
+          ),
+        );
+        variant.variantAttributes = { ...filterable, ...own };
+      }
+      await this.productVariantsRepository.save(existing);
+      return;
+    }
+
+    await this.productVariantsRepository.save(
+      this.productVariantsRepository.create({
+        productId: product.id,
+        sku: await this.availableVariantSku(product),
+        variantAttributes: filterable,
+        price: product.price,
+        compareAtPrice: product.compareAtPrice,
+        stockQuantity: product.stockQuantity ?? 0,
+        images: product.images,
+        isActive: true,
+      }),
+    );
+  }
+
+  /**
+   * The attribute keys that belong to the variants rather than to the product,
+   * lowercased. These survive a product-level attribute write untouched.
+   *
+   * Two sources, unioned, because neither alone is safe:
+   *
+   * `variantOptions` records what the admin form declared the shopper picks
+   * between — but it is only written by that form. Products loaded from the
+   * import sheet have variants and no `variantOptions` at all, so trusting it
+   * alone would treat their Sizes as product-level and flatten every variant
+   * to the same value on the next edit.
+   *
+   * So any key whose value actually differs between variants counts too. A key
+   * that differs is by definition not a property of the product.
+   */
+  private variantOwnedKeys(product: Product, variants: ProductVariant[]): Set<string> {
+    const keys = new Set<string>();
+
+    const options = product.variantOptions as unknown;
+    if (Array.isArray(options)) {
+      for (const option of options as any[]) {
+        if (typeof option?.name === 'string') keys.add(option.name.toLowerCase());
+      }
+    } else if (options && typeof options === 'object') {
+      for (const key of Object.keys(options)) keys.add(key.toLowerCase());
+    }
+
+    // lower(key) → the first value seen for it, to spot a disagreement.
+    const firstSeen = new Map<string, string>();
+    for (const variant of variants) {
+      for (const [key, value] of Object.entries(variant.variantAttributes || {})) {
+        const lower = key.toLowerCase();
+        const asString = String(value);
+        const previous = firstSeen.get(lower);
+        if (previous === undefined) {
+          firstSeen.set(lower, asString);
+        } else if (previous.toLowerCase() !== asString.toLowerCase()) {
+          keys.add(lower);
+        }
+      }
+    }
+
+    return keys;
+  }
+
+  /** Variant SKUs are unique, so fall back if the product's is already taken. */
+  private async availableVariantSku(product: Product): Promise<string> {
+    const taken = await this.productVariantsRepository.findOne({
+      where: { sku: product.sku },
+    });
+    if (!taken) return product.sku;
+    return `${product.sku}-D${product.id.replace(/-/g, '').slice(0, 6)}`;
   }
 
   async update(id: string, productData: any): Promise<Product | null> {
@@ -601,7 +843,8 @@ export class ProductsService {
       parentProduct,
       productVariants,
       variantOptions,
-      ...data 
+      attributes,
+      ...data
     } = productData;
     
     // Ensure GST fields have default values if explicitly set to null/undefined
@@ -666,7 +909,12 @@ export class ProductsService {
         }
       }
     }
-    
+
+    if (attributes !== undefined) {
+      const product = await this.productsRepository.findOne({ where: { id } });
+      if (product) await this.storeAttributesOnVariants(product, attributes);
+    }
+
     // If categoryIds are provided, update the categories relationship
     if (categoryIds && Array.isArray(categoryIds)) {
       const product = await this.productsRepository.findOne({

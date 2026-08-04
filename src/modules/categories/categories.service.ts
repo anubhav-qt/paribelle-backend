@@ -340,6 +340,106 @@ export class CategoriesService {
     return category.filterConfig || { filters: [] };
   }
 
+  /**
+   * The attributes the category's products actually carry, as ready-made
+   * filter definitions.
+   *
+   * Filter options used to be typed in by hand against a template, so they
+   * drifted from the catalogue: an option for a value no products had returned
+   * nothing, and a value no option covered was unreachable. Reading them back
+   * out of `product_variants.variant_attributes` — the one place attributes
+   * live — means the offered filters are exactly what is on the shelves.
+   *
+   * Values are grouped case-insensitively and reported under the spelling used
+   * most often, since the same attribute is typed differently by different
+   * people over time.
+   */
+  async suggestFiltersFromCatalogue(categoryId: string): Promise<{
+    filters: Array<{
+      id: string;
+      label: string;
+      type: 'checkbox';
+      options: Array<{ value: string; label: string; productCount: number }>;
+    }>;
+  }> {
+    const categoryIds = await this.getDescendantCategoryIds(categoryId);
+
+    const rows: Array<{ attr_key: string; attr_value: string; product_count: string }> =
+      await this.categoriesRepository.manager.query(
+        `
+        SELECT a.attr_key, a.attr_value, COUNT(DISTINCT p.id) AS product_count
+        FROM products p
+        JOIN product_categories pc ON pc.product_id = p.id
+        JOIN product_variants v ON v.product_id = p.id
+        CROSS JOIN LATERAL jsonb_each_text(v.variant_attributes) AS a(attr_key, attr_value)
+        WHERE pc.category_id = ANY($1)
+          AND p.status = 'active'
+          AND v.is_active = TRUE
+          AND a.attr_value <> ''
+        GROUP BY a.attr_key, a.attr_value
+        ORDER BY a.attr_key, product_count DESC, a.attr_value
+        `,
+        [categoryIds],
+      );
+
+    // lower(key) → { label, options keyed by lower(value) }
+    const byKey = new Map<
+      string,
+      { label: string; options: Map<string, { value: string; label: string; productCount: number }> }
+    >();
+
+    for (const row of rows) {
+      const keyId = row.attr_key.toLowerCase();
+      let group = byKey.get(keyId);
+      if (!group) {
+        group = { label: row.attr_key, options: new Map() };
+        byKey.set(keyId, group);
+      }
+
+      const valueId = row.attr_value.toLowerCase();
+      const count = Number(row.product_count);
+      const existing = group.options.get(valueId);
+      if (existing) {
+        existing.productCount += count;
+      } else {
+        group.options.set(valueId, {
+          value: row.attr_value,
+          label: row.attr_value,
+          productCount: count,
+        });
+      }
+    }
+
+    return {
+      filters: Array.from(byKey.entries()).map(([id, group]) => ({
+        id,
+        label: group.label.charAt(0).toUpperCase() + group.label.slice(1),
+        type: 'checkbox' as const,
+        options: Array.from(group.options.values()).sort((a, b) =>
+          a.label.localeCompare(b.label),
+        ),
+      })),
+    };
+  }
+
+  /** A category and everything beneath it, so a parent sees its children's products. */
+  private async getDescendantCategoryIds(categoryId: string): Promise<string[]> {
+    const ids: string[] = [categoryId];
+
+    const walk = async (parentId: string) => {
+      const children = await this.categoriesRepository.find({
+        where: { parent: { id: parentId } },
+      });
+      for (const child of children) {
+        ids.push(child.id);
+        await walk(child.id);
+      }
+    };
+
+    await walk(categoryId);
+    return ids;
+  }
+
   async autoInitializeFilters(categoryId: string): Promise<void> {
     const category = await this.categoriesRepository.findOne({
       where: { id: categoryId },

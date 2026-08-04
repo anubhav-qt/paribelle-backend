@@ -119,11 +119,36 @@ if (hasCustomVariants && variantOptions.length > 0) {
 
 **Key Fields:**
 - `productId`: Parent product UUID
-- `variantAttributes`: JSONB storing variant attributes (e.g., `{"size": "M", "color": "Red"}`)
+- `variantAttributes`: JSONB storing variant attributes (e.g., `{"Size": "M", "Colour": "Red"}`)
 - `sku`: Unique identifier
 - `price`: Variant-specific price
 - `stockQuantity`: Individual stock level
 - `isActive`: Enable/disable flag
+
+#### Attributes live here and nowhere else
+
+`variantAttributes` is the **only** home for a product's filterable properties.
+Products used to carry their own `attributes` column as well; it is gone.
+Keeping both meant category filters read one copy while the variant picker read
+the other, and the two were written by different code paths that disagreed
+about casing — so a filter for `colour: indigo` missed a product whose
+catalogue entry said `Colour: Indigo`.
+
+Consequences worth knowing:
+
+- **Every product has at least one variant**, including ones with nothing for
+  the shopper to choose between. Such a product gets a single variant carrying
+  its attributes and mirroring its SKU, price and stock. `hasVariants` stays
+  `false` for these — it means "offer a choice", not "has rows in this table" —
+  so the product page does not ask for a selection before allowing a purchase.
+- **The API still returns `product.attributes` on reads.** It is derived on
+  each request as the keys every variant agrees on, never stored. Sending it
+  back on a write is supported: `ProductsService.storeAttributesOnVariants`
+  folds it into the variants, beneath each variant's own keys.
+- **Keys and values are matched case-insensitively** everywhere — filtering,
+  the variant picker, the import sheet — because they are typed by hand.
+- Filter options for a category can be derived from what the catalogue actually
+  holds via `GET /categories/:id/filter-suggestions`.
 
 ### Service: ProductsService
 

@@ -46,9 +46,15 @@ export class AddressesService {
     return this.addressesRepository.save(address);
   }
 
+  /**
+   * Four sequential round trips (load, clear defaults, update, reload) is a
+   * visible pause on a hosted database. `save` on a loaded, mutated entity
+   * does the write and gives back the result in one, and the id/userId are
+   * already proven by the load.
+   */
   async update(id: string, userId: string, addressData: Partial<Address>): Promise<Address> {
     const address = await this.findOne(id, userId);
-    
+
     // If this is being set as default, unset other defaults
     if (addressData.isDefault && !address.isDefault) {
       await this.addressesRepository.update(
@@ -57,8 +63,11 @@ export class AddressesService {
       );
     }
 
-    await this.addressesRepository.update(id, addressData);
-    return this.findOne(id, userId);
+    // `id` and `userId` are not the caller's to change.
+    const { id: _id, userId: _userId, ...changes } = addressData;
+    Object.assign(address, changes);
+
+    return this.addressesRepository.save(address);
   }
 
   async remove(id: string, userId: string): Promise<void> {

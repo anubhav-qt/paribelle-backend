@@ -120,4 +120,15 @@ export class CategoriesController {
   async getFilters(@Param('id') id: string) {
     return this.categoriesService.getFilters(id);
   }
+
+  @Get(':id/filter-suggestions')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: "Filters derived from the attributes this category's variants carry (admin only)",
+  })
+  async getFilterSuggestions(@Param('id') id: string) {
+    return this.categoriesService.suggestFiltersFromCatalogue(id);
+  }
 }

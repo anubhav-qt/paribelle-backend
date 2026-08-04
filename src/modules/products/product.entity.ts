@@ -130,9 +130,20 @@ export class Product {
   @Column({ type: 'json', nullable: true })
   variants: any;
 
-  // Product attributes/metadata for filtering
+  /**
+   * Non-filterable extras that hang off a product — the `booking` and `tour`
+   * blocks the marketplace-era modules still read.
+   *
+   * Filterable attributes used to live here too, in an `attributes` column,
+   * alongside this metadata. They no longer do: a product's Size, Colour and
+   * Fabric are properties of the thing on the shelf, not of the catalogue
+   * entry, so they belong to `ProductVariant.variantAttributes` and nowhere
+   * else. Two homes for the same fact meant filters could disagree with what
+   * the variant picker offered — and did, because the two were written by
+   * different code paths with different casing.
+   */
   @Column({ type: 'jsonb', nullable: true })
-  attributes: Record<string, any>;
+  metadata: Record<string, any>;
 
   // Enhanced Variants Support
   @Column({ default: false, name: 'has_variants' })

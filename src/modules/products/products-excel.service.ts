@@ -328,6 +328,106 @@ export class ProductsExcelService {
     ];
   }
 
+  /**
+   * `"Colour: Red, Size: M"` → `{ Colour: 'Red', Size: 'M' }`.
+   *
+   * Keys and values keep the casing the shop typed. They used to be
+   * slugified on the way in, which made an export/import round trip lossy
+   * ("Chanderi" came back as "chanderi") and left the storefront showing
+   * lower-cased swatch labels. Matching is case-insensitive everywhere that
+   * reads these, so there is nothing to gain by flattening them here.
+   */
+  private parseAttributesCell(cell: string | undefined): Record<string, string> {
+    const parsed: Record<string, string> = {};
+    for (const pair of (cell || '').split(',')) {
+      const colon = pair.indexOf(':');
+      if (colon <= 0) continue;
+      const key = pair.slice(0, colon).trim();
+      const value = pair.slice(colon + 1).trim();
+      if (key && value) parsed[key] = value;
+    }
+    return parsed;
+  }
+
+  /**
+   * Write a product's sheet attributes onto its variants, which is where
+   * filtering reads them.
+   *
+   * A product with variants gets the keys folded in underneath each variant's
+   * own, so the Variants sheet's "Size: M" survives the Products sheet's
+   * "Fabric: Cotton". A product with none gets one variant mirroring its SKU,
+   * price and stock to hold them. Mirrors `ProductsService`; kept separate
+   * because the two services would otherwise depend on each other.
+   */
+  private async applyProductAttributes(
+    product: Product,
+    attributes: Record<string, string>,
+  ): Promise<void> {
+    if (Object.keys(attributes).length === 0) return;
+
+    const variants = await this.productVariantsRepository.find({
+      where: { productId: product.id },
+    });
+
+    if (variants.length > 0) {
+      for (const variant of variants) {
+        variant.variantAttributes = { ...attributes, ...(variant.variantAttributes || {}) };
+      }
+      await this.productVariantsRepository.save(variants);
+      return;
+    }
+
+    const skuTaken = await this.productVariantsRepository.findOne({
+      where: { sku: product.sku },
+    });
+
+    await this.productVariantsRepository.save(
+      this.productVariantsRepository.create({
+        productId: product.id,
+        sku: skuTaken
+          ? `${product.sku}-D${product.id.replace(/-/g, '').slice(0, 6)}`
+          : product.sku,
+        variantAttributes: attributes,
+        price: product.price,
+        compareAtPrice: product.compareAtPrice,
+        stockQuantity: product.stockQuantity ?? 0,
+        images: product.images,
+        isActive: true,
+      }),
+    );
+  }
+
+  /**
+   * The attributes every one of a product's variants agrees on.
+   *
+   * These are the product's own properties — a chanderi kurti is chanderi in
+   * every size — as opposed to the keys the variants differ by, which are the
+   * shopper's choice. The split exists only for the spreadsheet: in the
+   * database every attribute sits on a variant.
+   */
+  private sharedVariantAttributes(product: Product): Record<string, string> {
+    const variants = product.productVariants || [];
+    if (variants.length === 0) return {};
+
+    const [first, ...rest] = variants;
+    const shared: Record<string, string> = {};
+
+    for (const [key, value] of Object.entries(first.variantAttributes || {})) {
+      const asString = String(value);
+      if (rest.every((v) => String((v.variantAttributes || {})[key]) === asString)) {
+        shared[key] = asString;
+      }
+    }
+    return shared;
+  }
+
+  /** `{ Fabric: 'Cotton' }` → `"Fabric: Cotton"`, the sheet's format. */
+  private formatAttributes(attributes: Record<string, string>): string {
+    return Object.entries(attributes)
+      .map(([key, value]) => `${key}: ${value}`)
+      .join(', ');
+  }
+
   /** Export physical products as a simple ZIP.
    *  Pass productIds to export only selected products; omit for all. */
   async exportSimplePhysicalZip(vendorId: string | null, productIds?: string[]): Promise<Buffer> {
@@ -368,14 +468,10 @@ export class ProductsExcelService {
         ? product.productVariants.reduce((s, v) => s + (v.stockQuantity || 0), 0)
         : product.stockQuantity;
 
-      // Build attributes string (key: value, ...) excluding nested objects like booking/tour metadata
-      let attributesStr = '';
-      if (product.attributes) {
-        const attrEntries = Object.entries(product.attributes)
-          .filter(([, v]) => v !== null && v !== undefined && typeof v !== 'object')
-          .map(([k, v]) => `${k}: ${v}`);
-        attributesStr = attrEntries.join(', ');
-      }
+      // Attributes live on the variants now, so the product row carries the
+      // ones every variant agrees on ("Fabric: Chanderi") and the Variants
+      // sheet carries the ones they differ by ("Size: M").
+      const attributesStr = this.formatAttributes(this.sharedVariantAttributes(product));
 
       productSheet.addRow({
         productCode:    product.sku || '',
@@ -403,16 +499,21 @@ export class ProductsExcelService {
       this.styleHeaderRow(variantSheet, 'FF8E44AD');
 
       for (const { product, variant } of allVariants) {
+        // Only what makes this variant different from its siblings; the keys
+        // they share are already on the product row.
+        const shared = this.sharedVariantAttributes(product);
         const actualAttrs: Record<string, string> = {};
         if (variant.variantAttributes) {
           for (const [k, v] of Object.entries(variant.variantAttributes)) {
             const norm = k.toLowerCase().replace(/\s+/g, '');
-            if (!['stock', 'active', 'isactive', 'stockquantity', 'price', 'compareatprice', 'sku'].includes(norm)) {
-              actualAttrs[k] = String(v);
+            if (['stock', 'active', 'isactive', 'stockquantity', 'price', 'compareatprice', 'sku'].includes(norm)) {
+              continue;
             }
+            if (shared[k] === String(v)) continue;
+            actualAttrs[k] = String(v);
           }
         }
-        const attributesStr = Object.entries(actualAttrs).map(([k, v]) => `${k}: ${v}`).join(', ');
+        const attributesStr = this.formatAttributes(actualAttrs);
 
         variantSheet.addRow({
           productCode:    product.sku || '',
@@ -523,6 +624,13 @@ export class ProductsExcelService {
     // error rather than a silent overwrite.
     const seenRowKeys = new Map<string, number>();
 
+    // DB id → the Products sheet's attributes for that row. Applied only once
+    // the Variants sheet has been read: attributes are stored on variants, and
+    // writing them during the products pass would manufacture a placeholder
+    // variant for a product whose real sizes are three sheets-worth of rows
+    // away.
+    const pendingAttributes = new Map<string, Record<string, string>>();
+
     // ── Helper: build header→colIndex map ─────────────────────────────────────
     const buildHeaderMap = (sheet: ExcelJS.Worksheet): Map<string, number> => {
       const map = new Map<string, number>();
@@ -626,23 +734,8 @@ export class ProductsExcelService {
           }
         }
 
-        // Parse attributes column: "Color: Red, Size: M" → { color: "red", size: "m" }
-        const attributesCell = g('Attributes')?.trim() || '';
-        const parsedAttributes: Record<string, string> = {};
-        if (attributesCell) {
-          attributesCell.split(',').forEach(a => {
-            const colonIdx = a.indexOf(':');
-            if (colonIdx > 0) {
-              const k = a.substring(0, colonIdx).trim();
-              const v = a.substring(colonIdx + 1).trim();
-              if (k && v) {
-                const slugKey = k.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-                const slugVal = v.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-                parsedAttributes[slugKey] = slugVal;
-              }
-            }
-          });
-        }
+        // "Colour: Red, Size: M" → { Colour: 'Red', Size: 'M' }
+        const parsedAttributes = this.parseAttributesCell(g('Attributes'));
 
         // Track per-category attribute values for auto-adding to filter config
         if (category && Object.keys(parsedAttributes).length > 0) {
@@ -669,7 +762,6 @@ export class ProductsExcelService {
           gstRate,
           images: productImages.length > 0 ? productImages : null,
           featuredImage: productImages.length > 0 ? productImages[0] : null,
-          ...(Object.keys(parsedAttributes).length > 0 ? { attributes: parsedAttributes } : {}),
         };
 
         // Two rows resolving to the same product silently overwrite each other,
@@ -726,17 +818,14 @@ export class ProductsExcelService {
               existing.images = productImages;
               existing.featuredImage = productImages[0];
             }
-            // Merge attributes: preserve existing (e.g. booking/tour) and layer in new ones
-            if (Object.keys(parsedAttributes).length > 0) {
-              existing.attributes = { ...(existing.attributes || {}), ...parsedAttributes };
-            }
             if (category) {
               existing.categories = [category];
             }
             await this.productsRepository.save(existing);
+            pendingAttributes.set(existing.id, parsedAttributes);
             updated++;
             productCodeToId.set(rowKey, existing.id);
-            console.log(`[SimpleImport] Updated "${name}" (id: ${existing.id}), attributes: ${JSON.stringify(existing.attributes)}`);
+            console.log(`[SimpleImport] Updated "${name}" (id: ${existing.id}), attributes: ${JSON.stringify(parsedAttributes)}`);
           } else {
             errors.push(`Row ${rn}: Product "${name}" belongs to a different vendor`);
           }
@@ -752,6 +841,7 @@ export class ProductsExcelService {
 
           const savedRaw = await this.productsRepository.save(this.productsRepository.create(productData));
           const saved = Array.isArray(savedRaw) ? savedRaw[0] : savedRaw;
+          pendingAttributes.set(saved.id, parsedAttributes);
           created++;
           productCodeToId.set(rowKey, saved.id);
           console.log(`[SimpleImport] Created "${name}" (id: ${saved.id})`);
@@ -783,11 +873,16 @@ export class ProductsExcelService {
           }
 
           for (const val of values) {
-            const valueSlug = val.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-            const exists = existingFilter.options?.some((o: any) => o.value === valueSlug);
+            // The option's value is the attribute value itself, not a slug of
+            // it. Filtering matches an option against `variant_attributes`
+            // case-insensitively, and a slug does not survive that comparison:
+            // "Rose Gold" became "rose-gold", which matches nothing.
+            const exists = existingFilter.options?.some(
+              (o: any) => String(o.value).toLowerCase() === val.toLowerCase(),
+            );
             if (!exists) {
               if (!existingFilter.options) existingFilter.options = [];
-              existingFilter.options.push({ value: valueSlug, label: val });
+              existingFilter.options.push({ value: val, label: val });
               catUpdated = true;
               console.log(`[SimpleImport] Added option "${val}" to filter "${attrKey}" in category ${cat.name}`);
             }
@@ -858,15 +953,7 @@ export class ProductsExcelService {
           if (dryRun) continue;
 
           // Parse "Size: M, Color: Red" → { Size: 'M', Color: 'Red' }
-          const variantAttributes: Record<string, string> = {};
-          attributesStr.split(',').forEach(a => {
-            const colonIdx = a.indexOf(':');
-            if (colonIdx > 0) {
-              const k = a.substring(0, colonIdx).trim();
-              const v = a.substring(colonIdx + 1).trim();
-              if (k && v) variantAttributes[k] = v;
-            }
-          });
+          const variantAttributes = this.parseAttributesCell(attributesStr);
 
           const variantData: any = {
             productId,
@@ -898,6 +985,21 @@ export class ProductsExcelService {
         }
       }
 
+    }
+
+    // Now that every variant exists, put the Products sheet's attributes on
+    // them. Products with variants have the keys folded in beneath each
+    // variant's own; products with none get a single variant to carry them.
+    if (!dryRun) {
+      for (const [productId, attributes] of pendingAttributes) {
+        const product = await this.productsRepository.findOne({ where: { id: productId } });
+        if (!product) continue;
+        try {
+          await this.applyProductAttributes(product, attributes);
+        } catch (err) {
+          errors.push(`Attributes for "${product.name}": ${err.message}`);
+        }
+      }
     }
 
     // Roll up variant stocks to the parent product so it is never shown as sold out

@@ -121,7 +121,17 @@ async function bootstrap() {
         },
         credentials: true,
         methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-        allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+        // Every header the browser is allowed to send. A header missing from
+        // this list fails the preflight and the request never leaves the
+        // browser — it surfaces as a bare "Failed to fetch" with no status to
+        // report, which is exactly what checkout did once it started sending
+        // `Idempotency-Key`. Add the header here whenever a new one is sent.
+        allowedHeaders: [
+          'Content-Type',
+          'Authorization',
+          'Accept',
+          'Idempotency-Key',
+        ],
         exposedHeaders: ['Content-Length', 'Content-Type'],
     });
 

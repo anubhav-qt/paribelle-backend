@@ -1,6 +1,7 @@
 import { DataSource } from 'typeorm';
 import { Category } from '../modules/categories/category.entity';
 import { Product, ProductStatus, ProductType } from '../modules/products/product.entity';
+import { ProductVariant } from '../modules/products/product-variant.entity';
 import { Vendor, VendorStatus, KYCStatus } from '../modules/vendors/vendor.entity';
 import { User, UserRole, UserStatus } from '../modules/users/user.entity';
 import { Setting } from '../modules/homepage/settings.entity';
@@ -24,6 +25,7 @@ export async function seedData(dataSource: DataSource) {
   const vendorRepository = dataSource.getRepository(Vendor);
   const categoryRepository = dataSource.getRepository(Category);
   const productRepository = dataSource.getRepository(Product);
+  const variantRepository = dataSource.getRepository(ProductVariant);
 
   log('🌱 Seeding PariBelle...');
 
@@ -104,7 +106,12 @@ export async function seedData(dataSource: DataSource) {
     categories[seed.slug] = category;
   }
 
-  const productSeeds: Array<Partial<Product> & { categorySlug: string }> = [
+  // `attributes` here is not a product column — it is what the product's
+  // variant carries. Filterable properties live on `ProductVariant` and
+  // nowhere else, so each seeded product gets one variant holding them.
+  const productSeeds: Array<
+    Partial<Product> & { categorySlug: string; attributes: Record<string, string> }
+  > = [
     {
       categorySlug: 'kurtis',
       name: 'Chanderi Silk Anarkali Kurti',
@@ -195,11 +202,11 @@ export async function seedData(dataSource: DataSource) {
     },
   ];
 
-  for (const { categorySlug, ...seed } of productSeeds) {
+  for (const { categorySlug, attributes, ...seed } of productSeeds) {
     const existing = await productRepository.findOne({ where: { slug: seed.slug } });
     if (existing) continue;
 
-    await productRepository.save({
+    const product = (await productRepository.save({
       ...seed,
       vendorId: vendor.id,
       vendor,
@@ -209,7 +216,17 @@ export async function seedData(dataSource: DataSource) {
       priceType: 'mrp_with_gst',
       trackInventory: true,
       images: [],
-    } as Partial<Product>);
+    } as Partial<Product>)) as Product;
+
+    await variantRepository.save({
+      productId: product.id,
+      sku: product.sku,
+      variantAttributes: attributes,
+      price: product.price,
+      compareAtPrice: product.compareAtPrice ?? null,
+      stockQuantity: product.stockQuantity,
+      isActive: true,
+    } as Partial<ProductVariant>);
   }
   log(`✅ Products: ${productSeeds.length} seeded`);
 

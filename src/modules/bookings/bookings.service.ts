@@ -173,7 +173,7 @@ export class BookingsService {
       throw new Error('Product is not a booking type');
     }
 
-    const bookingMeta = product.attributes?.booking;
+    const bookingMeta = product.metadata?.booking;
     if (!bookingMeta) {
       return [];
     }
