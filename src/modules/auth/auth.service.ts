@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException, ServiceUnavailableException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -417,8 +417,18 @@ export class AuthService {
     user.emailVerificationTokenExpiry = verificationTokenExpiry;
     await this.usersRepository.save(user);
 
-    // Send verification email
-    await this.emailService.sendVerificationEmail(user.email, verificationToken);
+    // Send verification email. Unlike `register`, there is no account
+    // creation to protect here — if the email genuinely can't be sent, the
+    // caller needs to know, not receive a false "check your inbox". But the
+    // failure should read as "the mail provider is down", a 503, not an
+    // unhandled crash presenting as a generic 500 with no explanation.
+    try {
+      await this.emailService.sendVerificationEmail(user.email, verificationToken);
+    } catch (error) {
+      throw new ServiceUnavailableException(
+        'Could not send the verification email right now. Please try again in a few minutes.',
+      );
+    }
 
     return {
       message: 'Verification email sent successfully. Please check your inbox.',
