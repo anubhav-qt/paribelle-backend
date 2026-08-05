@@ -1,28 +1,89 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as nodemailer from 'nodemailer';
 
+interface EmailAttachment {
+  filename: string;
+  content: Buffer;
+  contentType?: string;
+}
+
+interface EmailOptions {
+  to: string;
+  subject: string;
+  html: string;
+  text?: string;
+  attachments?: EmailAttachment[];
+}
+
+/**
+ * Sends mail through Brevo's HTTP API rather than SMTP.
+ *
+ * Render's free tier blocks outbound connections to every SMTP port (25,
+ * 465, 587) as a platform-wide anti-spam measure — this is not something
+ * any SMTP host or credential fixes, since the block happens before the TCP
+ * handshake completes. It surfaces as a connection timeout at almost
+ * exactly the transport's own timeout value, which is what an SMTP-based
+ * version of this service hit in production. Brevo's API runs over plain
+ * HTTPS (port 443), which is not blocked.
+ */
 @Injectable()
 export class SimpleEmailService {
   private readonly logger = new Logger(SimpleEmailService.name);
-  private transporter: nodemailer.Transporter;
+  private static readonly BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
 
-  constructor(private configService: ConfigService) {
-    const port = parseInt(this.configService.get('SMTP_PORT') || '587');
-    const secure = this.configService.get('SMTP_SECURE') === 'true' || port === 465;
-    
-    this.transporter = nodemailer.createTransport({
-      host: this.configService.get('SMTP_HOST') || 'smtp.gmail.com',
-      port: port,
-      secure: secure, // true for 465, false for other ports
-      auth: {
-        user: this.configService.get('SMTP_USER'),
-        pass: this.configService.get('SMTP_PASSWORD'),
+  constructor(private configService: ConfigService) {}
+
+  /**
+   * The one place every method below actually sends mail. Takes the same
+   * shape nodemailer's `sendMail` did (`to`/`subject`/`html`/`text`/
+   * `attachments` with `Buffer` content) so none of the call sites below
+   * needed to change — only how the message leaves the server did.
+   */
+  private async sendEmail(options: EmailOptions): Promise<{ messageId: string }> {
+    const apiKey = this.configService.get<string>('BREVO_API_KEY');
+    if (!apiKey) {
+      throw new Error('BREVO_API_KEY is not configured');
+    }
+
+    const fromAddress = this.configService.get<string>('SMTP_FROM') || 'noreply@paribelle.in';
+    const appName = this.configService.get<string>('APP_NAME') || 'PariBelle';
+    // "Name <email@domain>" or a bare address — accept either, since that's
+    // what SMTP_FROM already held before this switch.
+    const fromMatch = fromAddress.match(/^(.*)<(.+)>$/);
+    const sender = fromMatch
+      ? { name: fromMatch[1].trim().replace(/^"|"$/g, ''), email: fromMatch[2].trim() }
+      : { name: appName, email: fromAddress.trim() };
+
+    const body: Record<string, unknown> = {
+      sender,
+      to: [{ email: options.to }],
+      subject: options.subject,
+      htmlContent: options.html,
+    };
+    if (options.text) body.textContent = options.text;
+    if (options.attachments?.length) {
+      body.attachment = options.attachments.map((a) => ({
+        name: a.filename,
+        content: a.content.toString('base64'),
+      }));
+    }
+
+    const response = await fetch(SimpleEmailService.BREVO_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        'api-key': apiKey,
       },
-      connectionTimeout: 10000, // 10 seconds timeout
-      greetingTimeout: 10000,
-      socketTimeout: 10000,
+      body: JSON.stringify(body),
     });
+
+    if (!response.ok) {
+      const errorBody = await response.text().catch(() => '');
+      throw new Error(`Brevo API error (${response.status}): ${errorBody || response.statusText}`);
+    }
+
+    return response.json();
   }
 
   async sendVerificationEmail(email: string, token: string) {
@@ -31,11 +92,10 @@ export class SimpleEmailService {
     const verificationLink = `${appUrl}/verify-email?token=${token}`;
 
     this.logger.log(`Attempting to send verification email to: ${email}`);
-    this.logger.log(`SMTP Config - Host: ${this.configService.get('SMTP_HOST')}, Port: ${this.configService.get('SMTP_PORT')}, From: ${this.configService.get('SMTP_FROM')}`);
+    this.logger.log(`Brevo API key present: ${!!this.configService.get('BREVO_API_KEY')}, From: ${this.configService.get('SMTP_FROM')}`);
 
     try {
-      const info = await this.transporter.sendMail({
-        from: this.configService.get('SMTP_FROM') || this.configService.get('SMTP_USER'),
+      const info = await this.sendEmail({
         to: email,
         subject: `Verify Your Email - ${appName}`,
         html: `
@@ -175,17 +235,9 @@ If you didn't create an account with ${appName}, you can safely ignore this emai
       });
 
       this.logger.log(`✅ Email sent successfully! Message ID: ${info.messageId}`);
-      this.logger.log(`Response: ${JSON.stringify(info.response)}`);
-      this.logger.log(`Accepted: ${info.accepted}, Rejected: ${info.rejected}`);
       return true;
     } catch (error) {
       this.logger.error(`❌ Failed to send verification email to ${email}:`, error.message);
-      if (error.response) {
-        this.logger.error(`SMTP Response: ${error.response}`);
-      }
-      if (error.responseCode) {
-        this.logger.error(`Response Code: ${error.responseCode}`);
-      }
       throw new Error('Failed to send verification email');
     }
   }
@@ -196,8 +248,7 @@ If you didn't create an account with ${appName}, you can safely ignore this emai
     const reviewLink = `${appUrl}/orders/${orderId}`;
 
     try {
-      await this.transporter.sendMail({
-        from: this.configService.get('SMTP_FROM') || this.configService.get('SMTP_USER'),
+      await this.sendEmail({
         to: email,
         subject: `Your Order #${orderNumber} Has Been Delivered! - ${appName}`,
         html: `
@@ -395,8 +446,7 @@ Thank you for shopping with us!
     const appName = this.configService.get('APP_NAME') || 'PariBelle';
     
     try {
-      await this.transporter.sendMail({
-        from: this.configService.get('SMTP_FROM') || this.configService.get('SMTP_USER'),
+      await this.sendEmail({
         to: email,
         subject: `Order Confirmed #${orderNumber} - ${appName}`,
         html: `
@@ -421,8 +471,7 @@ Thank you for shopping with us!
     const appName = this.configService.get('APP_NAME') || 'PariBelle';
     
     try {
-      await this.transporter.sendMail({
-        from: this.configService.get('SMTP_FROM') || this.configService.get('SMTP_USER'),
+      await this.sendEmail({
         to: email,
         subject: `Order Shipped #${orderNumber} - ${appName}`,
         html: `
@@ -447,8 +496,7 @@ Thank you for shopping with us!
     const appName = this.configService.get('APP_NAME') || 'PariBelle';
     
     try {
-      await this.transporter.sendMail({
-        from: this.configService.get('SMTP_FROM') || this.configService.get('SMTP_USER'),
+      await this.sendEmail({
         to: email,
         subject: `Order Cancelled #${orderNumber} - ${appName}`,
         html: `
@@ -501,8 +549,7 @@ Thank you for shopping with us!
 
       const invoiceTypeLabel = this.getInvoiceTypeLabel(invoice.type);
 
-      await this.transporter.sendMail({
-        from: this.configService.get('SMTP_FROM') || this.configService.get('SMTP_USER'),
+      await this.sendEmail({
         to: email,
         subject,
         html: `
@@ -681,8 +728,7 @@ Thank you for shopping with us!
     const resetLink = `${appUrl}/reset-password?token=${token}`;
 
     try {
-      await this.transporter.sendMail({
-        from: this.configService.get('SMTP_FROM') || this.configService.get('SMTP_USER'),
+      await this.sendEmail({
         to: email,
         subject: `Reset Your Password - ${appName}`,
         html: `
@@ -847,8 +893,7 @@ Thank you for shopping with us!
     });
 
     try {
-      await this.transporter.sendMail({
-        from: this.configService.get('SMTP_FROM') || this.configService.get('SMTP_USER'),
+      await this.sendEmail({
         to: email,
         subject: `Return Approved - Order #${orderNumber}`,
         html: `
@@ -1038,8 +1083,7 @@ Thank you for shopping with us!
     const dashboardLink = `${appUrl}/vendor/dashboard`;
 
     try {
-      await this.transporter.sendMail({
-        from: this.configService.get('SMTP_FROM') || this.configService.get('SMTP_USER'),
+      await this.sendEmail({
         to: email,
         subject: `Welcome to ${appName} - Vendor Registration Received`,
         html: `
@@ -1272,8 +1316,7 @@ Need help getting started? Check out our vendor documentation or contact our sup
     this.logger.log(`Sending KYC documents to admin: ${adminEmail} for vendor: ${vendor.storeName}`);
 
     try {
-      await this.transporter.sendMail({
-        from: this.configService.get('SMTP_FROM') || this.configService.get('SMTP_USER'),
+      await this.sendEmail({
         to: adminEmail,
         subject: `🔔 New KYC Submission - ${vendor.businessName || vendor.storeName}`,
         attachments,

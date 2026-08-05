@@ -297,7 +297,7 @@ export class KYCService {
       console.log(`[KYC] ===== Starting emailDocumentsToAdmin =====`);
       console.log(`[KYC] Vendor: ${vendor.businessName || vendor.storeName}`);
       console.log(`[KYC] Documents count: ${documents.length}`);
-      console.log(`[KYC] SMTP_HOST: ${this.configService.get('SMTP_HOST')}`);
+      console.log(`[KYC] Brevo API key present: ${!!this.configService.get('BREVO_API_KEY')}`);
       console.log(`[KYC] ADMIN_EMAIL: ${this.configService.get('ADMIN_EMAIL')}`);
       console.log(`[KYC] SMTP_FROM: ${this.configService.get('SMTP_FROM')}`);
       console.log(`[KYC] FRONTEND_URL: ${this.configService.get('FRONTEND_URL')}`);
