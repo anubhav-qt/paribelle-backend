@@ -143,11 +143,19 @@ export class OrdersService {
             );
           }
 
+          // The raw SQL fragments below must name the *column*
+          // (`stock_quantity`), not the entity property (`stockQuantity`).
+          // TypeORM only rewrites identifiers it parses itself; inside a raw
+          // `.set(() => '...')` or a raw `.where('...')` string it has no idea
+          // the token is a property name and passes it straight to Postgres,
+          // which has no such column and throws `column "stockQuantity" does
+          // not exist`. That crash took down every order on every payment
+          // method, since stock reservation runs before payment.
           const reserved = await manager
             .createQueryBuilder()
             .update(ProductVariant)
-            .set({ stockQuantity: () => `"stockQuantity" - ${item.quantity}` })
-            .where('id = :id AND "stockQuantity" >= :quantity', {
+            .set({ stockQuantity: () => `"stock_quantity" - ${item.quantity}` })
+            .where('id = :id AND "stock_quantity" >= :quantity', {
               id: item.variantId,
               quantity: item.quantity,
             })
@@ -170,8 +178,8 @@ export class OrdersService {
           const reserved = await manager
             .createQueryBuilder()
             .update(Product)
-            .set({ stockQuantity: () => `"stockQuantity" - ${item.quantity}` })
-            .where('id = :id AND "stockQuantity" >= :quantity', {
+            .set({ stockQuantity: () => `"stock_quantity" - ${item.quantity}` })
+            .where('id = :id AND "stock_quantity" >= :quantity', {
               id: product.id,
               quantity: item.quantity,
             })
