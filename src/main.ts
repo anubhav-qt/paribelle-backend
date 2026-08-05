@@ -33,7 +33,13 @@ async function bootstrap() {
   
   try {
     process.stdout.write('🔵 Creating NestJS application...\n');
-    const app = await NestFactory.create<NestExpressApplication>(AppModule);
+    // `rawBody: true` keeps the exact request bytes alongside the parsed
+    // body (as `req.rawBody`), for the Razorpay webhook signature check.
+    // Razorpay signs the raw bytes it sent, not a re-serialization of the
+    // parsed JSON — verifying against `JSON.stringify(body)` produces a
+    // different digest (whitespace and key order differ) and rejects every
+    // real webhook. See PaymentsController.handleWebhook.
+    const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
     process.stdout.write('✅ NestJS application created\n');
 
   // Get MonitoringService for the logging interceptor

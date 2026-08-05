@@ -29,10 +29,22 @@ export class PaymentsService {
     }
   }
 
-  async createRazorpayOrder(orderId: string, amount: number, currency: string = 'INR') {
+  /**
+   * The amount charged is the order's own `total`, fetched server-side —
+   * never a figure the client supplies. `OrdersService.findOne(orderId,
+   * userId)` scopes the lookup to the caller and throws `NotFoundException`
+   * for anyone else's order, which doubles as the ownership check. `total`
+   * already reflects any wallet credit applied at checkout (it is
+   * `OrdersService.create`'s post-wallet figure, not subtotal+tax+shipping),
+   * so this is exactly what the customer still owes.
+   */
+  async createRazorpayOrder(orderId: string, userId: string, currency: string = 'INR') {
     if (!this.razorpay) {
       throw new BadRequestException('Razorpay is not configured');
     }
+
+    const order = await this.ordersService.findOne(orderId, userId);
+    const amount = Number(order.total);
 
     try {
       const options = {
@@ -197,7 +209,15 @@ export class PaymentsService {
     }
   }
 
-  async handleWebhook(body: any, signature: string) {
+  /**
+   * `rawBody` must be the exact bytes Razorpay sent — Buffer, not a
+   * re-serialization of `body`. Razorpay's HMAC is computed over the literal
+   * request bytes; JSON.stringify(body) can differ in whitespace and key
+   * order from what was actually sent, which produces a different digest and
+   * rejects every genuine webhook. `body` is still needed for the parsed
+   * `event`/`payload` fields the handlers below read.
+   */
+  async handleWebhook(body: any, rawBody: Buffer, signature: string) {
     const webhookSecret = this.configService.get<string>('RAZORPAY_WEBHOOK_SECRET');
 
     if (!webhookSecret) {
@@ -205,10 +225,9 @@ export class PaymentsService {
       return { received: true };
     }
 
-    // Verify webhook signature
     const expectedSignature = crypto
       .createHmac('sha256', webhookSecret)
-      .update(JSON.stringify(body))
+      .update(rawBody)
       .digest('hex');
 
     if (expectedSignature !== signature) {
