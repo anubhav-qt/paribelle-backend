@@ -5,12 +5,15 @@ import { Order, OrderStatus, PaymentStatus } from './order.entity';
 import { OrderItem } from './order-item.entity';
 import { Product } from '../products/product.entity';
 import { ProductVariant } from '../products/product-variant.entity';
-import { User } from '../users/user.entity';
+import { User, UserRole } from '../users/user.entity';
 import { SimpleEmailService } from '../simple-email/simple-email.service';
 import { MarketplaceGateway } from '../stock/stock.gateway';
 import { InvoicesService } from '../invoices/invoices.service';
 import { InvoicePdfService } from '../invoices/invoice-pdf.service';
 import { PlatformSettingsService } from '../platform/platform-settings.service';
+import { SettingsService } from '../admin/settings.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationType } from '../notifications/notification.entity';
 import { Response } from 'express';
 
 @Injectable()
@@ -33,8 +36,23 @@ export class OrdersService {
     @Inject(forwardRef(() => InvoicePdfService))
     private invoicePdfService: InvoicePdfService,
     private platformSettingsService: PlatformSettingsService,
+    private settingsService: SettingsService,
+    private notificationsService: NotificationsService,
     private dataSource: DataSource,
   ) {}
+
+  /**
+   * The admin "Currency & Commission" setting is the one place a store owner
+   * actually edits this rate — it used to be written and never read, while a
+   * hardcoded `10` ran on every order regardless. Defaults to 0, not 10: an
+   * unset rate should mean no commission, not silently reinstate the old
+   * platform cut.
+   */
+  private async getPlatformCommissionRate(): Promise<number> {
+    const raw = await this.settingsService.getSetting('platform_commission_rate');
+    const rate = Number(raw);
+    return Number.isFinite(rate) ? rate : 0;
+  }
 
   async create(userId: string, createOrderDto: any, idempotencyKey?: string) {
     const { items, shippingAddress, billingAddress, paymentMethod, subtotal, shippingCost, tax, totalAmount, useWalletBalance } = createOrderDto;
@@ -131,6 +149,13 @@ export class OrdersService {
           throw new NotFoundException(`Product ${item.productId} not found`);
         }
 
+        // Popularity sort reads this — see Task 4. Counted for every order
+        // regardless of inventory tracking, since "popular" means "people
+        // bought it", not "we track its stock". Same transaction as the stock
+        // reservation below, so a rolled-back order (insufficient stock)
+        // cannot inflate it.
+        await manager.increment(Product, { id: product.id }, 'salesCount', item.quantity);
+
         // Only track stock for products with inventory tracking enabled
         if (!product.trackInventory) continue;
 
@@ -226,6 +251,12 @@ export class OrdersService {
 
     console.log(`Creating orders for ${itemsByVendor.size} vendor(s)`);
 
+    // Read once for every vendor order in this checkout, not per vendor — the
+    // rate does not vary between the orders one checkout produces. Falls back
+    // to 0, not the old hardcoded 10, so an unset setting charges no commission
+    // rather than silently defaulting to the platform's old cut.
+    const platformCommissionRate = await this.getPlatformCommissionRate();
+
     // Create separate orders for each vendor
     const createdOrders: Order[] = [];
 
@@ -278,7 +309,7 @@ export class OrdersService {
       const vendorTotal = Number((vendorSubtotal + vendorShippingCost + vendorTax).toFixed(2));
 
       // Calculate commission on subtotal + tax (excluding shipping)
-      const commissionRate = 10;
+      const commissionRate = platformCommissionRate;
       const commissionBase = vendorSubtotal + vendorTax; // Base for commission calculation
       const commissionAmount = Number((commissionBase * commissionRate / 100).toFixed(2));
       const vendorPayout = Number((commissionBase - commissionAmount + vendorShippingCost).toFixed(2));
@@ -408,6 +439,24 @@ export class OrdersService {
       relations: ['items', 'items.product', 'vendor', 'user'],
     });
 
+    // Notify the customer their order was received, and admins that a new
+    // order needs attention. Never lets a notification failure fail the order.
+    for (const order of ordersWithDetails) {
+      this.notificationsService
+        .notifyUser(order.userId, NotificationType.ORDER_PLACED, `Order #${order.orderNumber} received`, {
+          body: 'Awaiting confirmation.',
+          link: '/orders',
+          orderId: order.id,
+        })
+        .catch((err) => console.error('Failed to notify customer of new order:', err));
+      this.notificationsService
+        .notifyAdmins(NotificationType.ORDER_PLACED, `New order #${order.orderNumber} — ₹${order.total}`, {
+          link: '/admin/orders',
+          orderId: order.id,
+        })
+        .catch((err) => console.error('Failed to notify admins of new order:', err));
+    }
+
     // Auto-generate invoices for orders that are already paid
     for (const order of ordersWithDetails) {
       if (order.paymentStatus === PaymentStatus.PAID) {
@@ -436,15 +485,18 @@ export class OrdersService {
             console.log(`Vendor invoice generated for order ${order.orderNumber}`);
           }
           
-          // Check if platform invoice already exists
-          const existingPlatformInvoice = await this.invoicesService.findByOrderAndType(order.id, 'platform');
-          if (!existingPlatformInvoice) {
-            await this.invoicesService.createFromOrder({
-              orderId: order.id,
-              type: 'platform' as any,
-              notes: `Platform commission for order ${order.orderNumber}`,
-            });
-            console.log(`Platform invoice generated for order ${order.orderNumber}`);
+          // A commission-free order has nothing for a platform invoice to
+          // state — skip it rather than generating a ₹0 document per order.
+          if (Number(order.commissionAmount) > 0) {
+            const existingPlatformInvoice = await this.invoicesService.findByOrderAndType(order.id, 'platform');
+            if (!existingPlatformInvoice) {
+              await this.invoicesService.createFromOrder({
+                orderId: order.id,
+                type: 'platform' as any,
+                notes: `Platform commission for order ${order.orderNumber}`,
+              });
+              console.log(`Platform invoice generated for order ${order.orderNumber}`);
+            }
           }
         } catch (error) {
           console.error(`Failed to generate invoices for order ${order.orderNumber}:`, error);
@@ -462,6 +514,7 @@ export class OrdersService {
       relations: ['items', 'items.product', 'items.product.vendor', 'vendor', 'invoices'],
       order: { createdAt: 'DESC' },
     });
+    const exchangeWindowDays = await this.getExchangeWindowDays();
 
     // Fetch returns for all order items
     const orderIds = orders.map(o => o.id);
@@ -519,7 +572,7 @@ export class OrdersService {
 
     // Transform orders to include shippingAddress as object and returns
     return orders.map(order => {
-      const transformed = this.transformOrder(order);
+      const transformed = this.transformOrder(order, exchangeWindowDays);
       return {
         ...transformed,
         returns: returnsByOrder[order.id] || []
@@ -533,8 +586,9 @@ export class OrdersService {
       relations: ['items', 'items.product', 'items.product.vendor', 'vendor'],
       order: { createdAt: 'DESC' },
     });
+    const exchangeWindowDays = await this.getExchangeWindowDays();
 
-    return orders.map(order => this.transformOrder(order));
+    return orders.map(order => this.transformOrder(order, exchangeWindowDays));
   }
 
   async findByVendorId(vendorId: string) {
@@ -559,6 +613,7 @@ export class OrdersService {
     }
 
     const orders = Array.from(ordersMap.values());
+    const exchangeWindowDays = await this.getExchangeWindowDays();
 
     // Fetch returns data for all orders
     const orderIds = orders.map(o => o.id);
@@ -611,7 +666,7 @@ export class OrdersService {
 
     // Transform orders to include returns
     return orders.map(order => {
-      const transformed = this.transformOrder(order);
+      const transformed = this.transformOrder(order, exchangeWindowDays);
       return {
         ...transformed,
         returns: returnsByOrder[order.id] || []
@@ -619,11 +674,31 @@ export class OrdersService {
     });
   }
 
+  /**
+   * The admin dashboard's "Orders Today" tile used to fetch `GET /orders`,
+   * which for an admin returns *that admin's own* orders (`findAll(userId)`
+   * below), then filtered by date client-side — so it was always counting a
+   * near-empty set rather than the store's real order volume. One count query
+   * over every order, not the caller's own.
+   */
+  async getAdminStats(): Promise<{ ordersToday: number }> {
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+
+    const ordersToday = await this.orderRepository
+      .createQueryBuilder('order')
+      .where('order.createdAt >= :startOfDay', { startOfDay })
+      .getCount();
+
+    return { ordersToday };
+  }
+
   async findAllForAdmin() {
     const orders = await this.orderRepository.find({
       relations: ['items', 'items.product', 'vendor', 'user', 'invoices'],
       order: { createdAt: 'DESC' },
     });
+    const exchangeWindowDays = await this.getExchangeWindowDays();
 
     // Fetch returns data for all orders
     const orderIds = orders.map(o => o.id);
@@ -676,7 +751,7 @@ export class OrdersService {
 
     // Transform orders to include returns
     return orders.map(order => {
-      const transformed = this.transformOrder(order);
+      const transformed = this.transformOrder(order, exchangeWindowDays);
       return {
         ...transformed,
         returns: returnsByOrder[order.id] || []
@@ -694,18 +769,48 @@ export class OrdersService {
       throw new NotFoundException('Order not found');
     }
 
-    return this.transformOrder(order);
+    const exchangeWindowDays = await this.getExchangeWindowDays();
+    return this.transformOrder(order, exchangeWindowDays);
   }
 
-  private transformOrder(order: Order) {
+  /**
+   * `platform_commission_rate`'s sibling for the exchange window — see
+   * `getPlatformCommissionRate` above. Duplicated (rather than shared with
+   * `ExchangesService`) to avoid a circular module dependency for a
+   * three-line settings lookup.
+   */
+  private async getExchangeWindowDays(): Promise<number> {
+    const raw = await this.settingsService.getSetting('exchange_window_days');
+    const days = Number(raw);
+    return Number.isFinite(days) && days > 0 ? days : 7;
+  }
+
+  private transformOrder(order: Order, exchangeWindowDays: number) {
     // Find customer invoice if available
     const customerInvoice = order.invoices?.find(inv => inv.type === 'customer');
-    
+
     // Get return policy from the first product's vendor (assuming single-vendor orders)
     const vendor = order.items?.[0]?.product?.vendor;
     const returnPolicyDays = vendor?.returnPolicyDays ?? 7;
     const allowReturns = vendor?.allowReturns ?? true;
-    
+
+    // Computed server-side so the client never re-implements the cancellation
+    // and exchange policy — a rule duplicated in two places drifts. See Task 8.
+    const canCancel =
+      order.paymentStatus === PaymentStatus.PENDING &&
+      (order.status === OrderStatus.PENDING ||
+        order.status === OrderStatus.CONFIRMED ||
+        order.status === OrderStatus.PROCESSING);
+
+    let canExchange = false;
+    let exchangeWindowExpiresAt: string | null = null;
+    if (order.status === OrderStatus.DELIVERED && order.paymentStatus === PaymentStatus.PAID && order.deliveredAt) {
+      const deliveredAt = new Date(order.deliveredAt);
+      const expiresAt = new Date(deliveredAt.getTime() + exchangeWindowDays * 24 * 60 * 60 * 1000);
+      exchangeWindowExpiresAt = expiresAt.toISOString();
+      canExchange = Date.now() <= expiresAt.getTime();
+    }
+
     return {
       ...order,
       shippingAddress: {
@@ -733,6 +838,9 @@ export class OrdersService {
         returnPolicyDays,
         vendorName: vendor?.storeName || vendor?.businessName,
       },
+      canCancel,
+      canExchange,
+      exchangeWindowExpiresAt,
     };
   }
 
@@ -750,6 +858,21 @@ export class OrdersService {
     }
 
     const previousStatus = order.status;
+
+    // Admin rejection is only meaningful before the order has shipped — see
+    // the fulfilment rules in Task 8. Once it is in transit or delivered, the
+    // exchange flow is the only path back, not cancellation.
+    if (
+      status === OrderStatus.CANCELLED &&
+      previousStatus !== OrderStatus.PENDING &&
+      previousStatus !== OrderStatus.CONFIRMED
+    ) {
+      throw new BadRequestException(
+        `Cannot cancel an order that is already ${previousStatus}. ` +
+        'Once shipped, only an exchange is available after delivery.',
+      );
+    }
+
     order.status = status;
 
     if (status === OrderStatus.CONFIRMED) {
@@ -764,6 +887,11 @@ export class OrdersService {
           console.error('Failed to send order confirmation email:', error);
         });
       }
+      this.notificationsService
+        .notifyUser(order.userId, NotificationType.ORDER_CONFIRMED, `Order #${order.orderNumber} confirmed`, {
+          link: '/orders', orderId: order.id,
+        })
+        .catch((err) => console.error('Failed to notify customer of confirmation:', err));
     } else if (status === OrderStatus.SHIPPED) {
       order.shippedAt = new Date();
       // Send shipping notification email
@@ -776,9 +904,15 @@ export class OrdersService {
           console.error('Failed to send order shipped email:', error);
         });
       }
+      this.notificationsService
+        .notifyUser(order.userId, NotificationType.ORDER_SHIPPED, `Order #${order.orderNumber} shipped`, {
+          body: order.trackingNumber ? `Tracking: ${order.trackingNumber}` : undefined,
+          link: '/orders', orderId: order.id,
+        })
+        .catch((err) => console.error('Failed to notify customer of shipping:', err));
     } else if (status === OrderStatus.DELIVERED) {
       order.deliveredAt = new Date();
-      
+
       // Send delivery notification and review request email
       if (order.user && order.user.email) {
         console.log(`[updateStatus] Triggering delivery email for order ${order.orderNumber}`);
@@ -791,7 +925,12 @@ export class OrdersService {
           console.error('Failed to send order delivered email:', error);
         });
       }
-      
+      this.notificationsService
+        .notifyUser(order.userId, NotificationType.ORDER_DELIVERED, `Order #${order.orderNumber} delivered`, {
+          link: '/orders', orderId: order.id,
+        })
+        .catch((err) => console.error('Failed to notify customer of delivery:', err));
+
       // Auto-generate vendor invoice when order is delivered
       if (order.paymentStatus === PaymentStatus.PAID) {
         try {
@@ -830,7 +969,11 @@ export class OrdersService {
           } else {
             await this.productRepository.increment({ id: item.productId }, 'stockQuantity', item.quantity);
           }
-          
+          // A cancelled sale never happened — undo the popularity credit given
+          // when the order was placed, or a wave of cancellations would
+          // permanently promote a product that no one actually kept.
+          await this.productRepository.decrement({ id: item.productId }, 'salesCount', item.quantity);
+
           // Broadcast updated product stock via WebSocket
           const product = await this.productRepository.findOne({ where: { id: item.productId } });
           if (product) {
@@ -839,7 +982,7 @@ export class OrdersService {
           }
         }
       }
-      
+
       // Send cancellation email
       if (order.user && order.user.email) {
         this.simpleEmailService.sendOrderCancelledEmail(
@@ -850,6 +993,11 @@ export class OrdersService {
           console.error('Failed to send order cancelled email:', error);
         });
       }
+      this.notificationsService
+        .notifyUser(order.userId, NotificationType.ORDER_REJECTED, `Order #${order.orderNumber} could not be accepted`, {
+          link: '/orders', orderId: order.id,
+        })
+        .catch((err) => console.error('Failed to notify customer of rejection:', err));
 
       // A paid order that is cancelled owes the customer money. Park it in
       // REFUND_PENDING — the same state `cancel()` uses — so it is visible as
@@ -894,9 +1042,20 @@ export class OrdersService {
     const previousStatus = order.paymentStatus;
     order.paymentStatus = paymentStatus as PaymentStatus;
     const savedOrder = await this.orderRepository.save(order);
-    
+
     // Auto-generate customer and platform invoices when payment is completed
     if (paymentStatus === PaymentStatus.PAID && previousStatus !== PaymentStatus.PAID) {
+      this.notificationsService
+        .notifyUser(order.userId, NotificationType.PAYMENT_RECEIVED, 'Payment received — invoice ready', {
+          link: '/orders', orderId: order.id,
+        })
+        .catch((err) => console.error('Failed to notify customer of payment:', err));
+      this.notificationsService
+        .notifyAdmins(NotificationType.PAYMENT_RECEIVED, `Payment received for order #${order.orderNumber}`, {
+          link: '/admin/orders', orderId: order.id,
+        })
+        .catch((err) => console.error('Failed to notify admins of payment:', err));
+
       try {
         console.log(`Payment completed for order ${order.orderNumber}. Generating invoices...`);
         
@@ -926,17 +1085,19 @@ export class OrdersService {
           console.log(`Vendor invoice already exists for order ${order.orderNumber}`);
         }
         
-        // Check if platform invoice already exists
-        const existingPlatformInvoice = await this.invoicesService.findByOrderAndType(order.id, 'platform');
-        if (!existingPlatformInvoice) {
-          await this.invoicesService.createFromOrder({
-            orderId: order.id,
-            type: 'platform' as any,
-            notes: `Platform commission for order ${order.orderNumber}`,
-          });
-          console.log(`Platform invoice generated for order ${order.orderNumber}`);
-        } else {
-          console.log(`Platform invoice already exists for order ${order.orderNumber}`);
+        // A commission-free order has nothing for a platform invoice to state.
+        if (Number(order.commissionAmount) > 0) {
+          const existingPlatformInvoice = await this.invoicesService.findByOrderAndType(order.id, 'platform');
+          if (!existingPlatformInvoice) {
+            await this.invoicesService.createFromOrder({
+              orderId: order.id,
+              type: 'platform' as any,
+              notes: `Platform commission for order ${order.orderNumber}`,
+            });
+            console.log(`Platform invoice generated for order ${order.orderNumber}`);
+          } else {
+            console.log(`Platform invoice already exists for order ${order.orderNumber}`);
+          }
         }
       } catch (error) {
         console.error(`Failed to generate invoices for order ${order.orderNumber}:`, error);
@@ -957,8 +1118,21 @@ export class OrdersService {
       throw new NotFoundException('Order not found');
     }
 
+    // Cancellation is only available up to (not including) SHIPPED, and only
+    // while the order is unpaid — decided in the plan. A prepaid order that
+    // has already been charged, or a COD order already in transit, is past
+    // the point the store will cancel for a refund; a delivered, paid order
+    // exchanges instead, it does not cancel.
     if (order.status !== OrderStatus.PENDING && order.status !== OrderStatus.CONFIRMED && order.status !== OrderStatus.PROCESSING) {
-      throw new BadRequestException('Order cannot be cancelled at this stage');
+      throw new BadRequestException(
+        'This order can no longer be cancelled — it has already shipped. ' +
+        'Once delivered, a wrong or unwanted item can be exchanged instead.',
+      );
+    }
+    if (order.paymentStatus === PaymentStatus.PAID) {
+      throw new BadRequestException(
+        'Paid orders cannot be cancelled. Once delivered, a wrong or unwanted item can be exchanged instead.',
+      );
     }
 
     // Restore stock quantities
@@ -973,7 +1147,9 @@ export class OrdersService {
       } else {
         await this.productRepository.increment({ id: item.productId }, 'stockQuantity', item.quantity);
       }
-      
+      // See Task 4: a cancelled sale should not keep counting toward popularity.
+      await this.productRepository.decrement({ id: item.productId }, 'salesCount', item.quantity);
+
       // Broadcast updated product stock via WebSocket
       const product = await this.productRepository.findOne({ where: { id: item.productId } });
       if (product) {
@@ -988,21 +1164,11 @@ export class OrdersService {
       order.customerNotes = (order.customerNotes || '') + `\nCancellation reason: ${reason}`;
     }
 
-    // If order was paid, mark a refund as owed and create the credit note. The
-    // status stays REFUND_PENDING until Razorpay confirms via the
-    // `refund.processed` webhook — see PaymentsService.
-    if (order.paymentStatus === PaymentStatus.PAID) {
-      order.paymentStatus = PaymentStatus.REFUND_PENDING;
-      order.adminNotes = (order.adminNotes || '') +
-        `\nRefund owed (order cancelled) at ${new Date().toISOString()}`;
-
-      try {
-        console.log(`[cancel] Creating credit note for cancelled order ${order.orderNumber}`);
-        await this.invoicesService.createCreditNote(order.id, reason || 'Order cancelled by customer');
-      } catch (error) {
-        console.error('Failed to create credit note for cancelled order:', error);
-      }
-    }
+    // No refund-owed branch here: `cancel` now rejects any order whose
+    // payment_status is PAID before reaching this point (see the guard
+    // above), so a customer cancellation can never owe a refund. The only
+    // path that still can is an admin rejecting an already-paid order via
+    // `updateStatus` — see its CANCELLED branch.
 
     // Send cancellation email
     if (order.user && order.user.email) {
@@ -1017,6 +1183,12 @@ export class OrdersService {
 
     // Emit order status update via WebSocket
     this.marketplaceGateway.emitOrderStatusUpdate(order.id, OrderStatus.CANCELLED, order.userId);
+
+    this.notificationsService
+      .notifyAdmins(NotificationType.ORDER_CANCELLED, `Customer cancelled order #${order.orderNumber}`, {
+        link: '/admin/orders', orderId: order.id,
+      })
+      .catch((err) => console.error('Failed to notify admins of customer cancellation:', err));
 
     return this.orderRepository.save(order);
   }
@@ -1091,6 +1263,8 @@ export class OrdersService {
       } else {
         await this.productRepository.increment({ id: item.productId }, 'stockQuantity', item.quantity);
       }
+      // See Task 4: a payment that never completed should not count as a sale.
+      await this.productRepository.decrement({ id: item.productId }, 'salesCount', item.quantity);
 
       const product = await this.productRepository.findOne({ where: { id: item.productId } });
       if (product) {
@@ -1108,6 +1282,14 @@ export class OrdersService {
     const saved = await this.orderRepository.save(order);
     this.marketplaceGateway.emitOrderStatusUpdate(order.id, OrderStatus.CANCELLED, order.userId);
     console.log(`[markPaymentFailed] Cancelled ${order.orderNumber} and released its stock`);
+
+    this.notificationsService
+      .notifyUser(order.userId, NotificationType.PAYMENT_FAILED, `Payment failed for order #${order.orderNumber}`, {
+        body: 'The order was released.',
+        link: '/orders', orderId: order.id,
+      })
+      .catch((err) => console.error('Failed to notify customer of payment failure:', err));
+
     return saved;
   }
 
@@ -2068,7 +2250,12 @@ export class OrdersService {
           relations: ['vendor'],
         });
         
-        const commissionRate = order?.commissionRate || order?.vendor?.commissionRate || 10;
+        // The order's own stored rate is authoritative — it is what commission
+        // was actually calculated at when the order was placed. Falls back to
+        // 0, not the old hardcoded 10, so a historic order missing the column
+        // is treated as commission-free rather than silently charged the old
+        // platform default.
+        const commissionRate = order?.commissionRate || order?.vendor?.commissionRate || 0;
         const returnedAmount = Number(returnItem.refund_amount) || 0;
         const returnedTax = Number(returnItem.refund_tax) || 0;
         const returnedCommission = (returnedAmount + returnedTax) * (commissionRate / 100);
@@ -2227,7 +2414,7 @@ export class OrdersService {
     res.send(pdfBuffer);
   }
 
-  async getReturnDetails(orderId: string) {
+  async getReturnDetails(orderId: string, requester?: { id: string; role: UserRole }) {
     try {
       const order = await this.orderRepository.findOne({
         where: { id: orderId },
@@ -2236,6 +2423,17 @@ export class OrdersService {
 
       if (!order) {
         throw new NotFoundException('Order not found');
+      }
+
+      // A customer may read only their own order's return details. Reported as
+      // "not found" rather than "forbidden" so the endpoint cannot be used to
+      // confirm which order ids exist.
+      if (requester) {
+        const isAdmin =
+          requester.role === UserRole.SUPER_ADMIN || requester.role === UserRole.VENDOR_ADMIN;
+        if (!isAdmin && order.userId !== requester.id) {
+          throw new NotFoundException('Order not found');
+        }
       }
 
       // Only show return details for return_approved or returned status

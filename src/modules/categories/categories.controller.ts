@@ -121,6 +121,15 @@ export class CategoriesController {
     return this.categoriesService.getFilters(id);
   }
 
+  @Get(':id/filters/effective')
+  @ApiOperation({
+    summary:
+      'Filters the storefront should render for this category — derived live from the catalogue, with filterConfig applied only as label/order/hide overrides',
+  })
+  async getEffectiveFilters(@Param('id') id: string) {
+    return this.categoriesService.getEffectiveFilters(id);
+  }
+
   @Get(':id/filter-suggestions')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)

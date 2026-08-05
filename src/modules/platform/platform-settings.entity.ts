@@ -115,8 +115,11 @@ export class PlatformSettings {
   @Column({ name: 'kyc_documents', type: 'jsonb', default: '[]' })
   kycDocuments: KYCDocument[];
 
-  // Platform Commission
-  @Column({ name: 'default_commission_percentage', type: 'decimal', precision: 5, scale: 2, default: 10.00 })
+  // Platform Commission. This column is a separate, currently-unused settings
+  // surface — the rate actually charged on orders is `platform_commission_rate`
+  // in the key-value `settings` table, read by `OrdersService`. Defaulted to 0
+  // here too so the two never disagree if this column starts being read.
+  @Column({ name: 'default_commission_percentage', type: 'decimal', precision: 5, scale: 2, default: 0.00 })
   defaultCommissionPercentage: number;
 
   // Contact Person

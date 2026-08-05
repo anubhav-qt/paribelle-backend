@@ -57,7 +57,10 @@ export class Category {
   @Column({ type: 'text', nullable: true, name: 'meta_description' })
   metaDescription: string;
 
-  // Filter configuration (JSON field)
+  // Filter configuration (JSON field). For a filter derived from the
+  // catalogue (see CategoriesService.getEffectiveFilters), `sortOrder` and
+  // `hidden` are the only fields that apply — `options` on those is never
+  // read, since options come from what products actually carry.
   @Column({ type: 'jsonb', nullable: true, name: 'filter_config' })
   filterConfig: {
     filters: Array<{
@@ -68,6 +71,8 @@ export class Category {
       min?: number;
       max?: number;
       step?: number;
+      sortOrder?: number;
+      hidden?: boolean;
     }>;
   };
 

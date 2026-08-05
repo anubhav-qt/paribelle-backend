@@ -54,7 +54,7 @@ async function seedPlatformSettings() {
         '₹',
         'Asia/Kolkata',
         'en',
-        10.00,
+        0.00,
         18.00
       )
     `);

@@ -1,4 +1,4 @@
-import { IsString, IsEnum, IsOptional, IsArray, ValidateNested, IsNumber } from 'class-validator';
+import { IsString, IsEnum, IsOptional, IsArray, ValidateNested, IsNumber, IsBoolean } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
 
@@ -53,6 +53,22 @@ export class CategoryFilterDto {
   @IsOptional()
   @IsNumber()
   step?: number;
+
+  /**
+   * Overrides for a filter derived from the catalogue (see
+   * `CategoriesService.getEffectiveFilters`). `options` on a derived filter is
+   * ignored — options come from what products actually carry, never from
+   * hand-typed entries here.
+   */
+  @ApiProperty({ required: false, example: 0, description: 'Display order among effective filters' })
+  @IsOptional()
+  @IsNumber()
+  sortOrder?: number;
+
+  @ApiProperty({ required: false, example: false, description: 'Hide this filter on the storefront' })
+  @IsOptional()
+  @IsBoolean()
+  hidden?: boolean;
 }
 
 export class UpdateCategoryFiltersDto {

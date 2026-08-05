@@ -1,9 +1,12 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { Cache } from 'cache-manager';
 import { Category } from './category.entity';
 import { Product } from '../products/product.entity';
 import { FileCleanupService } from '../../common/services/file-cleanup.service';
+import { CACHE_TTL } from '../cache/cache.constants';
 
 @Injectable()
 export class CategoriesService {
@@ -13,6 +16,8 @@ export class CategoriesService {
     @InjectRepository(Product)
     private productsRepository: Repository<Product>,
     private fileCleanupService: FileCleanupService,
+    @Inject(CACHE_MANAGER)
+    private cacheManager: Cache,
   ) {}
 
   async findAll(): Promise<Category[]> {
@@ -313,6 +318,7 @@ export class CategoriesService {
 
     category.filterConfig = { filters: filtersDto.filters };
     await this.categoriesRepository.save(category);
+    await this.invalidateEffectiveFiltersCache(id);
     return category;
   }
 
@@ -420,6 +426,102 @@ export class CategoriesService {
         ),
       })),
     };
+  }
+
+  private effectiveFiltersCacheKey(categoryId: string): string {
+    return `category:${categoryId}:filters:effective`;
+  }
+
+  /**
+   * The filters a shopper actually sees for a category: every attribute the
+   * catalogue currently carries (from `suggestFiltersFromCatalogue`), with
+   * `filterConfig` demoted from a copy of the data to a thin layer of
+   * overrides on top of it — rename a filter's label, pin its display order,
+   * or hide it, but never hand-type an option. A filter snapshotted at import
+   * time goes stale the moment a product changes; a category derived on read
+   * cannot.
+   *
+   * Cached for `CACHE_TTL.MEDIUM` — the underlying query is a
+   * `CROSS JOIN LATERAL` over every variant in the category's subtree, too
+   * expensive to run on every storefront page view. Invalidated explicitly
+   * wherever a write can change the answer: `updateFilters`, product/variant
+   * writes, and the Excel importer — see `invalidateEffectiveFiltersCache`.
+   */
+  async getEffectiveFilters(categoryId: string): Promise<{
+    filters: Array<{
+      id: string;
+      label: string;
+      type: 'checkbox';
+      sortOrder: number;
+      options: Array<{ value: string; label: string; productCount: number }>;
+    }>;
+  }> {
+    const cacheKey = this.effectiveFiltersCacheKey(categoryId);
+    const cached = await this.cacheManager.get(cacheKey);
+    if (cached) return cached as any;
+
+    const [derived, category] = await Promise.all([
+      this.suggestFiltersFromCatalogue(categoryId),
+      this.categoriesRepository.findOne({ where: { id: categoryId } }),
+    ]);
+
+    const overrides = new Map<string, { label?: string; sortOrder?: number; hidden?: boolean }>();
+    for (const f of category?.filterConfig?.filters || []) {
+      overrides.set(f.id, {
+        label: (f as any).label,
+        sortOrder: (f as any).sortOrder,
+        hidden: (f as any).hidden,
+      });
+    }
+
+    const filters = derived.filters
+      .map((f, index) => {
+        const override = overrides.get(f.id);
+        return {
+          id: f.id,
+          label: override?.label || f.label,
+          type: f.type,
+          sortOrder: override?.sortOrder ?? index,
+          hidden: override?.hidden ?? false,
+          // Highest-demand options first, so the list a shopper scans leads
+          // with the values most likely to narrow their search usefully.
+          options: [...f.options].sort((a, b) =>
+            b.productCount !== a.productCount
+              ? b.productCount - a.productCount
+              : a.label.localeCompare(b.label),
+          ),
+        };
+      })
+      .filter((f) => !f.hidden)
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .map(({ hidden, ...f }) => f);
+
+    const result = { filters };
+    await this.cacheManager.set(cacheKey, result, CACHE_TTL.MEDIUM);
+    return result;
+  }
+
+  /**
+   * Call after any write that can change what `getEffectiveFilters` returns
+   * for this category: a product gaining/losing a category, a variant's
+   * attributes changing, or an admin editing `filterConfig` overrides.
+   *
+   * Ancestors are included because `suggestFiltersFromCatalogue` reads every
+   * descendant's products — a change three levels down is visible at the
+   * root category too, and its cached answer would otherwise go stale
+   * silently until the TTL expired.
+   */
+  async invalidateEffectiveFiltersCache(categoryId: string): Promise<void> {
+    const category = await this.categoriesRepository.findOne({ where: { id: categoryId } });
+    if (!category) return;
+
+    const ancestors = await this.categoriesRepository.manager
+      .getTreeRepository(Category)
+      .findAncestors(category);
+
+    await Promise.all(
+      ancestors.map((c) => this.cacheManager.del(this.effectiveFiltersCacheKey(c.id))),
+    );
   }
 
   /** A category and everything beneath it, so a parent sees its children's products. */

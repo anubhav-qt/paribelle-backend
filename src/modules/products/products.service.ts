@@ -31,6 +31,61 @@ export class ProductsService {
   ) {}
 
   /**
+   * Counts across the *entire* catalogue, not one page of it. The admin
+   * dashboard used to compute "Active" / "Low Stock" / "Out of Stock" by
+   * filtering whatever 20-row page happened to be loaded, so those tiles could
+   * never read above the page size no matter how many products actually
+   * qualified — reported as "we imported 147 products, only 20 show active".
+   * One grouped query avoids ever needing to load the products themselves.
+   */
+  async getAdminStats(): Promise<{
+    total: number;
+    active: number;
+    draft: number;
+    archived: number;
+    lowStock: number;
+    outOfStock: number;
+  }> {
+    const statusRows: Array<{ status: string; count: string }> = await this.productsRepository
+      .createQueryBuilder('product')
+      .select('product.status', 'status')
+      .addSelect('COUNT(*)', 'count')
+      .groupBy('product.status')
+      .getRawMany();
+
+    const byStatus: Record<string, number> = {};
+    let total = 0;
+    for (const row of statusRows) {
+      const count = parseInt(row.count, 10);
+      byStatus[row.status] = count;
+      total += count;
+    }
+
+    // "Out of stock" is a real status value, but a product can also carry
+    // zero stock while still marked `active` (stock ran out after listing) —
+    // count both by quantity rather than trusting the status column alone.
+    const [lowStockRow, outOfStockRow] = await Promise.all([
+      this.productsRepository
+        .createQueryBuilder('product')
+        .where('product.stockQuantity > 0 AND product.stockQuantity < 10')
+        .getCount(),
+      this.productsRepository
+        .createQueryBuilder('product')
+        .where('product.stockQuantity = 0')
+        .getCount(),
+    ]);
+
+    return {
+      total,
+      active: byStatus[ProductStatus.ACTIVE] || 0,
+      draft: byStatus[ProductStatus.DRAFT] || 0,
+      archived: byStatus[ProductStatus.ARCHIVED] || 0,
+      lowStock: lowStockRow,
+      outOfStock: outOfStockRow,
+    };
+  }
+
+  /**
    * Validate that image URLs are not from external stock photo services
    * Only allowed in development/testing environments
    */

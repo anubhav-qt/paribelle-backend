@@ -8,6 +8,7 @@ import { Category } from '../categories/category.entity';
 import { Vendor } from '../vendors/vendor.entity';
 import { User, UserRole } from '../users/user.entity';
 import { CloudinaryService } from '../../common/services/cloudinary.service';
+import { CategoriesService } from '../categories/categories.service';
 import * as fs from 'fs';
 import * as path from 'path';
 import archiver from 'archiver';
@@ -43,6 +44,7 @@ export class ProductsExcelService {
     @InjectRepository(User)
     private usersRepository: Repository<User>,
     private cloudinaryService: CloudinaryService,
+    private categoriesService: CategoriesService,
   ) {}
 
   /**
@@ -660,8 +662,11 @@ export class ProductsExcelService {
 
     const productHeaders = buildHeaderMap(productSheet);
 
-    // Track attribute key→values per category for auto-adding to filter config
-    const simpleCategoryAttrs = new Map<string, Map<string, Set<string>>>();
+    // Filters are no longer written here — see CategoriesService.getEffectiveFilters,
+    // which derives them live from variant_attributes on read. This import only
+    // needs to remember which categories it touched, so their cached effective
+    // filters can be invalidated once the import is done.
+    const touchedCategoryIds = new Set<string>();
 
     // Collect rows first (eachRow is synchronous; async processing must be sequential)
     const productRows: Array<{ row: ExcelJS.Row; rn: number }> = [];
@@ -737,17 +742,7 @@ export class ProductsExcelService {
         // "Colour: Red, Size: M" → { Colour: 'Red', Size: 'M' }
         const parsedAttributes = this.parseAttributesCell(g('Attributes'));
 
-        // Track per-category attribute values for auto-adding to filter config
-        if (category && Object.keys(parsedAttributes).length > 0) {
-          if (!simpleCategoryAttrs.has(category.id)) {
-            simpleCategoryAttrs.set(category.id, new Map());
-          }
-          const catAttrs = simpleCategoryAttrs.get(category.id)!;
-          Object.entries(parsedAttributes).forEach(([k, v]) => {
-            if (!catAttrs.has(k)) catAttrs.set(k, new Set());
-            catAttrs.get(k)!.add(v);
-          });
-        }
+        if (category) touchedCategoryIds.add(category.id);
 
         const productData: any = {
           name,
@@ -848,52 +843,6 @@ export class ProductsExcelService {
         }
       } catch (err) {
         errors.push(`Products Row ${rn}: ${err.message}`);
-      }
-    }
-
-    // Auto-register imported attributes to category filter configs
-    for (const [categoryId, attrMap] of (dryRun ? [] : simpleCategoryAttrs)) {
-      try {
-        const cat = await this.categoriesRepository.findOne({ where: { id: categoryId } });
-        if (!cat) continue;
-
-        if (!cat.filterConfig) cat.filterConfig = { filters: [] };
-        if (!cat.filterConfig.filters) cat.filterConfig.filters = [];
-
-        let catUpdated = false;
-        for (const [attrKey, values] of attrMap) {
-          const attrId = attrKey.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-          let existingFilter = cat.filterConfig.filters.find((f: any) => f.id === attrId);
-
-          if (!existingFilter) {
-            existingFilter = { id: attrId, label: attrKey, type: 'select', options: [] };
-            cat.filterConfig.filters.push(existingFilter);
-            catUpdated = true;
-            console.log(`[SimpleImport] Created filter "${attrKey}" for category ${cat.name}`);
-          }
-
-          for (const val of values) {
-            // The option's value is the attribute value itself, not a slug of
-            // it. Filtering matches an option against `variant_attributes`
-            // case-insensitively, and a slug does not survive that comparison:
-            // "Rose Gold" became "rose-gold", which matches nothing.
-            const exists = existingFilter.options?.some(
-              (o: any) => String(o.value).toLowerCase() === val.toLowerCase(),
-            );
-            if (!exists) {
-              if (!existingFilter.options) existingFilter.options = [];
-              existingFilter.options.push({ value: val, label: val });
-              catUpdated = true;
-              console.log(`[SimpleImport] Added option "${val}" to filter "${attrKey}" in category ${cat.name}`);
-            }
-          }
-        }
-
-        if (catUpdated) {
-          await this.categoriesRepository.save(cat);
-        }
-      } catch (err) {
-        console.error(`[SimpleImport] Error auto-registering attributes for category ${categoryId}:`, err.message);
       }
     }
 
@@ -1010,6 +959,19 @@ export class ProductsExcelService {
         const totalStock = variants.reduce((sum, v) => sum + (v.stockQuantity || 0), 0);
         await this.productsRepository.update(productId, { stockQuantity: totalStock });
         console.log(`[SimpleImport] Updated product "${product.name}" stock to ${totalStock}`);
+      }
+    }
+
+    // The categories touched by this import may now offer different filters
+    // (see CategoriesService.getEffectiveFilters) — drop the cached answer for
+    // each one, and its ancestors, rather than waiting out the TTL.
+    if (!dryRun) {
+      for (const categoryId of touchedCategoryIds) {
+        try {
+          await this.categoriesService.invalidateEffectiveFiltersCache(categoryId);
+        } catch (err) {
+          console.error(`[SimpleImport] Failed to invalidate filter cache for category ${categoryId}:`, err.message);
+        }
       }
     }
 

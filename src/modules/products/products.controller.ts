@@ -156,6 +156,20 @@ export class ProductsController {
     return this.productsService.findBySlug(slug);
   }
 
+  /**
+   * Counts over the whole catalogue, not one paginated response — see
+   * ProductsService.getAdminStats. Must stay above `:id` below or Nest will
+   * try to look up a product named "stats".
+   */
+  @Get('admin/stats')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Product counts by status and stock level (admin only)' })
+  async getAdminStats() {
+    return this.productsService.getAdminStats();
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get product by ID' })
   async findOne(@Param('id') id: string) {
