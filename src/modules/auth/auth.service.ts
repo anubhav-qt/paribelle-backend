@@ -29,8 +29,12 @@ export class AuthService {
   async validateUser(email: string, password: string): Promise<any> {
     const user = await this.usersService.findByEmailWithPassword(email);
     if (user && (await bcrypt.compare(password, user.password))) {
-      // Check if email is verified for non-Google users
-      if (!user.emailVerifiedAt && !user.email.includes('google')) {
+      // `emailVerifiedAt` is the whole check — `googleLogin` already sets it
+      // unconditionally for Google sign-ins, so nothing else is needed here.
+      // This used to also exempt any address containing the substring
+      // "google" anywhere, which matched ordinary addresses like
+      // "notgoogle@example.com" and let them skip verification entirely.
+      if (!user.emailVerifiedAt) {
         throw new UnauthorizedException('Please verify your email before logging in. Check your inbox.');
       }
       const { password, ...result } = user;
@@ -148,17 +152,28 @@ export class AuthService {
         password: randomPassword,
         firstName,
         lastName,
-        emailVerifiedAt: new Date(), // Auto-verify Google emails
-        // You can add googleId and picture to user entity if needed
+        emailVerifiedAt: new Date(), // Google has already confirmed this address.
+        googleId: googleData.googleId,
       });
       console.log('[GoogleLogin] New user created successfully');
     } else {
       console.log('[GoogleLogin] Existing user found');
+      // Record the Google id and verify the email even for an account that
+      // originally registered with a password — signing in with Google here
+      // is proof of the same address, and `JwtStrategy` needs `googleId` set
+      // to exempt this user from the verification gate on future logins.
+      let changed = false;
+      if (!user.googleId) {
+        user.googleId = googleData.googleId;
+        changed = true;
+      }
       if (!user.emailVerifiedAt) {
-        // If user exists but email not verified, verify it (they used Google)
         user.emailVerifiedAt = new Date();
+        changed = true;
+      }
+      if (changed) {
         await this.usersRepository.save(user);
-        console.log('[GoogleLogin] Email verified for existing user');
+        console.log('[GoogleLogin] Updated googleId/emailVerifiedAt for existing user');
       }
     }
 

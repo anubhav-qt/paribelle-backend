@@ -28,10 +28,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('User not found');
     }
     
-    // Check if email is verified for non-Google users
-    // Google OAuth users have emails ending with @gmail.com or containing 'googleusercontent'
-    const isGoogleUser = user.email.endsWith('@gmail.com') || user.email.includes('googleusercontent');
-    if (!user.emailVerifiedAt && !isGoogleUser) {
+    // `emailVerifiedAt` alone is the correct gate — no separate "is this a
+    // Google user" exemption is needed, because `AuthService.googleLogin`
+    // already sets `emailVerifiedAt` unconditionally on every Google
+    // sign-in, at creation and again on login if it was somehow still unset.
+    // An earlier version of this check exempted any `@gmail.com` address
+    // from verification instead of checking the actual column, which meant
+    // registering a Gmail address with a plain password skipped verification
+    // entirely — the address never had to prove it belonged to the signer.
+    if (!user.emailVerifiedAt) {
       throw new UnauthorizedException('Please verify your email before logging in. Check your inbox for the verification link.');
     }
     

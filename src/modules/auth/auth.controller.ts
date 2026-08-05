@@ -3,7 +3,6 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { LocalAuthGuard } from './guards/local-auth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
-import { AuthGuard } from '@nestjs/passport';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -32,6 +31,15 @@ export class AuthController {
     return this.authService.login(req.user);
   }
 
+  /**
+   * The web app does the OAuth code exchange itself (a Next.js route handler
+   * talks to Google directly, using GOOGLE_CLIENT_ID/SECRET set in Vercel, not
+   * here), then posts the resulting profile to this endpoint. This is the only
+   * Google entry point the backend has — `passport-google-oauth20` and its
+   * `GET /auth/google` / `GET /auth/google/callback` pair used to exist
+   * alongside it, unregistered in any module and unreachable, and were removed
+   * rather than left as a second implementation nobody was maintaining.
+   */
   @Post('google-login')
   @ApiOperation({ summary: 'Login/Register user via Google OAuth' })
   async googleLogin(
@@ -44,25 +52,6 @@ export class AuthController {
     },
   ) {
     return this.authService.googleLogin(body);
-  }
-
-  @Get('google')
-  @UseGuards(AuthGuard('google'))
-  @ApiOperation({ summary: 'Initiate Google OAuth flow' })
-  async googleAuth() {
-    // Guard redirects to Google
-  }
-
-  @Get('google/callback')
-  @UseGuards(AuthGuard('google'))
-  @ApiOperation({ summary: 'Google OAuth callback' })
-  async googleAuthCallback(@Request() req) {
-    return this.authService.googleLogin({
-      email: req.user.email,
-      name: `${req.user.firstName} ${req.user.lastName}`,
-      googleId: req.user.googleId,
-      picture: req.user.picture,
-    });
   }
 
   @Post('register-vendor')

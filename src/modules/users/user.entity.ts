@@ -70,6 +70,18 @@ export class User {
   @Column({ type: 'timestamp', nullable: true, name: 'email_verified_at' })
   emailVerifiedAt: Date;
 
+  /**
+   * The Google account id, when this user signed in with Google. Used to skip
+   * the email-verification gate for Google accounts — Google has already
+   * confirmed the address — without guessing from the address itself. Before
+   * this column existed, `JwtStrategy` approximated "signed up with Google" by
+   * checking whether the address ended in `@gmail.com`, which also exempted
+   * anyone who registered a Gmail address with a plain password from ever
+   * verifying it.
+   */
+  @Column({ type: 'varchar', nullable: true, name: 'google_id' })
+  googleId: string | null;
+
   @Column({ type: 'varchar', nullable: true, name: 'email_verification_token' })
   emailVerificationToken: string | null;
 
