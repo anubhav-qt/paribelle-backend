@@ -26,7 +26,7 @@ export class SimpleEmailService {
   }
 
   async sendVerificationEmail(email: string, token: string) {
-    const appName = this.configService.get('APP_NAME') || 'GaliCart';
+    const appName = this.configService.get('APP_NAME') || 'PariBelle';
     const appUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
     const verificationLink = `${appUrl}/verify-email?token=${token}`;
 
@@ -191,13 +191,13 @@ If you didn't create an account with ${appName}, you can safely ignore this emai
   }
 
   async sendOrderDeliveredEmail(email: string, orderNumber: string, orderId: string, customerName: string) {
-    const appName = this.configService.get('APP_NAME') || 'GaliCart';
+    const appName = this.configService.get('APP_NAME') || 'PariBelle';
     const appUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
     const reviewLink = `${appUrl}/orders/${orderId}`;
 
     try {
       await this.transporter.sendMail({
-        from: this.configService.get('MAIL_FROM') || this.configService.get('MAIL_USER'),
+        from: this.configService.get('SMTP_FROM') || this.configService.get('SMTP_USER'),
         to: email,
         subject: `Your Order #${orderNumber} Has Been Delivered! - ${appName}`,
         html: `
@@ -392,11 +392,11 @@ Thank you for shopping with us!
   }
 
   async sendOrderConfirmationEmail(email: string, orderNumber: string, customerName: string) {
-    const appName = this.configService.get('APP_NAME') || 'GaliCart';
+    const appName = this.configService.get('APP_NAME') || 'PariBelle';
     
     try {
       await this.transporter.sendMail({
-        from: this.configService.get('MAIL_FROM') || this.configService.get('MAIL_USER'),
+        from: this.configService.get('SMTP_FROM') || this.configService.get('SMTP_USER'),
         to: email,
         subject: `Order Confirmed #${orderNumber} - ${appName}`,
         html: `
@@ -418,11 +418,11 @@ Thank you for shopping with us!
   }
 
   async sendOrderShippedEmail(email: string, orderNumber: string, customerName: string) {
-    const appName = this.configService.get('APP_NAME') || 'GaliCart';
+    const appName = this.configService.get('APP_NAME') || 'PariBelle';
     
     try {
       await this.transporter.sendMail({
-        from: this.configService.get('MAIL_FROM') || this.configService.get('MAIL_USER'),
+        from: this.configService.get('SMTP_FROM') || this.configService.get('SMTP_USER'),
         to: email,
         subject: `Order Shipped #${orderNumber} - ${appName}`,
         html: `
@@ -444,11 +444,11 @@ Thank you for shopping with us!
   }
 
   async sendOrderCancelledEmail(email: string, orderNumber: string, customerName: string) {
-    const appName = this.configService.get('APP_NAME') || 'GaliCart';
+    const appName = this.configService.get('APP_NAME') || 'PariBelle';
     
     try {
       await this.transporter.sendMail({
-        from: this.configService.get('MAIL_FROM') || this.configService.get('MAIL_USER'),
+        from: this.configService.get('SMTP_FROM') || this.configService.get('SMTP_USER'),
         to: email,
         subject: `Order Cancelled #${orderNumber} - ${appName}`,
         html: `
@@ -477,7 +477,7 @@ Thank you for shopping with us!
     message: string,
     invoice: any,
   ) {
-    const appName = this.configService.get('APP_NAME') || 'GaliCart';
+    const appName = this.configService.get('APP_NAME') || 'PariBelle';
     const appUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
     const fs = require('fs').promises;
     const path = require('path');
@@ -502,7 +502,7 @@ Thank you for shopping with us!
       const invoiceTypeLabel = this.getInvoiceTypeLabel(invoice.type);
 
       await this.transporter.sendMail({
-        from: this.configService.get('MAIL_FROM') || this.configService.get('MAIL_USER'),
+        from: this.configService.get('SMTP_FROM') || this.configService.get('SMTP_USER'),
         to: email,
         subject,
         html: `
@@ -676,7 +676,7 @@ Thank you for shopping with us!
   }
 
   async sendPasswordResetEmail(email: string, token: string, firstName: string) {
-    const appName = this.configService.get('APP_NAME') || 'GaliCart';
+    const appName = this.configService.get('APP_NAME') || 'PariBelle';
     const appUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
     const resetLink = `${appUrl}/reset-password?token=${token}`;
 
@@ -812,7 +812,7 @@ Thank you for shopping with us!
       phone: string;
     }
   ) {
-    const appName = this.configService.get('APP_NAME') || 'GaliCart';
+    const appName = this.configService.get('APP_NAME') || 'PariBelle';
     const appUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
     
     // Generate comprehensive QR code data for shipping carriers (Amazon-style)
@@ -1033,7 +1033,7 @@ Thank you for shopping with us!
   }
 
   async sendVendorWelcomeEmail(email: string, firstName: string, storeName: string) {
-    const appName = this.configService.get('APP_NAME') || 'GaliCart';
+    const appName = this.configService.get('APP_NAME') || 'PariBelle';
     const appUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
     const dashboardLink = `${appUrl}/vendor/dashboard`;
 
@@ -1266,7 +1266,7 @@ Need help getting started? Check out our vendor documentation or contact our sup
     reviewUrl: string,
     attachments: Array<{ filename: string; content: Buffer }>,
   ): Promise<boolean> {
-    const appName = this.configService.get('APP_NAME') || 'GaliCart';
+    const appName = this.configService.get('APP_NAME') || 'PariBelle';
     const appUrl = this.configService.get('APP_URL') || 'http://localhost:3000';
 
     this.logger.log(`Sending KYC documents to admin: ${adminEmail} for vendor: ${vendor.storeName}`);

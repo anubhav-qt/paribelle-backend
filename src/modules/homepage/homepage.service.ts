@@ -88,7 +88,7 @@ export class HomepageService {
           currency: currency || 'INR',
           categoryDisplayMode: categoryDisplayMode === 'top' ? 'top' : 'sidebar',
           marketplaceLogo: marketplaceLogo || '',
-          marketplaceName: marketplaceName || 'GaliCart',
+          marketplaceName: marketplaceName || 'PariBelle',
         },
         categories,
         productsByCategory,

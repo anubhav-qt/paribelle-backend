@@ -101,17 +101,29 @@ export class AuthService {
       referralCode,
     });
     
-    // Send verification email
+    // Send verification email. The account is created either way — a mail
+    // outage is not a reason to refuse someone a login — but the caller
+    // needs to know it happened, rather than being told to check an inbox
+    // that will never receive anything. This used to be swallowed down to a
+    // `console.error`, which is exactly why an unconfigured or misconfigured
+    // SMTP transport went unnoticed: signup looked identical whether or not
+    // the email actually sent.
+    let emailSent = true;
     try {
       await this.emailService.sendVerificationEmail(user.email, verificationToken);
     } catch (error) {
+      emailSent = false;
       console.error('Failed to send verification email:', error);
     }
-    
+
     const { password, emailVerificationToken, emailVerificationTokenExpiry, ...result } = user;
-    
+
     return {
-      message: 'Registration successful! Please check your email to verify your account.',
+      message: emailSent
+        ? 'Registration successful! Please check your email to verify your account.'
+        : 'Registration successful, but we could not send the verification email. ' +
+          'Please use "Resend verification email" on the login page, or try again shortly.',
+      emailSent,
       user: result,
     };
   }
