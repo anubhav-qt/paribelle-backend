@@ -10,6 +10,8 @@ import { SettingsService } from '../admin/settings.service';
 import { MarketplaceGateway } from '../stock/stock.gateway';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/notification.entity';
+import { WalletService } from '../wallet/wallet.service';
+import { WalletLedgerType } from '../wallet/wallet-ledger.entity';
 
 /**
  * The exchange sub-machine — see Task 8 in the implementation plan for the
@@ -34,6 +36,7 @@ export class ExchangesService {
     private settingsService: SettingsService,
     private marketplaceGateway: MarketplaceGateway,
     private notificationsService: NotificationsService,
+    private walletService: WalletService,
     private dataSource: DataSource,
   ) {}
 
@@ -50,10 +53,23 @@ export class ExchangesService {
   }
 
   /**
-   * A customer requests to exchange one order item for a different variant of
-   * the *same* product. Enforces every rule in the "Rules to enforce" table
-   * of Task 8: delivered, paid, within the configured window, same product,
-   * quantity no more than what was ordered.
+   * A customer requests an exchange on a delivered, paid order item. Three
+   * routes, chosen by what's passed rather than by a separate flag:
+   *
+   *  - `exchangeVariantId` names a variant of the *same* product, same price
+   *    → a straight swap, no money moves (the original behaviour).
+   *  - `exchangeVariantId` names a variant of a *different* product that
+   *    costs no more than the original → allowed; the difference is credited
+   *    to the customer's wallet once the returned item passes inspection. A
+   *    replacement that costs *more* is rejected here — the store does not
+   *    yet collect a top-up payment for the difference; the customer should
+   *    request full credit instead and place a new order.
+   *  - No `exchangeVariantId` at all → the customer wants nothing back; the
+   *    full item value is credited to their wallet once inspection passes.
+   *
+   * Enforces every rule in the "Rules to enforce" table of Task 8: delivered,
+   * paid, within the configured window, quantity no more than what was
+   * ordered.
    */
   async request(
     orderId: string,
@@ -61,7 +77,7 @@ export class ExchangesService {
     userId: string,
     quantity: number,
     reason: string,
-    exchangeVariantId: string,
+    exchangeVariantId: string | null | undefined,
     customerNotes?: string,
     images?: string[],
   ): Promise<Return> {
@@ -114,24 +130,40 @@ export class ExchangesService {
       );
     }
 
-    const exchangeVariant = await this.productVariantsRepository.findOne({
-      where: { id: exchangeVariantId },
-    });
-    if (!exchangeVariant) throw new NotFoundException('Requested variant not found');
+    // Money that will be credited once inspection passes — 0 for a
+    // same-price swap, computed below for the other two routes. Written
+    // explicitly (not left to the column default) because these columns are
+    // NOT NULL with no DEFAULT on databases where the returns table predates
+    // this code — see the comment on Return.refundAmount.
+    let creditAmount = 0;
+    let exchangeVariant: ProductVariant | null = null;
 
-    // Same product, different variant only — decided in the plan. Rejecting a
-    // different product here, rather than merely not offering one in the UI,
-    // is what keeps this true even against a crafted request.
-    if (exchangeVariant.productId !== item.productId) {
-      throw new BadRequestException(
-        'Exchanges are only available for a different variant of the same product.',
-      );
-    }
-    if (exchangeVariant.id === item.variantId) {
-      throw new BadRequestException('That is the variant already on the order.');
-    }
-    if (!exchangeVariant.isActive) {
-      throw new BadRequestException('The requested variant is not currently available.');
+    if (!exchangeVariantId) {
+      // Route 3: customer wants nothing back, full value credited.
+      creditAmount = Number(item.price) * quantity;
+    } else {
+      exchangeVariant = await this.productVariantsRepository.findOne({
+        where: { id: exchangeVariantId },
+      });
+      if (!exchangeVariant) throw new NotFoundException('Requested variant not found');
+      if (exchangeVariant.id === item.variantId) {
+        throw new BadRequestException('That is the variant already on the order.');
+      }
+      if (!exchangeVariant.isActive) {
+        throw new BadRequestException('The requested variant is not currently available.');
+      }
+
+      const priceDiff = (Number(exchangeVariant.price) - Number(item.price)) * quantity;
+      if (priceDiff > 0) {
+        throw new BadRequestException(
+          'The requested replacement costs more than the original item. ' +
+          'Choose a replacement of equal or lower price, or request store credit instead.',
+        );
+      }
+      // Route 1 (same product) or route 2 (different product, same or lower
+      // price) — both land here; the only difference is whether a credit is
+      // owed for the gap.
+      creditAmount = -priceDiff;
     }
 
     const returnRow = this.returnsRepository.create({
@@ -149,13 +181,10 @@ export class ExchangesService {
       variantOptions: item.variantDetails || null,
       originalPrice: item.price,
       originalQuantity: item.quantity,
-      // No money moves on an exchange. Written explicitly because these
-      // columns are NOT NULL with no DEFAULT on databases where the returns
-      // table predates this code — see the comment on Return.refundAmount.
-      refundAmount: 0,
+      refundAmount: creditAmount,
       refundTax: 0,
-      refundTotal: 0,
-      exchangeVariantId: exchangeVariant.id,
+      refundTotal: creditAmount,
+      exchangeVariantId: exchangeVariant?.id || null,
       images: images || null,
       customerNotes: customerNotes || null,
       requestedAt: new Date(),
@@ -173,6 +202,92 @@ export class ExchangesService {
         link: '/admin/orders', orderId: order.id,
       })
       .catch((err) => console.error('Failed to notify admins of exchange request:', err));
+
+    return saved;
+  }
+
+  /**
+   * A COD order was dispatched, the customer refused it at the door, and the
+   * goods came back — but the customer asked for a different item rather
+   * than a plain credit or nothing. Unlike `request()`, the order was never
+   * delivered or paid, so none of the post-delivery checks apply, and the
+   * goods are already back in the store's hands: the row starts at RECEIVED,
+   * awaiting the same inspection admin uses for a customer-initiated
+   * exchange, rather than waiting on a customer shipment that already
+   * happened (they simply refused the courier).
+   */
+  async initiateForRefusedCod(
+    orderId: string,
+    orderItemId: string,
+    adminUserId: string,
+    quantity: number,
+    exchangeVariantId: string,
+    reason: string,
+  ): Promise<Return> {
+    const order = await this.orderRepository.findOne({
+      where: { id: orderId },
+      relations: ['items'],
+    });
+    if (!order) throw new NotFoundException('Order not found');
+
+    const item = order.items.find((i) => i.id === orderItemId);
+    if (!item) throw new NotFoundException('Order item not found on this order');
+
+    if (!Number.isInteger(quantity) || quantity < 1 || quantity > item.quantity) {
+      throw new BadRequestException(
+        `Quantity must be between 1 and ${item.quantity} (the quantity originally ordered).`,
+      );
+    }
+
+    const exchangeVariant = await this.productVariantsRepository.findOne({
+      where: { id: exchangeVariantId },
+    });
+    if (!exchangeVariant) throw new NotFoundException('Requested variant not found');
+    if (!exchangeVariant.isActive) {
+      throw new BadRequestException('The requested variant is not currently available.');
+    }
+
+    const priceDiff = (Number(exchangeVariant.price) - Number(item.price)) * quantity;
+    if (priceDiff > 0) {
+      throw new BadRequestException(
+        'The requested replacement costs more than the original item. ' +
+        'Choose a replacement of equal or lower price, or issue store credit instead.',
+      );
+    }
+    const creditAmount = -priceDiff;
+
+    const returnRow = this.returnsRepository.create({
+      returnNumber: this.generateReturnNumber(),
+      orderId: order.id,
+      orderItemId: item.id,
+      userId: order.userId,
+      vendorId: order.vendorId,
+      requestType: ReturnRequestType.EXCHANGE,
+      quantity,
+      reason,
+      status: ReturnStatus.RECEIVED,
+      productName: item.productName,
+      productSku: item.productSku,
+      variantOptions: item.variantDetails || null,
+      originalPrice: item.price,
+      originalQuantity: item.quantity,
+      refundAmount: creditAmount,
+      refundTax: 0,
+      refundTotal: creditAmount,
+      exchangeVariantId: exchangeVariant.id,
+      customerNotes: null,
+      adminNotes: `Initiated by admin — COD delivery refused, customer requested exchange. ${reason}`,
+      requestedAt: new Date(),
+      receivedAt: new Date(),
+    });
+
+    const saved = await this.returnsRepository.save(returnRow);
+
+    this.notificationsService
+      .notifyUser(order.userId, NotificationType.EXCHANGE_REQUESTED, 'Exchange started for your refused delivery', {
+        link: '/orders', orderId: order.id,
+      })
+      .catch((err) => console.error('Failed to notify customer of admin-initiated exchange:', err));
 
     return saved;
   }
@@ -264,11 +379,18 @@ export class ExchangesService {
     notes?: string,
   ): Promise<Return> {
     const row = await this.findOrThrow(returnId);
-    if (row.status !== ReturnStatus.IN_TRANSIT) {
+    // IN_TRANSIT is the normal customer-shipped-it-back path. RECEIVED with
+    // no inspection result yet is the admin-initiated COD-refusal path (see
+    // `initiateForRefusedCod`) — the goods never left the store, so there is
+    // no shipping leg to wait through.
+    const awaitingInspection =
+      row.status === ReturnStatus.IN_TRANSIT ||
+      (row.status === ReturnStatus.RECEIVED && !row.inspectionResult);
+    if (!awaitingInspection) {
       throw new BadRequestException(`Cannot record inspection from status "${row.status}"`);
     }
 
-    row.receivedAt = new Date();
+    row.receivedAt = row.receivedAt || new Date();
     row.inspectedAt = new Date();
     row.inspectionResult = result;
     row.inspectionNotes = notes || null;
@@ -290,29 +412,35 @@ export class ExchangesService {
       return saved;
     }
 
-    // Passed: move the stock in one transaction so a shortfall on the
-    // replacement variant leaves neither side changed.
-    await this.dataSource.transaction(async (manager) => {
-      const exchangeVariant = await manager.findOne(ProductVariant, {
-        where: { id: row.exchangeVariantId! },
-      });
-      if (!exchangeVariant) throw new NotFoundException('Replacement variant no longer exists');
+    const hasReplacement = !!row.exchangeVariantId;
+    const nextStatus = hasReplacement ? ReturnStatus.RECEIVED : ReturnStatus.COMPLETED;
 
-      const reserved = await manager
-        .createQueryBuilder()
-        .update(ProductVariant)
-        .set({ stockQuantity: () => `"stock_quantity" - ${row.quantity}` })
-        .where('id = :id AND "stock_quantity" >= :quantity', {
-          id: exchangeVariant.id,
-          quantity: row.quantity,
-        })
-        .execute();
-      if (!reserved.affected) {
-        throw new BadRequestException(
-          `Insufficient stock for the replacement variant. Available: ${exchangeVariant.stockQuantity}, needed: ${row.quantity}`,
-        );
+    // Passed: move the stock in one transaction so a shortfall on the
+    // replacement variant leaves neither side changed. Route 3 (no
+    // replacement requested) only restocks the returned item.
+    await this.dataSource.transaction(async (manager) => {
+      if (hasReplacement) {
+        const exchangeVariant = await manager.findOne(ProductVariant, {
+          where: { id: row.exchangeVariantId! },
+        });
+        if (!exchangeVariant) throw new NotFoundException('Replacement variant no longer exists');
+
+        const reserved = await manager
+          .createQueryBuilder()
+          .update(ProductVariant)
+          .set({ stockQuantity: () => `"stock_quantity" - ${row.quantity}` })
+          .where('id = :id AND "stock_quantity" >= :quantity', {
+            id: exchangeVariant.id,
+            quantity: row.quantity,
+          })
+          .execute();
+        if (!reserved.affected) {
+          throw new BadRequestException(
+            `Insufficient stock for the replacement variant. Available: ${exchangeVariant.stockQuantity}, needed: ${row.quantity}`,
+          );
+        }
+        await this.rollUpProductStock(manager, exchangeVariant.productId);
       }
-      await this.rollUpProductStock(manager, exchangeVariant.productId);
 
       const orderItem = await manager.findOne(OrderItem, { where: { id: row.orderItemId } });
       if (orderItem?.variantId) {
@@ -320,22 +448,46 @@ export class ExchangesService {
         await this.rollUpProductStock(manager, orderItem.productId);
       }
 
-      row.status = ReturnStatus.RECEIVED;
+      row.status = nextStatus;
+      if (!hasReplacement) row.completedAt = new Date();
       await manager.save(Return, row);
     });
 
-    const exchangeVariant = await this.productVariantsRepository.findOne({
-      where: { id: row.exchangeVariantId! },
-    });
-    if (exchangeVariant) {
-      this.marketplaceGateway.emitStockUpdate(exchangeVariant.productId, exchangeVariant.stockQuantity);
+    if (row.exchangeVariantId) {
+      const exchangeVariant = await this.productVariantsRepository.findOne({
+        where: { id: row.exchangeVariantId },
+      });
+      if (exchangeVariant) {
+        this.marketplaceGateway.emitStockUpdate(exchangeVariant.productId, exchangeVariant.stockQuantity);
+      }
+    }
+
+    // A credit is owed whenever the replacement (if any) costs less than the
+    // original, or there was no replacement at all — see `request()`.
+    if (Number(row.refundTotal) > 0) {
+      const { balance } = await this.walletService.credit(
+        row.userId,
+        Number(row.refundTotal),
+        WalletLedgerType.EXCHANGE_CREDIT,
+        { exchangeId: row.id, orderId: row.orderId, description: `Exchange ${row.returnNumber} credit` },
+      );
+      console.log(`[recordInspection] Credited ₹${row.refundTotal} to user ${row.userId}. New wallet balance: ₹${balance}`);
     }
 
     this.notificationsService
-      .notifyUser(row.userId, NotificationType.EXCHANGE_INSPECTION_PASSED, "We've received your item", {
-        body: 'Your replacement will ship shortly.',
-        link: '/orders', orderId: row.orderId,
-      })
+      .notifyUser(
+        row.userId,
+        NotificationType.EXCHANGE_INSPECTION_PASSED,
+        hasReplacement ? "We've received your item" : 'Your exchange is complete',
+        {
+          body: hasReplacement
+            ? 'Your replacement will ship shortly.'
+            : Number(row.refundTotal) > 0
+              ? `₹${Number(row.refundTotal).toFixed(2)} has been added to your store credit.`
+              : undefined,
+          link: '/orders', orderId: row.orderId,
+        },
+      )
       .catch((err) => console.error('Failed to notify customer of passed inspection:', err));
 
     return row;

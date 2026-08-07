@@ -20,6 +20,7 @@ import { ReviewsModule } from './modules/reviews/reviews.module';
 import { PromotionsModule } from './modules/promotions/promotions.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { WalletModule } from './modules/wallet/wallet.module';
 import { UploadModule } from './modules/upload/upload.module';
 import { BookingsModule } from './modules/bookings/bookings.module';
 import { LocationsModule } from './modules/locations/locations.module';
@@ -121,6 +122,7 @@ import { ReferralsModule } from './modules/referrals/referrals.module';
     PromotionsModule,
     AnalyticsModule,
     NotificationsModule,
+    WalletModule,
     UploadModule,
     BookingsModule,
     LocationsModule,

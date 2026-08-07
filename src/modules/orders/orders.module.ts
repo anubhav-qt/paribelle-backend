@@ -18,6 +18,7 @@ import { InvoicesModule } from '../invoices/invoices.module';
 import { PlatformModule } from '../platform/platform.module';
 import { AdminModule } from '../admin/admin.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { WalletModule } from '../wallet/wallet.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     PlatformModule,
     AdminModule,
     NotificationsModule,
+    WalletModule,
     forwardRef(() => PaymentsModule),
     forwardRef(() => InvoicesModule),
   ],

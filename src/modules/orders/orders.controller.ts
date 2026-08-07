@@ -65,6 +65,24 @@ export class OrdersController {
   }
 
   /**
+   * A dispatched COD order was refused at the door. Admin picks one of two
+   * outcomes here; the third ("exchange, as requested") goes through
+   * `POST /orders/:id/items/:itemId/cod-refused-exchange` instead, since it
+   * needs a replacement variant.
+   */
+  @Post(':id/cod-refused')
+  @AdminOnly()
+  resolveCodRefusal(
+    @Param('id') id: string,
+    @Body() body: { decision: 'credit' | 'nothing'; creditAmount?: number; reason?: string },
+  ) {
+    return this.ordersService.resolveCodRefusal(id, body.decision, {
+      creditAmount: body.creditAmount,
+      reason: body.reason,
+    });
+  }
+
+  /**
    * The customer's payment attempt failed or they dismissed the gateway. Lets
    * the checkout page release the order immediately rather than waiting on a
    * webhook that never arrives when the modal is simply closed.
@@ -78,8 +96,8 @@ export class OrdersController {
 
   @Patch(':id/status')
   @AdminOnly()
-  updateStatus(@Param('id') id: string, @Body() body: { status: OrderStatus }) {
-    return this.ordersService.updateStatus(id, body.status);
+  updateStatus(@Param('id') id: string, @Body() body: { status: OrderStatus; reason?: string }) {
+    return this.ordersService.updateStatus(id, body.status, body.reason);
   }
 
   @Patch(':id/payment-status')

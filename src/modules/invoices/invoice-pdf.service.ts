@@ -507,29 +507,40 @@ export class InvoicePdfService {
       const isIntraState = vendorState && customerState && 
                            vendorState.toLowerCase().trim() === customerState.toLowerCase().trim();
       
+      // The label percentage is derived from the actual tax charged, not
+      // hardcoded — the store sells items at more than one GST rate (e.g.
+      // 3% on jewellery vs 18% on apparel), so a fixed "9%"/"18%" label was
+      // wrong on every invoice that wasn't 18% GST. The rupee split itself
+      // was already correct (CGST+SGST sum to, and IGST equals, invoice.tax
+      // either way — only the itemisation on the page changes).
+      const totalGstPercent = Number(invoice.subtotal) > 0
+        ? (Number(invoice.tax) / Number(invoice.subtotal)) * 100
+        : 0;
+
       if (isIntraState) {
-        // Intra-state: Show CGST + SGST
+        // Intra-state (ship-to state matches the vendor's state): CGST + SGST, each half the total GST rate.
         const cgst = invoice.tax / 2;
         const sgst = invoice.tax / 2;
-        
+        const halfPercent = (totalGstPercent / 2).toFixed(2);
+
         doc
           .fillColor('#666666')
-          .text('CGST (9%):', labelX, lineY)
+          .text(`CGST (${halfPercent}%):`, labelX, lineY)
           .fillColor('#000000')
           .text(this.formatCurrency(cgst), valueX, lineY, { align: 'right' });
         lineY += 15;
 
         doc
           .fillColor('#666666')
-          .text('SGST (9%):', labelX, lineY)
+          .text(`SGST (${halfPercent}%):`, labelX, lineY)
           .fillColor('#000000')
           .text(this.formatCurrency(sgst), valueX, lineY, { align: 'right' });
         lineY += 15;
       } else {
-        // Inter-state: Show IGST
+        // Inter-state (ship-to state differs from the vendor's state): a single IGST line at the full GST rate.
         doc
           .fillColor('#666666')
-          .text('IGST (18%):', labelX, lineY)
+          .text(`IGST (${totalGstPercent.toFixed(2)}%):`, labelX, lineY)
           .fillColor('#000000')
           .text(this.formatCurrency(invoice.tax), valueX, lineY, { align: 'right' });
         lineY += 15;

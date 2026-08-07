@@ -39,6 +39,13 @@ export enum PaymentStatus {
    */
   REFUND_PENDING = 'refund_pending',
   REFUNDED = 'refunded',
+  /**
+   * The amount owed was settled as store credit (wallet), not an actual
+   * money refund. Set the moment an admin cancels a paid order — see
+   * `OrdersService.updateStatus`'s CANCELLED branch — since a wallet credit
+   * is issued synchronously and needs no webhook to confirm it landed.
+   */
+  CREDITED = 'credited',
 }
 
 @Entity('orders')
@@ -98,6 +105,15 @@ export class Order {
     name: 'payment_status',
   })
   paymentStatus: PaymentStatus;
+
+  /**
+   * The actual method the order was placed with ('cod' | 'razorpay'),
+   * recorded at creation. Previously not stored at all — the admin UI
+   * inferred it from `paymentStatus`, so a COD order marked paid displayed
+   * as razorpay. See tester item 7.
+   */
+  @Column({ type: 'varchar', length: 20, nullable: true, name: 'payment_method' })
+  paymentMethod: string | null;
 
   // Shipping address
   @Column({ name: 'shipping_name' })
@@ -165,6 +181,14 @@ export class Order {
 
   @Column({ type: 'text', nullable: true, name: 'admin_notes' })
   adminNotes: string;
+
+  /**
+   * Why the order was cancelled — customer-supplied (self-cancel) or
+   * admin-supplied (rejection). Previously only appended into
+   * customerNotes/adminNotes free text and never surfaced. See tester item 6.
+   */
+  @Column({ type: 'text', nullable: true, name: 'cancellation_reason' })
+  cancellationReason: string | null;
 
   // Timestamps
   @Column({ type: 'timestamp', nullable: true, name: 'confirmed_at' })

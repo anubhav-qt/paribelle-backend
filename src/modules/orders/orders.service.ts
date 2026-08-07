@@ -14,6 +14,8 @@ import { PlatformSettingsService } from '../platform/platform-settings.service';
 import { SettingsService } from '../admin/settings.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/notification.entity';
+import { WalletService } from '../wallet/wallet.service';
+import { WalletLedgerType } from '../wallet/wallet-ledger.entity';
 import { Response } from 'express';
 
 @Injectable()
@@ -38,6 +40,7 @@ export class OrdersService {
     private platformSettingsService: PlatformSettingsService,
     private settingsService: SettingsService,
     private notificationsService: NotificationsService,
+    private walletService: WalletService,
     private dataSource: DataSource,
   ) {}
 
@@ -230,6 +233,26 @@ export class OrdersService {
       this.marketplaceGateway.emitBulkStockUpdate(stockUpdates);
     }
 
+    // Notify admins the moment a product crosses its low-stock threshold —
+    // only on the order that crosses it, not every order after, so this
+    // fires once per dip rather than spamming on every sale while stock
+    // stays low.
+    for (const update of stockUpdates) {
+      const product = products.find((p) => p.id === update.productId);
+      if (!product?.lowStockThreshold) continue;
+      const orderedQty = items
+        .filter((i: any) => i.productId === update.productId)
+        .reduce((sum: number, i: any) => sum + Number(i.quantity), 0);
+      const stockBefore = update.stockQuantity + orderedQty;
+      if (update.stockQuantity <= product.lowStockThreshold && stockBefore > product.lowStockThreshold) {
+        this.notificationsService
+          .notifyAdmins(NotificationType.LOW_STOCK, `${product.name} is low on stock (${update.stockQuantity} left)`, {
+            link: `/admin/products`,
+          })
+          .catch((err) => console.error('Failed to notify admins of low stock:', err));
+      }
+    }
+
     // Group items by vendorId
     const itemsByVendor = new Map<string, any[]>();
     
@@ -360,8 +383,9 @@ export class OrdersService {
         commissionAmount,
         vendorPayout,
         status: OrderStatus.PENDING,
-        paymentStatus: paymentMethod === 'cod' ? PaymentStatus.PENDING : 
-                       paymentMethod === 'razorpay' ? PaymentStatus.PENDING : 
+        paymentMethod: paymentMethod || 'cod',
+        paymentStatus: paymentMethod === 'cod' ? PaymentStatus.PENDING :
+                       paymentMethod === 'razorpay' ? PaymentStatus.PENDING :
                        PaymentStatus.PAID, // Only mark as paid for other payment methods
         shippingName: shippingAddress.fullName,
         shippingEmail: shippingAddress.email || '', // Use from address if available
@@ -425,12 +449,14 @@ export class OrdersService {
 
     console.log(`Created ${createdOrders.length} order(s)`);
 
-    // Deduct wallet balance if it was used
+    // Deduct wallet balance if it was used — through the ledger, not a raw
+    // column update, so this spend shows up in the customer's wallet history.
     if (walletAmountUsed > 0) {
-      await this.userRepository.update(userId, {
-        walletBalance: () => `wallet_balance - ${walletAmountUsed}`,
+      const { balance } = await this.walletService.debit(userId, walletAmountUsed, WalletLedgerType.CHECKOUT_SPEND, {
+        orderId: createdOrders[0]?.id,
+        description: `Applied at checkout across ${createdOrders.length} order(s)`,
       });
-      console.log(`Deducted ${walletAmountUsed} from user wallet. Remaining balance: ${user.walletBalance - walletAmountUsed}`);
+      console.log(`Deducted ${walletAmountUsed} from user wallet. Remaining balance: ${balance}`);
     }
 
     // Return all orders with items
@@ -822,7 +848,7 @@ export class OrdersService {
         postalCode: order.shippingPostalCode,
         country: order.shippingCountry,
       },
-      paymentMethod: order.paymentStatus === 'pending' ? 'cod' : 'razorpay',
+      paymentMethod: order.paymentMethod || (order.paymentStatus === 'pending' ? 'cod' : 'razorpay'),
       // Add customer invoice info for easy access
       invoice: customerInvoice ? {
         id: customerInvoice.id,
@@ -844,7 +870,7 @@ export class OrdersService {
     };
   }
 
-  async updateStatus(id: string, status: OrderStatus) {
+  async updateStatus(id: string, status: OrderStatus, reason?: string) {
     const startTime = Date.now();
     console.log(`[updateStatus] Starting status update for order ${id} to ${status}`);
     
@@ -955,7 +981,11 @@ export class OrdersService {
       }
     } else if (status === OrderStatus.CANCELLED) {
       order.cancelledAt = new Date();
-      
+      if (reason) {
+        order.cancellationReason = reason;
+        order.adminNotes = (order.adminNotes || '') + `\nCancellation reason: ${reason}`;
+      }
+
       // Restore stock quantities for cancelled order
       if (order.items && order.items.length > 0) {
         console.log(`[updateStatus] Restoring stock for cancelled order ${order.orderNumber}`);
@@ -999,15 +1029,27 @@ export class OrdersService {
         })
         .catch((err) => console.error('Failed to notify customer of rejection:', err));
 
-      // A paid order that is cancelled owes the customer money. Park it in
-      // REFUND_PENDING — the same state `cancel()` uses — so it is visible as
-      // a refund waiting to be settled rather than sitting at "paid" as if
-      // nothing were owed. Only the `refund.processed` webhook may promote it
-      // to REFUNDED; see `markRefundSettled`.
+      // A paid order that is cancelled owes the customer money. Rather than
+      // parking it in REFUND_PENDING waiting on the Razorpay refund.processed
+      // webhook — which is not configured, so it would sit there forever —
+      // the amount is issued as store credit immediately.
       if (order.paymentStatus === PaymentStatus.PAID) {
-        order.paymentStatus = PaymentStatus.REFUND_PENDING;
+        const { balance } = await this.walletService.credit(
+          order.userId,
+          Number(order.total),
+          WalletLedgerType.ADMIN_CANCEL_CREDIT,
+          { orderId: order.id, description: `Order #${order.orderNumber} cancelled after payment` },
+        );
+        order.paymentStatus = PaymentStatus.CREDITED;
         order.adminNotes = (order.adminNotes || '') +
-          `\nRefund owed (order cancelled) at ${new Date().toISOString()}`;
+          `\n₹${Number(order.total).toFixed(2)} issued as store credit (order cancelled) at ${new Date().toISOString()}. New wallet balance: ₹${balance.toFixed(2)}`;
+
+        this.notificationsService
+          .notifyUser(order.userId, NotificationType.ORDER_REJECTED, `₹${Number(order.total).toFixed(2)} credited to your wallet`, {
+            body: `Order #${order.orderNumber} was cancelled after payment — the amount has been added to your store credit.`,
+            link: '/orders', orderId: order.id,
+          })
+          .catch((err) => console.error('Failed to notify customer of cancellation credit:', err));
 
         try {
           console.log(`[updateStatus] Creating credit note for cancelled order ${order.orderNumber}`);
@@ -1162,6 +1204,7 @@ export class OrdersService {
     order.cancelledAt = new Date();
     if (reason) {
       order.customerNotes = (order.customerNotes || '') + `\nCancellation reason: ${reason}`;
+      order.cancellationReason = reason;
     }
 
     // No refund-owed branch here: `cancel` now rejects any order whose
@@ -1191,6 +1234,88 @@ export class OrdersService {
       .catch((err) => console.error('Failed to notify admins of customer cancellation:', err));
 
     return this.orderRepository.save(order);
+  }
+
+  /**
+   * A dispatched COD order was refused at the door and the goods came back.
+   * The customer never paid, so 'credit' here is a goodwill gesture the
+   * admin decides the amount of — there is no payment to refund. 'nothing'
+   * is for goods that came back tampered with: no stock restore, no credit,
+   * the item is simply written off. The exchange decision is handled
+   * separately by `ExchangesService.initiateForRefusedCod`, since it needs
+   * a replacement variant, not just a decision.
+   */
+  async resolveCodRefusal(
+    orderId: string,
+    decision: 'credit' | 'nothing',
+    options: { creditAmount?: number; reason?: string } = {},
+  ): Promise<Order> {
+    const order = await this.orderRepository.findOne({
+      where: { id: orderId },
+      relations: ['items', 'items.product', 'user'],
+    });
+    if (!order) throw new NotFoundException('Order not found');
+
+    if (order.paymentMethod !== 'cod') {
+      throw new BadRequestException('This decision only applies to COD orders.');
+    }
+    if (order.status !== OrderStatus.SHIPPED) {
+      throw new BadRequestException('This order has not been dispatched, or has already moved past this point.');
+    }
+    if (order.paymentStatus !== PaymentStatus.PENDING) {
+      throw new BadRequestException('This order has already been marked paid — use the delivered/exchange flow instead.');
+    }
+
+    if (decision === 'credit') {
+      // Goods are undamaged and coming back to stock.
+      for (const item of order.items) {
+        if (item.variantId) {
+          await this.productVariantsRepository.increment({ id: item.variantId }, 'stockQuantity', item.quantity);
+          const variants = await this.productVariantsRepository.find({ where: { productId: item.productId } });
+          const newTotal = variants.reduce((s, v) => s + (v.stockQuantity || 0), 0);
+          await this.productRepository.update(item.productId, { stockQuantity: newTotal });
+        } else {
+          await this.productRepository.increment({ id: item.productId }, 'stockQuantity', item.quantity);
+        }
+        await this.productRepository.decrement({ id: item.productId }, 'salesCount', item.quantity);
+        const product = await this.productRepository.findOne({ where: { id: item.productId } });
+        if (product) this.marketplaceGateway.emitStockUpdate(product.id, product.stockQuantity);
+      }
+
+      const creditAmount = Number(options.creditAmount ?? 0);
+      if (creditAmount > 0) {
+        const { balance } = await this.walletService.credit(
+          order.userId,
+          creditAmount,
+          WalletLedgerType.COD_REFUSAL_CREDIT,
+          { orderId: order.id, description: `Order #${order.orderNumber} refused at delivery` },
+        );
+        order.adminNotes = (order.adminNotes || '') +
+          `\n₹${creditAmount.toFixed(2)} issued as goodwill store credit (COD refused) at ${new Date().toISOString()}. New wallet balance: ₹${balance.toFixed(2)}`;
+      }
+    } else {
+      // Tampered — not resold, no credit. Stock is deliberately left alone.
+      order.adminNotes = (order.adminNotes || '') +
+        `\nGoods returned tampered/unsellable (COD refused) at ${new Date().toISOString()}. No credit issued, stock not restored.`;
+    }
+
+    order.status = OrderStatus.CANCELLED;
+    order.cancelledAt = new Date();
+    order.cancellationReason = options.reason || (decision === 'credit' ? 'COD delivery refused' : 'COD delivery refused — goods returned unsellable');
+
+    const saved = await this.orderRepository.save(order);
+    this.marketplaceGateway.emitOrderStatusUpdate(order.id, OrderStatus.CANCELLED, order.userId);
+
+    this.notificationsService
+      .notifyUser(order.userId, NotificationType.ORDER_CANCELLED, `Order #${order.orderNumber} — delivery refused`, {
+        body: decision === 'credit' && Number(options.creditAmount ?? 0) > 0
+          ? `₹${Number(options.creditAmount).toFixed(2)} has been added to your store credit.`
+          : undefined,
+        link: '/orders', orderId: order.id,
+      })
+      .catch((err) => console.error('Failed to notify customer of COD refusal resolution:', err));
+
+    return saved;
   }
 
   /**
