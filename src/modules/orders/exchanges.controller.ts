@@ -36,31 +36,6 @@ export class ExchangesController {
   }
 
   /**
-   * A dispatched COD order was refused at the door and the customer asked
-   * for a different item instead of a credit. See
-   * `ExchangesService.initiateForRefusedCod` — this starts already at
-   * RECEIVED, skipping the shipping leg a customer-initiated exchange waits
-   * through, since the goods never left the store.
-   */
-  @Post('orders/:orderId/items/:orderItemId/cod-refused-exchange')
-  @AdminOnly()
-  initiateForRefusedCod(
-    @Param('orderId') orderId: string,
-    @Param('orderItemId') orderItemId: string,
-    @Request() req,
-    @Body() body: { quantity: number; exchangeVariantId: string; reason: string },
-  ) {
-    return this.exchangesService.initiateForRefusedCod(
-      orderId,
-      orderItemId,
-      req.user.id,
-      body.quantity,
-      body.exchangeVariantId,
-      body.reason,
-    );
-  }
-
-  /**
    * Both the customer's own order page and the admin decision panel read
    * this, so it cannot be `@AdminOnly()`. Scoped in the controller (not the
    * service, since the service is also used for admin listings) — a customer
@@ -118,5 +93,17 @@ export class ExchangesController {
   @AdminOnly()
   shipReplacement(@Param('id') id: string, @Body() body: { trackingNumber?: string }) {
     return this.exchangesService.shipReplacement(id, body?.trackingNumber);
+  }
+
+  @Post('exchanges/:id/create-replacement-order')
+  @AdminOnly()
+  createReplacementOrder(@Param('id') id: string, @Request() req) {
+    return this.exchangesService.createReplacementOrder(id, req.user.id);
+  }
+
+  @Post('exchanges/:id/settle-as-credit')
+  @AdminOnly()
+  settleAsCredit(@Param('id') id: string, @Request() req) {
+    return this.exchangesService.settleAsCredit(id, req.user.id);
   }
 }

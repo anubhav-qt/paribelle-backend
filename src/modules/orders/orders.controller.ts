@@ -67,8 +67,8 @@ export class OrdersController {
   /**
    * A dispatched COD order was refused at the door. Admin picks one of two
    * outcomes here; the third ("exchange, as requested") goes through
-   * `POST /orders/:id/items/:itemId/cod-refused-exchange` instead, since it
-   * needs a replacement variant.
+   * `POST /orders/:id/cod-refused-exchange` instead, since it needs a
+   * replacement product.
    */
   @Post(':id/cod-refused')
   @AdminOnly()
@@ -80,6 +80,21 @@ export class OrdersController {
       creditAmount: body.creditAmount,
       reason: body.reason,
     });
+  }
+
+  @Post(':id/cod-refused-exchange')
+  @AdminOnly()
+  resolveCodRefusalWithExchange(
+    @Param('id') id: string,
+    @Body() body: { productId: string; variantId: string; quantity: number; reason?: string },
+  ) {
+    return this.ordersService.resolveCodRefusalWithExchange(
+      id,
+      body.productId,
+      body.variantId,
+      body.quantity,
+      body.reason || '',
+    );
   }
 
   /**

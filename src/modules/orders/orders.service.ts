@@ -378,15 +378,23 @@ export class OrdersService {
         tax: vendorTax,
         shippingCost: vendorShippingCost,
         discount: vendorWalletDiscount,
-        total: vendorFinalTotal > 0 ? vendorFinalTotal : vendorTotal,
+        // A vendorFinalTotal of exactly 0 is the wallet covering the order in
+        // full, not a signal to ignore the discount and charge the full
+        // price — falling back to vendorTotal here used to do exactly that.
+        total: Math.max(vendorFinalTotal, 0),
         commissionRate,
         commissionAmount,
         vendorPayout,
         status: OrderStatus.PENDING,
-        paymentMethod: paymentMethod || 'cod',
-        paymentStatus: paymentMethod === 'cod' ? PaymentStatus.PENDING :
-                       paymentMethod === 'razorpay' ? PaymentStatus.PENDING :
-                       PaymentStatus.PAID, // Only mark as paid for other payment methods
+        // The wallet fully covering the order settles it immediately,
+        // regardless of which gateway was nominally chosen — there is
+        // nothing left to collect via COD or Razorpay.
+        paymentMethod: vendorFinalTotal <= 0 && walletAmountUsed > 0 ? 'wallet' : (paymentMethod || 'cod'),
+        paymentStatus: vendorFinalTotal <= 0 && walletAmountUsed > 0
+          ? PaymentStatus.PAID
+          : paymentMethod === 'cod' ? PaymentStatus.PENDING :
+            paymentMethod === 'razorpay' ? PaymentStatus.PENDING :
+            PaymentStatus.PAID, // Only mark as paid for other payment methods
         shippingName: shippingAddress.fullName,
         shippingEmail: shippingAddress.email || '', // Use from address if available
         shippingPhone: shippingAddress.phone,
@@ -1242,8 +1250,8 @@ export class OrdersService {
    * admin decides the amount of — there is no payment to refund. 'nothing'
    * is for goods that came back tampered with: no stock restore, no credit,
    * the item is simply written off. The exchange decision is handled
-   * separately by `ExchangesService.initiateForRefusedCod`, since it needs
-   * a replacement variant, not just a decision.
+   * separately by `resolveCodRefusalWithExchange`, since it needs a
+   * replacement product, not just a decision.
    */
   async resolveCodRefusal(
     orderId: string,
@@ -1316,6 +1324,131 @@ export class OrdersService {
       .catch((err) => console.error('Failed to notify customer of COD refusal resolution:', err));
 
     return saved;
+  }
+
+  /**
+   * A dispatched COD order was refused at the door and the customer asked
+   * for a different item instead of a credit or nothing. Unlike a
+   * post-delivery exchange, nothing was ever paid here, so there is no
+   * value to credit — this simply restocks the refused item, cancels the
+   * order it came on, and places a brand new order for the replacement,
+   * exactly as if the customer had ordered it fresh.
+   */
+  async resolveCodRefusalWithExchange(
+    orderId: string,
+    productId: string,
+    variantId: string,
+    quantity: number,
+    reason: string,
+  ): Promise<{ cancelledOrder: Order; newOrder: Order }> {
+    const order = await this.orderRepository.findOne({
+      where: { id: orderId },
+      relations: ['items', 'items.product', 'user'],
+    });
+    if (!order) throw new NotFoundException('Order not found');
+
+    if (order.paymentMethod !== 'cod') {
+      throw new BadRequestException('This decision only applies to COD orders.');
+    }
+    if (order.status !== OrderStatus.SHIPPED) {
+      throw new BadRequestException('This order has not been dispatched, or has already moved past this point.');
+    }
+    if (order.paymentStatus !== PaymentStatus.PENDING) {
+      throw new BadRequestException('This order has already been marked paid — use the delivered/exchange flow instead.');
+    }
+
+    const variant = await this.productVariantsRepository.findOne({ where: { id: variantId } });
+    if (!variant || variant.productId !== productId) {
+      throw new NotFoundException('Requested replacement variant not found');
+    }
+    const product = await this.productRepository.findOne({ where: { id: productId } });
+    if (!product) throw new NotFoundException('Requested replacement product not found');
+    if (!Number.isInteger(quantity) || quantity < 1) {
+      throw new BadRequestException('Quantity must be a whole number of at least 1');
+    }
+
+    // Goods are undamaged and coming back to stock — a customer asking to
+    // exchange rather than just refusing implies they still want to buy
+    // something from the store, not that the parcel is unsellable.
+    for (const item of order.items) {
+      if (item.variantId) {
+        await this.productVariantsRepository.increment({ id: item.variantId }, 'stockQuantity', item.quantity);
+        const variants = await this.productVariantsRepository.find({ where: { productId: item.productId } });
+        const newTotal = variants.reduce((s, v) => s + (v.stockQuantity || 0), 0);
+        await this.productRepository.update(item.productId, { stockQuantity: newTotal });
+      } else {
+        await this.productRepository.increment({ id: item.productId }, 'stockQuantity', item.quantity);
+      }
+      await this.productRepository.decrement({ id: item.productId }, 'salesCount', item.quantity);
+      const restockedProduct = await this.productRepository.findOne({ where: { id: item.productId } });
+      if (restockedProduct) this.marketplaceGateway.emitStockUpdate(restockedProduct.id, restockedProduct.stockQuantity);
+    }
+
+    order.status = OrderStatus.CANCELLED;
+    order.cancelledAt = new Date();
+    order.cancellationReason = reason || 'COD delivery refused — customer requested a different item';
+    order.adminNotes = (order.adminNotes || '') + `\nReplaced with a new order after COD refusal at ${new Date().toISOString()}`;
+    const cancelledOrder = await this.orderRepository.save(order);
+    this.marketplaceGateway.emitOrderStatusUpdate(order.id, OrderStatus.CANCELLED, order.userId);
+
+    // Same tax-inclusive pricing the storefront's checkout uses (see
+    // calculateTaxBreakdown) — item price already includes GST for the
+    // common mrp_with_gst pricing type.
+    const itemTotal = Number(variant.price) * quantity;
+    const gstRate = product.gstRate != null ? Number(product.gstRate) : 18;
+    const priceType = product.priceType || 'mrp_with_gst';
+    let subtotal: number;
+    let tax: number;
+    if (priceType === 'mrp_with_gst' && gstRate > 0) {
+      subtotal = itemTotal / (1 + gstRate / 100);
+      tax = itemTotal - subtotal;
+    } else if (priceType === 'mrp_with_gst') {
+      subtotal = itemTotal;
+      tax = 0;
+    } else {
+      subtotal = itemTotal;
+      tax = itemTotal * (gstRate / 100);
+    }
+
+    const created = await this.create(order.userId, {
+      items: [{ productId, variantId, quantity, price: variant.price }],
+      shippingAddress: {
+        fullName: order.shippingName,
+        email: order.shippingEmail,
+        phone: order.shippingPhone,
+        addressLine1: order.shippingAddress,
+        city: order.shippingCity,
+        state: order.shippingState,
+        country: order.shippingCountry,
+        postalCode: order.shippingPostalCode,
+      },
+      billingAddress: order.billingAddressSameAsShipping ? undefined : {
+        fullName: order.billingName,
+        email: order.billingEmail,
+        phone: order.billingPhone,
+        addressLine1: order.billingAddress,
+        city: order.billingCity,
+        state: order.billingState,
+        country: order.billingCountry,
+        postalCode: order.billingPostalCode,
+      },
+      subtotal: Number(subtotal.toFixed(2)),
+      shippingCost: 0,
+      tax: Number(tax.toFixed(2)),
+      totalAmount: Number(itemTotal.toFixed(2)),
+      paymentMethod: 'cod',
+      useWalletBalance: true,
+    });
+    const newOrder = Array.isArray(created) ? created[0] : created;
+
+    this.notificationsService
+      .notifyUser(order.userId, NotificationType.ORDER_CONFIRMED, `New order #${newOrder.orderNumber} placed for your exchange`, {
+        body: `Order #${order.orderNumber} was cancelled after the refused delivery and replaced with this one.`,
+        link: '/orders', orderId: newOrder.id,
+      })
+      .catch((err) => console.error('Failed to notify customer of COD-refusal replacement order:', err));
+
+    return { cancelledOrder, newOrder };
   }
 
   /**

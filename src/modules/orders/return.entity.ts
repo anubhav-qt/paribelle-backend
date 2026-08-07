@@ -206,6 +206,19 @@ export class Return {
   @Column({ name: 'completed_at', type: 'timestamp', nullable: true })
   completedAt: Date | null;
 
+  /**
+   * The order that fulfilled a different-product exchange (route 2 — see
+   * `ExchangesService.createReplacementOrder`). A same-variant swap (route 1)
+   * ships off the original order and never sets this; a no-replacement
+   * exchange (route 3) never needs an order at all.
+   */
+  @ManyToOne(() => Order, { nullable: true })
+  @JoinColumn({ name: 'completed_order_id' })
+  completedOrder: Order | null;
+
+  @Column({ type: 'uuid', name: 'completed_order_id', nullable: true })
+  completedOrderId: string | null;
+
   @ManyToOne(() => User, { nullable: true })
   @JoinColumn({ name: 'approved_by' })
   approvedBy: User | null;
