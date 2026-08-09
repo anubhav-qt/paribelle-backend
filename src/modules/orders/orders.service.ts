@@ -830,11 +830,13 @@ export class OrdersService {
 
     // Computed server-side so the client never re-implements the cancellation
     // and exchange policy — a rule duplicated in two places drifts. See Task 8.
+    // Cancellation is allowed up to (not including) SHIPPED regardless of
+    // payment status — a paid order that's cancelled is refunded to store
+    // credit, see `cancel()`.
     const canCancel =
-      order.paymentStatus === PaymentStatus.PENDING &&
-      (order.status === OrderStatus.PENDING ||
-        order.status === OrderStatus.CONFIRMED ||
-        order.status === OrderStatus.PROCESSING);
+      order.status === OrderStatus.PENDING ||
+      order.status === OrderStatus.CONFIRMED ||
+      order.status === OrderStatus.PROCESSING;
 
     let canExchange = false;
     let exchangeWindowExpiresAt: string | null = null;
@@ -1168,20 +1170,13 @@ export class OrdersService {
       throw new NotFoundException('Order not found');
     }
 
-    // Cancellation is only available up to (not including) SHIPPED, and only
-    // while the order is unpaid — decided in the plan. A prepaid order that
-    // has already been charged, or a COD order already in transit, is past
-    // the point the store will cancel for a refund; a delivered, paid order
-    // exchanges instead, it does not cancel.
+    // Cancellation is only available up to (not including) SHIPPED. A paid
+    // order cancelled here is refunded to store credit below; once shipped
+    // the store no longer cancels — a delivered order exchanges instead.
     if (order.status !== OrderStatus.PENDING && order.status !== OrderStatus.CONFIRMED && order.status !== OrderStatus.PROCESSING) {
       throw new BadRequestException(
         'This order can no longer be cancelled — it has already shipped. ' +
         'Once delivered, a wrong or unwanted item can be exchanged instead.',
-      );
-    }
-    if (order.paymentStatus === PaymentStatus.PAID) {
-      throw new BadRequestException(
-        'Paid orders cannot be cancelled. Once delivered, a wrong or unwanted item can be exchanged instead.',
       );
     }
 
@@ -1215,11 +1210,34 @@ export class OrdersService {
       order.cancellationReason = reason;
     }
 
-    // No refund-owed branch here: `cancel` now rejects any order whose
-    // payment_status is PAID before reaching this point (see the guard
-    // above), so a customer cancellation can never owe a refund. The only
-    // path that still can is an admin rejecting an already-paid order via
-    // `updateStatus` — see its CANCELLED branch.
+    // A paid order that's cancelled owes the customer money. As with the
+    // admin-cancel path in `updateStatus`, this is issued as store credit
+    // immediately rather than queued behind a Razorpay refund webhook that
+    // isn't configured.
+    if (order.paymentStatus === PaymentStatus.PAID) {
+      const { balance } = await this.walletService.credit(
+        order.userId,
+        Number(order.total),
+        WalletLedgerType.CUSTOMER_CANCEL_CREDIT,
+        { orderId: order.id, description: `Order #${order.orderNumber} cancelled by customer after payment` },
+      );
+      order.paymentStatus = PaymentStatus.CREDITED;
+      order.customerNotes = (order.customerNotes || '') +
+        `\n₹${Number(order.total).toFixed(2)} issued as store credit (order cancelled) at ${new Date().toISOString()}. New wallet balance: ₹${balance.toFixed(2)}`;
+
+      this.notificationsService
+        .notifyUser(order.userId, NotificationType.ORDER_CANCELLED, `₹${Number(order.total).toFixed(2)} credited to your wallet`, {
+          body: `Order #${order.orderNumber} was cancelled — the amount you paid has been added to your store credit.`,
+          link: '/orders', orderId: order.id,
+        })
+        .catch((err) => console.error('Failed to notify customer of cancellation credit:', err));
+
+      try {
+        await this.invoicesService.createCreditNote(order.id, 'Order cancelled by customer');
+      } catch (error) {
+        console.error('Failed to create credit note for customer-cancelled order:', error);
+      }
+    }
 
     // Send cancellation email
     if (order.user && order.user.email) {
