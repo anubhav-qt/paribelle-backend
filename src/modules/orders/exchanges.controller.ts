@@ -21,6 +21,7 @@ export class ExchangesController {
       exchangeVariantId?: string | null;
       customerNotes?: string;
       images?: string[];
+      topUpPaymentMethod?: 'wallet' | 'cod' | null;
     },
   ) {
     return this.exchangesService.request(
@@ -32,6 +33,7 @@ export class ExchangesController {
       body.exchangeVariantId,
       body.customerNotes,
       body.images,
+      body.topUpPaymentMethod,
     );
   }
 

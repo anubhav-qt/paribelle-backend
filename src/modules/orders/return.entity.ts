@@ -153,6 +153,27 @@ export class Return {
   @Column({ type: 'uuid', name: 'exchange_variant_id', nullable: true })
   exchangeVariantId: string | null;
 
+  /**
+   * How much more the replacement costs than the original item (route 2
+   * only) — 0 when the replacement is the same price or cheaper, or for
+   * routes 1 and 3. `creditAmount`/`refundTotal` always credits the
+   * *original* item's value regardless of this; the customer covers the gap
+   * themselves, either from their own wallet balance or COD when the
+   * replacement order is created — see `topUpPaymentMethod`.
+   */
+  @Column({ name: 'top_up_amount', type: 'decimal', precision: 10, scale: 2, default: 0 })
+  topUpAmount: number;
+
+  /**
+   * How the customer chose to cover `topUpAmount`: 'wallet' means they had
+   * enough existing wallet balance at request time and it's drawn down
+   * automatically when the replacement order is created; 'cod' means the
+   * gap is collected as cash/UPI on delivery of the replacement. Null when
+   * there is no gap to cover.
+   */
+  @Column({ type: 'varchar', name: 'top_up_payment_method', nullable: true })
+  topUpPaymentMethod: 'wallet' | 'cod' | null;
+
   @Column({ type: 'jsonb', nullable: true })
   images: string[] | null;
 

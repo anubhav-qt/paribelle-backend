@@ -60,12 +60,13 @@ export class ExchangesService {
    *
    *  - `exchangeVariantId` names a variant of the *same* product, same price
    *    → a straight swap, no money moves (the original behaviour).
-   *  - `exchangeVariantId` names a variant of a *different* product that
-   *    costs no more than the original → allowed; the difference is credited
-   *    to the customer's wallet once the returned item passes inspection. A
-   *    replacement that costs *more* is rejected here — the store does not
-   *    yet collect a top-up payment for the difference; the customer should
-   *    request full credit instead and place a new order.
+   *  - `exchangeVariantId` names a variant of a *different* product → the
+   *    original item's full value is credited to the customer's wallet once
+   *    the returned item passes inspection. If the replacement costs *more*,
+   *    the gap (`topUpAmount`) is covered separately, by whichever method the
+   *    customer picked in `topUpPaymentMethod`: their own existing wallet
+   *    balance (checked here, at request time), or COD collected when the
+   *    replacement order ships.
    *  - No `exchangeVariantId` at all → the customer wants nothing back; the
    *    full item value is credited to their wallet once inspection passes.
    *
@@ -82,6 +83,7 @@ export class ExchangesService {
     exchangeVariantId: string | null | undefined,
     customerNotes?: string,
     images?: string[],
+    topUpPaymentMethod?: 'wallet' | 'cod' | null,
   ): Promise<Return> {
     const order = await this.orderRepository.findOne({
       where: { id: orderId, userId },
@@ -146,6 +148,8 @@ export class ExchangesService {
     // databases where the returns table predates this code — see the
     // comment on Return.refundAmount.
     let creditAmount = 0;
+    let topUpAmount = 0;
+    let resolvedTopUpMethod: 'wallet' | 'cod' | null = null;
     let exchangeVariant: ProductVariant | null = null;
     let isSameProductSwap = false;
 
@@ -167,18 +171,32 @@ export class ExchangesService {
       isSameProductSwap = exchangeVariant.productId === item.productId;
 
       if (!isSameProductSwap) {
-        // Route 2: different product. The admin-created replacement order
-        // will need the wallet to cover its full price, so the replacement
-        // can't cost more than what's being credited (the original value).
+        // Route 2: different product. The original item's value is always
+        // credited in full; a pricier replacement just needs its gap covered
+        // separately (see `topUpAmount` below) rather than being refused.
         const newItemValue = Number(exchangeVariant.price) * quantity;
         const originalValue = Number(item.price) * quantity;
-        if (newItemValue > originalValue) {
-          throw new BadRequestException(
-            'The requested replacement costs more than the original item. ' +
-            'Choose a replacement of equal or lower price, or request store credit instead.',
-          );
-        }
         creditAmount = originalValue;
+        topUpAmount = Number(Math.max(0, newItemValue - originalValue).toFixed(2));
+
+        if (topUpAmount > 0) {
+          if (topUpPaymentMethod !== 'wallet' && topUpPaymentMethod !== 'cod') {
+            throw new BadRequestException(
+              `This replacement costs ₹${topUpAmount.toFixed(2)} more than the original item. ` +
+              'Choose how you want to cover the difference: wallet balance or Cash on Delivery.',
+            );
+          }
+          if (topUpPaymentMethod === 'wallet') {
+            const currentBalance = await this.ordersService.getWalletBalance(userId);
+            if (currentBalance < topUpAmount) {
+              throw new BadRequestException(
+                `Your wallet balance (₹${currentBalance.toFixed(2)}) isn't enough to cover the ` +
+                `₹${topUpAmount.toFixed(2)} difference. Choose Cash on Delivery instead, or top up your wallet first.`,
+              );
+            }
+          }
+          resolvedTopUpMethod = topUpPaymentMethod;
+        }
       }
       // Route 1 (same product, different variant): creditAmount stays 0 —
       // no money moves for a like-for-like swap.
@@ -202,6 +220,8 @@ export class ExchangesService {
       refundAmount: creditAmount,
       refundTax: 0,
       refundTotal: creditAmount,
+      topUpAmount,
+      topUpPaymentMethod: resolvedTopUpMethod,
       exchangeVariantId: exchangeVariant?.id || null,
       images: images || null,
       customerNotes: customerNotes || null,
@@ -474,11 +494,11 @@ export class ExchangesService {
   /**
    * Route 2 — the returned item was credited in full at inspection; this
    * places the actual replacement order for the (different) product the
-   * customer asked for, paid for entirely out of that credit (the request()
-   * guard ensures the replacement never costs more than what was credited),
-   * and links the two together. The new order behaves exactly like a
-   * prepaid order from here — paid automatically, admin only confirms and
-   * dispatches it.
+   * customer asked for and links the two together. `useWalletBalance: true`
+   * draws down that credit (and any other wallet balance) automatically; if
+   * the replacement costs more than what was credited (see `topUpAmount` on
+   * `request()`), whatever the wallet doesn't cover is left as a normal COD
+   * balance on the new order, collected same as any other COD order.
    */
   async createReplacementOrder(returnId: string, adminUserId: string): Promise<{ exchange: Return; order: Order }> {
     const row = await this.findOrThrow(returnId);
