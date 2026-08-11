@@ -783,12 +783,45 @@ export class OrdersService {
       return acc;
     }, {});
 
+    // The reverse relationship: an order can itself BE the replacement a
+    // different-product exchange produced (see ExchangesService.
+    // createReplacementOrder), rather than have an exchange filed against
+    // it. That's `returns.completed_order_id`, not `returns.order_id` — a
+    // separate lookup keyed by the *replacement* order's id, joined back to
+    // the original order for its number so the admin panel can badge and
+    // link it without a second round trip.
+    let replacementData: any[] = [];
+    if (orderIds.length > 0) {
+      try {
+        replacementData = await this.dataSource.query(
+          `SELECT r.completed_order_id, r.return_number, r.status, r.order_id AS original_order_id,
+                  o.order_number AS original_order_number
+           FROM returns r
+           JOIN orders o ON o.id = r.order_id
+           WHERE r.completed_order_id = ANY($1)`,
+          [orderIds],
+        );
+      } catch (error) {
+        console.log('Could not load replacement-order links, skipping:', error);
+      }
+    }
+    const replacementByOrder = replacementData.reduce((acc: any, row: any) => {
+      acc[row.completed_order_id] = {
+        returnNumber: row.return_number,
+        exchangeStatus: row.status,
+        originalOrderId: row.original_order_id,
+        originalOrderNumber: row.original_order_number,
+      };
+      return acc;
+    }, {});
+
     // Transform orders to include returns
     return orders.map(order => {
       const transformed = this.transformOrder(order, exchangeWindowDays);
       return {
         ...transformed,
-        returns: returnsByOrder[order.id] || []
+        returns: returnsByOrder[order.id] || [],
+        replacementForExchange: replacementByOrder[order.id] || null,
       };
     });
   }
