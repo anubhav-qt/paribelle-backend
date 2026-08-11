@@ -68,6 +68,16 @@ export async function seedData(dataSource: DataSource) {
   }
 
   // Point the storefront at this store.
+  //
+  // Two different entities map to the `settings` table (this one and
+  // `SiteSetting` in the admin module, which is what `SettingsService` and
+  // the public `/api/v1/settings/*` routes actually read from) — a
+  // pre-existing mismatch, not something introduced here. `SiteSetting`
+  // declares `value` as jsonb, and TypeORM's synchronize applies whichever
+  // definition it merges last, so the physical column ends up jsonb even
+  // though this entity types it as plain text. JSON-encoding here matches
+  // what's actually on disk; inserting the raw string fails synchronize'd
+  // schemas with "invalid input syntax for type json".
   const settingRepository = dataSource.getRepository(Setting);
   for (const [key, value] of [
     ['root_vendor_slug', PARIBELLE_VENDOR_SLUG],
@@ -76,7 +86,7 @@ export async function seedData(dataSource: DataSource) {
   ]) {
     const existing = await settingRepository.findOne({ where: { key } });
     if (!existing) {
-      await settingRepository.save({ key, value });
+      await settingRepository.save({ key, value: JSON.stringify(value) });
     }
   }
 
