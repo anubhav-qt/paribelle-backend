@@ -46,11 +46,11 @@ export class UploadController {
   /**
    * Exchange-proof clips are shot on a phone and uploaded straight from the
    * exchange request form, so the limit is generously above the image one —
-   * a 30-second 1080p clip lands around 40MB. Kept in step with the multer
-   * `limits.fileSize` in UploadModule, which rejects anything larger before
-   * it is ever buffered.
+   * a minute or so of 1080p footage can land well past 50MB. Kept in step
+   * with the multer `limits.fileSize` in UploadModule, which rejects
+   * anything larger before it is ever buffered.
    */
-  private readonly MAX_VIDEO_SIZE = 50 * 1024 * 1024; // 50MB
+  private readonly MAX_VIDEO_SIZE = 100 * 1024 * 1024; // 100MB
   private readonly ALLOWED_VIDEO_MIMETYPES = [
     'video/mp4',
     'video/quicktime', // .mov — what iPhones record

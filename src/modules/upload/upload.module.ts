@@ -20,7 +20,7 @@ import { UploadController } from './upload.controller';
         // The widest any route accepts (exchange videos). Images and KYC
         // documents are held to 5MB by the controller, which checks
         // `file.size` after multer has buffered it.
-        fileSize: 50 * 1024 * 1024, // 50MB
+        fileSize: 100 * 1024 * 1024, // 100MB
       },
     }),
   ],
