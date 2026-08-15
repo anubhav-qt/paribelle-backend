@@ -154,25 +154,50 @@ export class Return {
   exchangeVariantId: string | null;
 
   /**
-   * How much more the replacement costs than the original item (route 2
-   * only) — 0 when the replacement is the same price or cheaper, or for
-   * routes 1 and 3. `creditAmount`/`refundTotal` always credits the
-   * *original* item's value regardless of this; the customer covers the gap
-   * themselves, either from their own wallet balance or COD when the
-   * replacement order is created — see `topUpPaymentMethod`.
+   * DEAD — kept only so historic rows keep loading. Exchanging into something
+   * that costs more than the original item is no longer offered anywhere:
+   * `ExchangesService.request` refuses such a replacement outright, and the
+   * storefront won't let one be picked in the first place. Every new row
+   * writes 0/null here.
    */
   @Column({ name: 'top_up_amount', type: 'decimal', precision: 10, scale: 2, default: 0 })
   topUpAmount: number;
 
-  /**
-   * How the customer chose to cover `topUpAmount`: 'wallet' means they had
-   * enough existing wallet balance at request time and it's drawn down
-   * automatically when the replacement order is created; 'cod' means the
-   * gap is collected as cash/UPI on delivery of the replacement. Null when
-   * there is no gap to cover.
-   */
+  /** DEAD — see `topUpAmount`. */
   @Column({ type: 'varchar', name: 'top_up_payment_method', nullable: true })
   topUpPaymentMethod: 'wallet' | 'cod' | null;
+
+  /**
+   * Flat fee for couriering the replacement back out, quoted from the
+   * `exchange_courier_charge` setting at request time and frozen here — an
+   * admin changing the setting later must not re-price an exchange already
+   * in flight. 0 when the charge is switched off, and always 0 for a
+   * credit-only exchange (route 3), where nothing is shipped out.
+   */
+  @Column({ name: 'courier_charge', type: 'decimal', precision: 10, scale: 2, default: 0 })
+  courierCharge: number;
+
+  /**
+   * How the customer chose to pay `courierCharge` — their choice, not
+   * inherited from how the original order was paid:
+   *
+   *  - 'wallet' — debited when the replacement actually ships, never earlier:
+   *    an exchange that gets rejected must not cost anything.
+   *  - 'cod' — collected at the door on delivery of the replacement.
+   *  - 'online' — left owing on the replacement order, which is created as a
+   *    Razorpay order the customer settles from their orders page (see
+   *    `canPayOnline` on the transformed order). Only offered on a
+   *    different-product exchange, since that is the route that creates a
+   *    replacement order for the charge to sit on.
+   *
+   * Null when there is no charge.
+   */
+  @Column({ type: 'varchar', name: 'courier_charge_payment_method', nullable: true })
+  courierChargePaymentMethod: 'wallet' | 'cod' | 'online' | null;
+
+  /** Set when a 'wallet' courier charge was actually debited — guards against a double debit. */
+  @Column({ name: 'courier_charge_paid_at', type: 'timestamp', nullable: true })
+  courierChargePaidAt: Date | null;
 
   @Column({ type: 'jsonb', nullable: true })
   images: string[] | null;

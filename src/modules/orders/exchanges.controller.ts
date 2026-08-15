@@ -23,7 +23,8 @@ export class ExchangesController {
       videoUrl: string;
       customerNotes?: string;
       images?: string[];
-      topUpPaymentMethod?: 'wallet' | 'cod' | null;
+      /** How the customer wants to pay the courier charge, when there is one. */
+      courierChargePaymentMethod?: 'wallet' | 'cod' | 'online' | null;
     },
   ) {
     return this.exchangesService.request(
@@ -36,7 +37,7 @@ export class ExchangesController {
       body.videoUrl,
       body.customerNotes,
       body.images,
-      body.topUpPaymentMethod,
+      body.courierChargePaymentMethod,
     );
   }
 

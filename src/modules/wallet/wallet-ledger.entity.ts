@@ -22,6 +22,7 @@ export enum WalletLedgerType {
   COD_REFUSAL_CREDIT = 'cod_refusal_credit',
   ADMIN_CANCEL_CREDIT = 'admin_cancel_credit',
   CUSTOMER_CANCEL_CREDIT = 'customer_cancel_credit',
+  EXCHANGE_COURIER_CHARGE = 'exchange_courier_charge',
   CHECKOUT_SPEND = 'checkout_spend',
   ADMIN_ADJUSTMENT = 'admin_adjustment',
 }

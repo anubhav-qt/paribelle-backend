@@ -64,7 +64,7 @@ export class OrdersService {
   }
 
   async create(userId: string, createOrderDto: any, idempotencyKey?: string) {
-    const { items, shippingAddress, billingAddress, paymentMethod, subtotal, shippingCost, tax, totalAmount, useWalletBalance } = createOrderDto;
+    const { items, shippingAddress, billingAddress, paymentMethod, subtotal, shippingCost, tax, totalAmount, useWalletBalance, maxWalletAmount } = createOrderDto;
 
     // Replay protection. A double-click, an impatient refresh or a client
     // retry after a timeout all arrive as a second POST for an order that was
@@ -105,9 +105,17 @@ export class OrdersService {
     let finalAmountToPay = numTotalAmount;
 
     if (useWalletBalance && user.walletBalance > 0) {
-      walletAmountUsed = Math.min(user.walletBalance, numTotalAmount);
+      // `maxWalletAmount` caps the drawdown below the order total on purpose,
+      // leaving the remainder to be collected some other way. The exchange
+      // flow uses it to let a customer pay the courier charge in cash while
+      // the goods themselves still come out of their store credit — see
+      // ExchangesService.createReplacementOrder. Absent (the normal case),
+      // the wallet covers as much of the order as it can.
+      const cap = Number(maxWalletAmount);
+      const spendable = Number.isFinite(cap) && cap >= 0 ? Math.min(numTotalAmount, cap) : numTotalAmount;
+      walletAmountUsed = Math.min(user.walletBalance, spendable);
       finalAmountToPay = Number((numTotalAmount - walletAmountUsed).toFixed(2));
-      
+
       console.log('Wallet balance applied:', {
         availableBalance: user.walletBalance,
         walletAmountUsed,
@@ -610,7 +618,14 @@ export class OrdersService {
         trackingNumber: ret.tracking_number,
         carrier: ret.carrier,
         images: ret.images,
-        videoUrl: ret.video_url
+        videoUrl: ret.video_url,
+        // The order pages colour-code each item by the state of its exchange
+        // and hide the button on an item that's already been settled against
+        // (see `isItemExchangeBlocked`) — all of which needs these.
+        inspectionResult: ret.inspection_result,
+        exchangeVariantId: ret.exchange_variant_id,
+        courierCharge: ret.courier_charge != null ? parseFloat(ret.courier_charge) : 0,
+        courierChargePaymentMethod: ret.courier_charge_payment_method || null,
       });
       return acc;
     }, {});
@@ -705,7 +720,14 @@ export class OrdersService {
         trackingNumber: ret.tracking_number,
         carrier: ret.carrier,
         images: ret.images,
-        videoUrl: ret.video_url
+        videoUrl: ret.video_url,
+        // The order pages colour-code each item by the state of its exchange
+        // and hide the button on an item that's already been settled against
+        // (see `isItemExchangeBlocked`) — all of which needs these.
+        inspectionResult: ret.inspection_result,
+        exchangeVariantId: ret.exchange_variant_id,
+        courierCharge: ret.courier_charge != null ? parseFloat(ret.courier_charge) : 0,
+        courierChargePaymentMethod: ret.courier_charge_payment_method || null,
       });
       return acc;
     }, {});
@@ -791,7 +813,14 @@ export class OrdersService {
         trackingNumber: ret.tracking_number,
         carrier: ret.carrier,
         images: ret.images,
-        videoUrl: ret.video_url
+        videoUrl: ret.video_url,
+        // The order pages colour-code each item by the state of its exchange
+        // and hide the button on an item that's already been settled against
+        // (see `isItemExchangeBlocked`) — all of which needs these.
+        inspectionResult: ret.inspection_result,
+        exchangeVariantId: ret.exchange_variant_id,
+        courierCharge: ret.courier_charge != null ? parseFloat(ret.courier_charge) : 0,
+        courierChargePaymentMethod: ret.courier_charge_payment_method || null,
       });
       return acc;
     }, {});
@@ -884,6 +913,19 @@ export class OrdersService {
       order.status === OrderStatus.CONFIRMED ||
       order.status === OrderStatus.PROCESSING;
 
+    // Whether the customer can still settle this order online. Anything left
+    // owing on a card/UPI order is payable until the order is cancelled —
+    // including a payment that was dismissed or declined at checkout, and the
+    // replacement order an exchange creates (see
+    // `ExchangesService.createReplacementOrder`), which is placed by an admin
+    // with nobody at a checkout screen to pay it. COD orders are excluded:
+    // there is nothing to collect online, the courier collects at the door.
+    const canPayOnline =
+      order.paymentMethod === 'razorpay' &&
+      (order.paymentStatus === PaymentStatus.PENDING || order.paymentStatus === PaymentStatus.FAILED) &&
+      order.status !== OrderStatus.CANCELLED &&
+      Number(order.total) > 0;
+
     let canExchange = false;
     let exchangeWindowExpiresAt: string | null = null;
     if (order.status === OrderStatus.DELIVERED && order.paymentStatus === PaymentStatus.PAID && order.deliveredAt) {
@@ -922,6 +964,7 @@ export class OrdersService {
       },
       canCancel,
       canExchange,
+      canPayOnline,
       exchangeWindowExpiresAt,
     };
   }
