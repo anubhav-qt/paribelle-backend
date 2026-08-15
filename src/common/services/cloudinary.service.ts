@@ -102,6 +102,38 @@ export class CloudinaryService {
   }
 
   /**
+   * Upload a video as-is. Unlike images these are not passed through sharp —
+   * Cloudinary's own `quality: auto` transcode is what keeps the file small,
+   * and the source is a phone clip a customer shot of a faulty item, where
+   * re-encoding locally would only cost us time and fidelity.
+   *
+   * @param buffer - Video buffer
+   * @param folder - Cloudinary folder path
+   */
+  async uploadVideo(buffer: Buffer, folder: string = 'marketplace'): Promise<UploadApiResponse> {
+    if (!this.isConfigured) {
+      throw new Error('Cloudinary is not configured');
+    }
+
+    return new Promise((resolve, reject) => {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        { folder, resource_type: 'video', quality: 'auto' },
+        (error, result) => {
+          if (error || !result) {
+            this.logger.error('Cloudinary video upload failed:', error);
+            reject(error || new Error('Upload failed'));
+          } else {
+            this.logger.log(`Video uploaded: ${result.public_id}`);
+            resolve(result);
+          }
+        },
+      );
+
+      uploadStream.end(buffer);
+    });
+  }
+
+  /**
    * Upload multiple images with compression
    * @param buffers - Array of image buffers
    * @param folder - Cloudinary folder path

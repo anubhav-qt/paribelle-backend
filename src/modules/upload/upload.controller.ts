@@ -43,6 +43,22 @@ export class UploadController {
     'image/avif',
   ];
 
+  /**
+   * Exchange-proof clips are shot on a phone and uploaded straight from the
+   * exchange request form, so the limit is generously above the image one —
+   * a 30-second 1080p clip lands around 40MB. Kept in step with the multer
+   * `limits.fileSize` in UploadModule, which rejects anything larger before
+   * it is ever buffered.
+   */
+  private readonly MAX_VIDEO_SIZE = 50 * 1024 * 1024; // 50MB
+  private readonly ALLOWED_VIDEO_MIMETYPES = [
+    'video/mp4',
+    'video/quicktime', // .mov — what iPhones record
+    'video/webm',
+    'video/x-matroska',
+    'video/3gpp',
+  ];
+
   constructor(private cloudinaryService: CloudinaryService) {}
 
   /**
@@ -147,6 +163,57 @@ export class UploadController {
       size: file.size,
       mimetype: file.mimetype,
     }));
+  }
+
+  /**
+   * The video a customer must attach to an exchange request — see
+   * `ExchangesService.request`, which refuses a request without one. Any
+   * signed-in shopper can call this (not `@AdminOnly()` like the product
+   * image routes): it is part of their own exchange flow.
+   *
+   * POST /api/v1/upload/exchange-video
+   */
+  @Post('exchange-video')
+  @UseGuards(JwtAuthGuard)
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadExchangeVideo(@UploadedFile() file: MulterFile) {
+    if (!file) {
+      throw new BadRequestException('No file uploaded');
+    }
+
+    if (!this.ALLOWED_VIDEO_MIMETYPES.includes(file.mimetype)) {
+      throw new BadRequestException(
+        `"${file.originalname}" is not a video we can read. Please upload an MP4, MOV or WebM clip.`,
+      );
+    }
+
+    if (file.size > this.MAX_VIDEO_SIZE) {
+      throw new BadRequestException(
+        `"${file.originalname}" is ${(file.size / 1024 / 1024).toFixed(1)}MB — the limit is ${this.MAX_VIDEO_SIZE / 1024 / 1024}MB. ` +
+        'Try a shorter clip or record at a lower resolution.',
+      );
+    }
+
+    if (this.cloudinaryService.isEnabled()) {
+      const result = await this.cloudinaryService.uploadVideo(file.buffer, 'marketplace/exchanges');
+      return {
+        url: result.secure_url,
+        publicId: result.public_id,
+        originalName: file.originalname,
+        size: result.bytes,
+        duration: result.duration,
+        format: result.format,
+      };
+    }
+
+    // Local-storage fallback, same shape as the image routes above.
+    return {
+      url: `/uploads/${file.filename}`,
+      filename: file.filename,
+      originalName: file.originalname,
+      size: file.size,
+      mimetype: file.mimetype,
+    };
   }
 
   /**

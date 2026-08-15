@@ -6,7 +6,6 @@ import { OrderItem } from './order-item.entity';
 import { Product } from '../products/product.entity';
 import { ProductVariant } from '../products/product-variant.entity';
 import { User, UserRole } from '../users/user.entity';
-import { SimpleEmailService } from '../simple-email/simple-email.service';
 import { MarketplaceGateway } from '../stock/stock.gateway';
 import { InvoicesService } from '../invoices/invoices.service';
 import { InvoicePdfService } from '../invoices/invoice-pdf.service';
@@ -18,6 +17,14 @@ import { WalletService } from '../wallet/wallet.service';
 import { WalletLedgerType } from '../wallet/wallet-ledger.entity';
 import { Response } from 'express';
 
+/**
+ * No order event sends email. Every customer- and admin-facing order,
+ * payment and exchange event is delivered in-app only, through
+ * NotificationsService (the bell) plus the live socket push — see
+ * NotificationType for the full catalogue. Do not reintroduce
+ * SimpleEmailService here; it is reserved for account plumbing that has no
+ * in-app surface (email verification, password reset).
+ */
 @Injectable()
 export class OrdersService {
   constructor(
@@ -31,7 +38,6 @@ export class OrdersService {
     private productVariantsRepository: Repository<ProductVariant>,
     @InjectRepository(User)
     private userRepository: Repository<User>,
-    private simpleEmailService: SimpleEmailService,
     private marketplaceGateway: MarketplaceGateway,
     @Inject(forwardRef(() => InvoicesService))
     private invoicesService: InvoicesService,
@@ -247,7 +253,11 @@ export class OrdersService {
       if (update.stockQuantity <= product.lowStockThreshold && stockBefore > product.lowStockThreshold) {
         this.notificationsService
           .notifyAdmins(NotificationType.LOW_STOCK, `${product.name} is low on stock (${update.stockQuantity} left)`, {
-            link: `/admin/products`,
+            body: `Only ${update.stockQuantity} left — restock or the listing will sell out.`,
+            // Pre-filters the product list to this one product, so the click
+            // lands on the item the notification is about rather than on
+            // page 1 of the whole catalogue.
+            link: `/admin/products?search=${encodeURIComponent(product.name)}`,
           })
           .catch((err) => console.error('Failed to notify admins of low stock:', err));
       }
@@ -599,7 +609,8 @@ export class OrdersService {
         vendorNotes: ret.vendor_notes,
         trackingNumber: ret.tracking_number,
         carrier: ret.carrier,
-        images: ret.images
+        images: ret.images,
+        videoUrl: ret.video_url
       });
       return acc;
     }, {});
@@ -693,7 +704,8 @@ export class OrdersService {
         vendorNotes: ret.vendor_notes,
         trackingNumber: ret.tracking_number,
         carrier: ret.carrier,
-        images: ret.images
+        images: ret.images,
+        videoUrl: ret.video_url
       });
       return acc;
     }, {});
@@ -778,7 +790,8 @@ export class OrdersService {
         vendorNotes: ret.vendor_notes,
         trackingNumber: ret.tracking_number,
         carrier: ret.carrier,
-        images: ret.images
+        images: ret.images,
+        videoUrl: ret.video_url
       });
       return acc;
     }, {});
@@ -946,16 +959,6 @@ export class OrdersService {
 
     if (status === OrderStatus.CONFIRMED) {
       order.confirmedAt = new Date();
-      // Send confirmation email
-      if (order.user && order.user.email) {
-        this.simpleEmailService.sendOrderConfirmationEmail(
-          order.user.email,
-          order.orderNumber,
-          order.shippingName || `${order.user.firstName} ${order.user.lastName}` || 'Customer',
-        ).catch(error => {
-          console.error('Failed to send order confirmation email:', error);
-        });
-      }
       this.notificationsService
         .notifyUser(order.userId, NotificationType.ORDER_CONFIRMED, `Order #${order.orderNumber} confirmed`, {
           link: '/orders', orderId: order.id,
@@ -963,16 +966,6 @@ export class OrdersService {
         .catch((err) => console.error('Failed to notify customer of confirmation:', err));
     } else if (status === OrderStatus.SHIPPED) {
       order.shippedAt = new Date();
-      // Send shipping notification email
-      if (order.user && order.user.email) {
-        this.simpleEmailService.sendOrderShippedEmail(
-          order.user.email,
-          order.orderNumber,
-          order.shippingName || `${order.user.firstName} ${order.user.lastName}` || 'Customer',
-        ).catch(error => {
-          console.error('Failed to send order shipped email:', error);
-        });
-      }
       this.notificationsService
         .notifyUser(order.userId, NotificationType.ORDER_SHIPPED, `Order #${order.orderNumber} shipped`, {
           body: order.trackingNumber ? `Tracking: ${order.trackingNumber}` : undefined,
@@ -982,18 +975,6 @@ export class OrdersService {
     } else if (status === OrderStatus.DELIVERED) {
       order.deliveredAt = new Date();
 
-      // Send delivery notification and review request email
-      if (order.user && order.user.email) {
-        console.log(`[updateStatus] Triggering delivery email for order ${order.orderNumber}`);
-        this.simpleEmailService.sendOrderDeliveredEmail(
-          order.user.email,
-          order.orderNumber,
-          order.id,
-          order.shippingName || `${order.user.firstName} ${order.user.lastName}` || 'Customer',
-        ).catch(error => {
-          console.error('Failed to send order delivered email:', error);
-        });
-      }
       this.notificationsService
         .notifyUser(order.userId, NotificationType.ORDER_DELIVERED, `Order #${order.orderNumber} delivered`, {
           link: '/orders', orderId: order.id,
@@ -1056,16 +1037,6 @@ export class OrdersService {
         }
       }
 
-      // Send cancellation email
-      if (order.user && order.user.email) {
-        this.simpleEmailService.sendOrderCancelledEmail(
-          order.user.email,
-          order.orderNumber,
-          order.shippingName || `${order.user.firstName} ${order.user.lastName}` || 'Customer',
-        ).catch(error => {
-          console.error('Failed to send order cancelled email:', error);
-        });
-      }
       this.notificationsService
         .notifyUser(order.userId, NotificationType.ORDER_REJECTED, `Order #${order.orderNumber} could not be accepted`, {
           link: '/orders', orderId: order.id,
@@ -1270,17 +1241,6 @@ export class OrdersService {
       } catch (error) {
         console.error('Failed to create credit note for customer-cancelled order:', error);
       }
-    }
-
-    // Send cancellation email
-    if (order.user && order.user.email) {
-      this.simpleEmailService.sendOrderCancelledEmail(
-        order.user.email,
-        order.orderNumber,
-        order.shippingName || `${order.user.firstName} ${order.user.lastName}` || 'Customer',
-      ).catch(error => {
-        console.error('Failed to send order cancelled email:', error);
-      });
     }
 
     // Emit order status update via WebSocket
@@ -1706,9 +1666,6 @@ export class OrdersService {
     this.marketplaceGateway.emitOrderStatusUpdate(order.id, OrderStatus.RETURN_REQUESTED, order.userId);
 
     const savedOrder = await this.orderRepository.save(order);
-    
-    // Send return confirmation email (you can add this method to SimpleEmailService)
-    // this.simpleEmailService.sendOrderReturnedEmail(...)
     
     return savedOrder;
   }
@@ -2266,34 +2223,10 @@ export class OrdersService {
     // Emit order status update via WebSocket
     this.marketplaceGateway.emitOrderStatusUpdate(order.id, OrderStatus.RETURN_APPROVED, order.userId);
 
-    const savedOrder = await this.orderRepository.save(order);
-    
-    // Send return approved email with return shipping instructions
-    try {
-      const platformSettings = await this.platformSettingsService.getPlatformSettings();
-      
-      await this.simpleEmailService.sendReturnApprovalEmail(
-        order.user.email,
-        order.shippingName,
-        order.orderNumber,
-        order.returnReason || 'Customer requested return',
-        {
-          name: platformSettings.businessName || 'Marketplace',
-          addressLine1: platformSettings.registeredAddressLine1 || '',
-          city: platformSettings.registeredCity || '',
-          state: platformSettings.registeredState || '',
-          postalCode: platformSettings.registeredPincode || '',
-          country: platformSettings.registeredCountry || '',
-          phone: platformSettings.businessPhone || '',
-        }
-      );
-      console.log(`[approveReturnRequest] Return approval email sent to ${order.user.email}`);
-    } catch (error) {
-      console.error('Failed to send return approval email:', error);
-      // Don't fail the entire operation if email fails
-    }
-    
-    return savedOrder;
+    // The customer is told in-app (bell notification + the return-shipping
+    // instructions on their order page) — no email is sent for any order
+    // event; see the note on this service's constructor.
+    return this.orderRepository.save(order);
   }
 
   /**
@@ -2366,9 +2299,6 @@ export class OrdersService {
     this.marketplaceGateway.emitOrderStatusUpdate(order.id, OrderStatus.RETURNED, order.userId);
 
     const savedOrder = await this.orderRepository.save(order);
-    
-    // Send refund processed email
-    // this.simpleEmailService.sendRefundProcessedEmail(...)
     
     return savedOrder;
   }
@@ -2627,9 +2557,6 @@ export class OrdersService {
     this.marketplaceGateway.emitOrderStatusUpdate(order.id, OrderStatus.DELIVERED, order.userId);
 
     const savedOrder = await this.orderRepository.save(order);
-    
-    // Send return rejected email
-    // this.simpleEmailService.sendOrderReturnRejectedEmail(...)
     
     return savedOrder;
   }

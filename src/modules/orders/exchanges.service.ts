@@ -72,7 +72,8 @@ export class ExchangesService {
    *
    * Enforces every rule in the "Rules to enforce" table of Task 8: delivered,
    * paid, within the configured window, quantity no more than what was
-   * ordered.
+   * ordered — plus a mandatory `videoUrl`, since the video is the only
+   * evidence of the item's condition the admin has when deciding.
    */
   async request(
     orderId: string,
@@ -81,10 +82,18 @@ export class ExchangesService {
     quantity: number,
     reason: string,
     exchangeVariantId: string | null | undefined,
+    videoUrl: string,
     customerNotes?: string,
     images?: string[],
     topUpPaymentMethod?: 'wallet' | 'cod' | null,
   ): Promise<Return> {
+    if (typeof videoUrl !== 'string' || !videoUrl.trim()) {
+      throw new BadRequestException(
+        'A video of the item is required to request an exchange. ' +
+        'Record a short clip showing the problem and attach it to your request.',
+      );
+    }
+
     const order = await this.orderRepository.findOne({
       where: { id: orderId, userId },
       relations: ['items', 'items.product', 'vendor'],
@@ -223,6 +232,7 @@ export class ExchangesService {
       topUpAmount,
       topUpPaymentMethod: resolvedTopUpMethod,
       exchangeVariantId: exchangeVariant?.id || null,
+      videoUrl: videoUrl.trim(),
       images: images || null,
       customerNotes: customerNotes || null,
       requestedAt: new Date(),
@@ -237,7 +247,11 @@ export class ExchangesService {
       .catch((err) => console.error('Failed to notify customer of exchange request:', err));
     this.notificationsService
       .notifyAdmins(NotificationType.EXCHANGE_REQUESTED, `Exchange requested on order #${order.orderNumber}`, {
-        link: '/admin/orders', orderId: order.id,
+        body: `${item.productName} — ${reason}. Review the customer's video and approve or reject.`,
+        // `view=exchanges` opens the exchange panel for this order rather
+        // than the generic order details — that panel is where the
+        // approve/reject buttons this notification is asking for live.
+        link: '/admin/orders?view=exchanges', orderId: order.id,
       })
       .catch((err) => console.error('Failed to notify admins of exchange request:', err));
 
@@ -308,7 +322,8 @@ export class ExchangesService {
 
     this.notificationsService
       .notifyAdmins(NotificationType.EXCHANGE_IN_TRANSIT, `Customer shipped back an exchange item — ${row.returnNumber}`, {
-        link: '/admin/orders', orderId: row.orderId,
+        body: `${row.productName}. Record the inspection result once it arrives.`,
+        link: '/admin/orders?view=exchanges', orderId: row.orderId,
       })
       .catch((err) => console.error('Failed to notify admins the item is in transit:', err));
 

@@ -19,6 +19,8 @@ export class ExchangesController {
       quantity: number;
       reason: string;
       exchangeVariantId?: string | null;
+      /** Required — uploaded first via `POST upload/exchange-video`. */
+      videoUrl: string;
       customerNotes?: string;
       images?: string[];
       topUpPaymentMethod?: 'wallet' | 'cod' | null;
@@ -31,6 +33,7 @@ export class ExchangesController {
       body.quantity,
       body.reason,
       body.exchangeVariantId,
+      body.videoUrl,
       body.customerNotes,
       body.images,
       body.topUpPaymentMethod,

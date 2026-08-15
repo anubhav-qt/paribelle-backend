@@ -177,6 +177,15 @@ export class Return {
   @Column({ type: 'jsonb', nullable: true })
   images: string[] | null;
 
+  /**
+   * The video the customer recorded of the item they want to exchange.
+   * Mandatory for every new request — `ExchangesService.request` rejects one
+   * without it — but nullable in the database because rows created before
+   * the rule existed have none.
+   */
+  @Column({ name: 'video_url', type: 'varchar', nullable: true })
+  videoUrl: string | null;
+
   @Column({ name: 'customer_notes', type: 'text', nullable: true })
   customerNotes: string | null;
 

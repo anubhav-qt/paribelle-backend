@@ -11,7 +11,6 @@ import { Product } from '../products/product.entity';
 import { ProductVariant } from '../products/product-variant.entity';
 import { User } from '../users/user.entity';
 import { ReviewsModule } from '../reviews/reviews.module';
-import { SimpleEmailModule } from '../simple-email/simple-email.module';
 import { StockModule } from '../stock/stock.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { InvoicesModule } from '../invoices/invoices.module';
@@ -24,7 +23,6 @@ import { WalletModule } from '../wallet/wallet.module';
   imports: [
     TypeOrmModule.forFeature([Order, OrderItem, Return, Product, ProductVariant, User]),
     ReviewsModule,
-    SimpleEmailModule,
     StockModule,
     PlatformModule,
     AdminModule,
