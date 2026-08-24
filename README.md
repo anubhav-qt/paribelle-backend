@@ -1,238 +1,150 @@
-# MarketPlace
+<div align="center">
 
-## Getting started
+# 🌸 PariBelle
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+**Premium Designer Kurtis & Artificial Jewellery — E-Commerce Platform**
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+[![Next.js](https://img.shields.io/badge/Frontend-Next.js%2014%20App%20Router-black?style=for-the-badge&logo=next.js)](https://nextjs.org/)
+[![NestJS](https://img.shields.io/badge/Backend-NestJS%2010-ea2845?style=for-the-badge&logo=nestjs)](https://nestjs.com/)
+[![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL%2016-336791?style=for-the-badge&logo=postgresql)](https://www.postgresql.org/)
+[![TailwindCSS](https://img.shields.io/badge/Styling-Tailwind%20CSS-38bdf8?style=for-the-badge&logo=tailwindcss)](https://tailwindcss.com/)
+[![Razorpay](https://img.shields.io/badge/Payments-Razorpay%20Integrated-0c2340?style=for-the-badge&logo=razorpay)](https://razorpay.com/)
+[![Cloudinary](https://img.shields.io/badge/Media-Cloudinary%20CDN-3448c5?style=for-the-badge&logo=cloudinary)](https://cloudinary.com/)
 
-## Add your files
+**Live Storefront:** [https://www.paribelle.in](https://www.paribelle.in) &nbsp;|&nbsp; **Live API:** [https://paribelle-backend.onrender.com](https://paribelle-backend.onrender.com/api/docs) &nbsp;|&nbsp; **Admin:** [https://www.paribelle.in/admin](https://www.paribelle.in/admin)
 
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+</div>
 
-```
-cd existing_repo
-git remote add origin https://gitlab.com/anubhav.s.joshi/marketplace.git
-git branch -M main
-git push -uf origin main
-```
+---
 
-## Integrate with your tools
+## 📸 Visual Showcase
 
-- [ ] [Set up project integrations](https://gitlab.com/anubhav.s.joshi/marketplace/-/settings/integrations)
+<div align="center">
 
-## Collaborate with your team
+### 🛍️ Storefront & Customer Shopping Experience
+| High-Converting Homepage | Interactive Bag & Cart Drawer |
+| :---: | :---: |
+| ![Storefront Home](docs/assets/storefront_home.png) | ![Cart Drawer](docs/assets/cart_drawer.png) |
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+| Instant Order Confirmation | GST-Compliant Tax Invoice |
+| :---: | :---: |
+| ![Order Confirmation](docs/assets/order_confirmation.png) | ![Tax Invoice](docs/assets/invoice_preview.png) |
 
-## Test and Deploy
+### 🛠️ Unified Admin Control Center
+| Real-Time Commerce Analytics & KPIs | End-to-End Order & Payment Management |
+| :---: | :---: |
+| ![Admin Dashboard](docs/assets/admin_dashboard.png) | ![Order Management](docs/assets/admin_order_details.png) |
 
-Use the built-in continuous integration in GitLab.
+</div>
 
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+---
 
-***
+## 🏛️ System Architecture
 
-# Marketplace - Full-Stack E-Commerce Platform
-
-A modern multi-vendor marketplace built with Next.js, NestJS, and React Native.
-
-## 🏗️ Project Structure
+PariBelle is structured as a high-performance monorepo-style workspace containing two synchronized applications:
 
 ```
-marketplace/
-├── apps/
-│   ├── backend/     # NestJS API server (Port 3001)
-│   ├── web/         # Next.js web application (Port 3000)
-│   └── mobile/      # React Native mobile app
-├── docs/           # Documentation
-└── scripts/        # PowerShell automation scripts
+f:\paribelle\
+├── marketplace-web/          # Next.js 14 App Router (Deployed on Vercel)
+│   ├── src/app/(storefront)  # Customer discovery, catalog, bag, checkout, orders, wallet
+│   ├── src/app/admin         # Unified store admin (Orders, Products, KYC, Invoices, Settings)
+│   ├── src/components        # Handcrafted UI kit, modals, drawers, product galleries
+│   └── src/contexts          # Zustand & Context state (Cart, Notifications, Stock WebSockets)
+│
+├── marketplace-backend/      # NestJS 10 REST API (Deployed on Render)
+│   ├── src/modules/          # Auth, Orders, Payments, Invoices, Products, Wallet, Stock
+│   ├── src/migrations/       # TypeORM database schema versioning
+│   └── src/common/           # Cloudinary, security guards, interceptors, rate limiting
+│
+├── docs/assets/              # Architecture diagrams, visual snapshots, and assets
+└── docker-compose.yml        # Local PostgreSQL 16 & API containerization
 ```
 
-## 🚀 Quick Start
+---
 
-### Prerequisites
-- Node.js 18+ and npm
-- PostgreSQL database
-- Google OAuth credentials (optional, for social login)
+## 🚀 Quick Start (Local Development)
 
-### 1. Install All Dependencies
-```powershell
-.\install-all.ps1
+### 1. Prerequisites
+- **Node.js 18+** & npm
+- **Docker Desktop** (for PostgreSQL)
+
+### 2. Environment Setup
+```bash
+# Clone and copy environment variables
+cp .env.example .env
 ```
 
-### 2. Setup Environment Variables
-
-**Backend** (`apps/backend/.env`):
-```env
-DATABASE_URL="postgresql://user:password@localhost:5432/marketplace"
-JWT_SECRET="your-super-secret-jwt-key"
-PORT=3001
+### 3. Initialize Database (First Time Only)
+> ⚠️ **Notice**: The init profile drops and recreates tables with default seed data. Run only on fresh setups.
+```bash
+docker compose --profile init run --rm init
 ```
 
-**Web** (`apps/web/.env.local`):
-```env
-NEXT_PUBLIC_API_URL=http://localhost:3001
-NEXT_PUBLIC_APP_URL=http://localhost:3000
-GOOGLE_CLIENT_ID="your-google-client-id"
-GOOGLE_CLIENT_SECRET="your-google-client-secret"
-GOOGLE_REDIRECT_URI=http://localhost:3000/api/auth/google/callback
+### 4. Start Backend Services
+```bash
+docker compose up -d
 ```
+- **API Server**: `http://localhost:3001`
+- **Swagger Docs**: `http://localhost:3001/api/docs`
 
-### 3. Setup Database
-```powershell
-cd apps/backend
-npx prisma migrate dev
-npx prisma generate
-cd ../..
+### 5. Start Storefront & Admin
+```bash
+cd marketplace-web
+npm install
+npm run dev
 ```
+- **Storefront**: `http://localhost:3000`
+- **Admin Panel**: `http://localhost:3000/admin`
+- **Seeded Admin Credentials**: `admin@paribelle.com` / `Admin@123`
 
-### 4. Start All Services
-```powershell
-.\start-dev.ps1
-```
+---
 
-This will start:
-- **Backend API**: http://localhost:3001
-- **Web App**: http://localhost:3000
-- **API Docs**: http://localhost:3001/api
+## 💎 Core Capabilities & Single-Store Rules
 
-To stop all services:
-```powershell
-.\stop-all.ps1
-```
+1. **Single-Store Consolidation**:
+   - The platform models products under a dedicated root vendor UUID (`NEXT_PUBLIC_STORE_VENDOR_ID`).
+   - Platform commission defaults strictly to `0%`.
+   - `/vendor/*` automatically redirects to the unified `/admin` dashboard.
+2. **Indian GST & HSN Invoicing**:
+   - Automatic calculation of intra-state (`CGST` + `SGST`) vs inter-state (`IGST`) tax based on shipping destination.
+   - Dynamic HSN code lookup and automatic PDF invoice generation with amount in words.
+3. **Atomic Stock & Concurrency**:
+   - Transactional conditional updates prevent race-condition overselling.
+   - Variant-level stock binding (Size / Color) guarantees accurate inventory counts.
+4. **Resilient Payment Integration**:
+   - Razorpay test & production webhook signature verification.
+   - Idempotency key tracking prevents accidental double-click order creation.
+   - Strict money status tracking: `refund_pending` → `refunded` via signed gateway callbacks.
+5. **In-App Realtime Communication**:
+   - Socket.IO gateway delivers instant order lifecycle notifications to the user notification bell.
+   - Zero email spam for order transitions — transactional email is reserved strictly for authentication & verification.
 
-## 🎨 Features
+---
 
-- ✅ User Authentication (Email/Password + Google OAuth)
-- ✅ Login & Sign Up Pages
-- ✅ Modern UI with Tailwind CSS & Dark Mode
-- ✅ RESTful API with Swagger documentation
-- ✅ TypeScript throughout
-- ✅ Secure JWT authentication
+## ⚡ High-Priority Database Roadmap: Shifting to Neon
 
-## 🛠️ Tech Stack
+> [!IMPORTANT]
+> **Render Free PostgreSQL Limitation**: Render's free PostgreSQL instances are automatically deleted after 30 days. To safeguard customer orders, catalogues, and payment histories, migrate production database hosting to **Neon Serverless Postgres**.
 
-**Frontend:**
-- Next.js 14 (App Router)
-- TypeScript
-- Tailwind CSS
-- TanStack Query
-- Zustand
+### 📋 Neon Migration Plan
+- [ ] **Step 1 — Provision Neon Database**: Create a Neon project with pooling enabled (`pgbouncer`).
+- [ ] **Step 2 — Environment Variable Update**: Set `DATABASE_URL` on Render to the Neon pooled connection string with `?sslmode=require`.
+- [ ] **Step 3 — Run Migrations**: Execute TypeORM migrations (`npm run migration:run`) against the Neon endpoint.
+- [ ] **Step 4 — Verify SSL Handshake**: Ensure `rejectUnauthorized: false` remains enabled in `data-source.ts` for smooth connection pooling.
 
-**Backend:**
-- NestJS
-- TypeScript
-- TypeORM
-- PostgreSQL
-- Passport.js + JWT
+---
 
-**Mobile:**
-- React Native
-- Expo Router
+## 📌 Maintenance Checklist & Next Steps
 
-## 📝 Development Scripts
+- [x] **Storefront & UI QA**: Currency formatting strictly ₹, correct tab branding, clean store name display.
+- [x] **Security Hardening**: `@AdminOnly()` guards active across all sensitive endpoints; zero passwords in `localStorage`.
+- [x] **Checkout & Stock Safety**: Double-click place order locks, variant-level stock validation, COD support.
+- [ ] **Database Migration**: Switch Render DB to Neon serverless Postgres before 30-day retention cutoff.
+- [ ] **Domain & SSL**: Final DNS verification for `www.paribelle.in`.
+- [ ] **Brevo Email Production Key**: Verify transactional verification emails in live customer signups.
 
-### PowerShell Scripts
-- `.\install-all.ps1` - Install all dependencies
-- `.\start-dev.ps1` - Start backend and web in development mode
-- `.\stop-all.ps1` - Stop all running services
+---
 
-### Manual Commands
-
-**Backend:**
-```powershell
-cd apps/backend
-npm run start:dev    # Development
-npm run build        # Build
-npm run start:prod   # Production
-```
-
-**Web:**
-```powershell
-cd apps/web
-npm run dev          # Development
-npm run build        # Build
-npm run start        # Production
-```
-
-## 🔐 Authentication Flow
-
-1. User accesses `/login` page
-2. Chooses Email/Password OR Google OAuth
-3. **Google Flow:**
-   - Redirects to Google → User authorizes
-   - Google returns code → Frontend exchanges for user info
-   - Backend creates/logs in user → Returns JWT token
-4. Token stored in secure cookie
-5. User redirected to homepage
-
-## 📚 API Documentation
-
-Visit http://localhost:3001/api for interactive Swagger documentation.
-
-## 🗄️ Database
-
-The app uses PostgreSQL with Prisma ORM. See `docs/database.md` for schema details.
-
-## 📖 Additional Documentation
-
-- [API Documentation](docs/api.md)
-- [Database Schema](docs/database.md)
-- [Deployment Guide](docs/deployment.md)
-- [Getting Started](docs/getting-started.md)
-
-## Editing this README
-
-## Suggestions for a good README
-
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+<div align="center">
+  <sub>Built with ❤️ for PariBelle — Designed for timeless ethnic elegance.</sub>
+</div>
