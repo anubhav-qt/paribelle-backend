@@ -103,6 +103,44 @@ export class ProductsExcelService {
   }
 
   /**
+   * Turn a list of image names into stored image URLs, shared by the Products
+   * and Variants sheets so a colour's photographs are resolved by exactly the
+   * same rules as a product's. A full http(s) URL is passed straight through
+   * without uploading; anything else must name a file in the ZIP.
+   */
+  private async resolveImageList(
+    names: string[],
+    imageMap: Map<string, MulterFile>,
+    vendorId: string,
+    dryRun: boolean,
+    label: string,
+    errors: string[],
+  ): Promise<string[]> {
+    const out: string[] = [];
+    for (const filename of names) {
+      if (filename.startsWith('http://') || filename.startsWith('https://')) {
+        out.push(filename);
+        continue;
+      }
+      const resolved = this.resolveImageEntry(filename, imageMap);
+      if (!resolved) {
+        errors.push(`${label}: Image "${filename}" is not in the ZIP`);
+        continue;
+      }
+      if (dryRun) {
+        out.push(resolved.filename);
+        continue;
+      }
+      try {
+        out.push(await this.saveUploadedImage(resolved.file, vendorId));
+      } catch (e) {
+        errors.push(`${label}: Failed to upload image "${filename}": ${e.message}`);
+      }
+    }
+    return out;
+  }
+
+  /**
    * Images for a product when the `Images` column is blank, by the naming
    * convention the export uses: `<product-code>-<nn>.<ext>`. Returned in `nn`
    * order so the featured image is the one the seller numbered first.
@@ -327,6 +365,10 @@ export class ProductsExcelService {
       { header: 'Compare At Price', key: 'compareAtPrice', width: 18 },
       { header: 'Stock',            key: 'stock',          width: 12 },
       { header: 'Active',           key: 'isActive',       width: 10 },
+      // Optional. Lets one product carry several colours: the gallery swaps to
+      // the chosen variant's photographs, so a colour no longer has to be
+      // split out into a product of its own just to get its own pictures.
+      { header: 'Images',           key: 'images',         width: 40 },
     ];
   }
 
@@ -517,6 +559,13 @@ export class ProductsExcelService {
         }
         const attributesStr = this.formatAttributes(actualAttrs);
 
+        // Per-colour photographs, so an export round-trips back through the
+        // importer without flattening every variant onto the product gallery.
+        const variantImages = (variant.images ?? [])
+          .filter(Boolean)
+          .map(img => (img.startsWith('http://') || img.startsWith('https://')) ? img : path.basename(img));
+        localImagePaths.push(...(variant.images ?? []).filter(img => img && !img.startsWith('http')));
+
         variantSheet.addRow({
           productCode:    product.sku || '',
           variantCode:    variant.sku || '',
@@ -525,6 +574,7 @@ export class ProductsExcelService {
           compareAtPrice: variant.compareAtPrice || '',
           stock:          variant.stockQuantity,
           isActive:       variant.isActive ? 'YES' : 'NO',
+          images:         variantImages.join(', '),
         });
       }
 
@@ -717,27 +767,9 @@ export class ProductsExcelService {
           errors.push(`Row ${rn}: Images column could not be parsed`);
         }
 
-        const productImages: string[] = [];
-        for (const filename of listedNames) {
-          if (filename.startsWith('http://') || filename.startsWith('https://')) {
-            productImages.push(filename);
-            continue;
-          }
-          const resolved = this.resolveImageEntry(filename, imageMap);
-          if (!resolved) {
-            errors.push(`Row ${rn}: Image "${filename}" is not in the ZIP`);
-            continue;
-          }
-          if (dryRun) {
-            productImages.push(resolved.filename);
-            continue;
-          }
-          try {
-            productImages.push(await this.saveUploadedImage(resolved.file, resolvedVendorId));
-          } catch (e) {
-            errors.push(`Row ${rn}: Failed to upload image "${filename}": ${e.message}`);
-          }
-        }
+        const productImages = await this.resolveImageList(
+          listedNames, imageMap, resolvedVendorId, dryRun, `Row ${rn}`, errors,
+        );
 
         // "Colour: Red, Size: M" → { Colour: 'Red', Size: 'M' }
         const parsedAttributes = this.parseAttributesCell(g('Attributes'));
@@ -865,6 +897,7 @@ export class ProductsExcelService {
           const compareAtPrice = parseFloat(g('Compare At Price') || '0') || null;
           const stock          = parseInt(g('Stock') || '0') || 0;
           const isActive       = (g('Active')?.trim().toUpperCase() ?? 'YES') !== 'NO';
+          const variantImagesCell = g('Images')?.trim() || '';
 
           if (!productCode || !variantCode) {
             errors.push(`Variants Row ${rn}: Missing Product Code or Variant Code`);
@@ -913,6 +946,17 @@ export class ProductsExcelService {
             isActive,
           };
           if (compareAtPrice) variantData.compareAtPrice = compareAtPrice;
+
+          // Per-variant photographs. Left blank, the variant inherits the
+          // product's gallery, which is the right default for a size-only
+          // variant; filled in, it is what makes multi-colour products work.
+          if (variantImagesCell) {
+            const variantImages = await this.resolveImageList(
+              variantImagesCell.split(',').map(f => f.trim()).filter(Boolean),
+              imageMap, resolvedVendorId, dryRun, `Variants Row ${rn}`, errors,
+            );
+            if (variantImages.length > 0) variantData.images = variantImages;
+          }
 
           // Upsert by variant sku
           const existingVariant = await this.productVariantsRepository.findOne({
@@ -999,30 +1043,22 @@ export class ProductsExcelService {
     // sheet refers to these rows by their Product Code, so keep the codes and
     // the guidance in step if you edit either.
     productSheet.addRow({
-      // Case 1 — sized garment. Stock is left blank on purpose: for a product
-      // with variants it is overwritten by the sum of its variant stock.
-      productCode: 'KUR-001', name: 'Chanderi Silk Anarkali — Rose',
+      // Case 1 — ONE product in two colours. The Images here are the default
+      // gallery; each colour's own photographs live on its variant rows, and
+      // the storefront swaps to them when that colour is picked. Stock is left
+      // blank on purpose: for a product with variants it is overwritten by the
+      // sum of its variant stock.
+      productCode: 'KUR-001', name: 'Chanderi Silk Anarkali',
       category: 'Kurtis', price: 3499, compareAtPrice: 4299,
       stockQuantity: null,
       images: 'anarkali-rose-01.png, anarkali-rose-02.png',
       description: 'A floor-length anarkali in handwoven chanderi silk, with fine gota detailing at the neckline.',
-      attributes: 'Fabric: Chanderi, Colour: Rose, Sleeve: Three-Quarter, Occasion: Festive',
+      attributes: 'Fabric: Chanderi, Sleeve: Three-Quarter, Occasion: Festive',
     });
     productSheet.addRow({
-      // Case 2 — the SAME design in another colour is its own product, because
-      // it needs its own photographs. Note the Images cell omits extensions,
-      // which is allowed.
-      productCode: 'KUR-002', name: 'Chanderi Silk Anarkali — Indigo',
-      category: 'Kurtis', price: 3499, compareAtPrice: 4299,
-      stockQuantity: null,
-      images: 'anarkali-indigo-01, anarkali-indigo-02',
-      description: 'The same handwoven chanderi anarkali, in a deep indigo with silver gota detailing.',
-      attributes: 'Fabric: Chanderi, Colour: Indigo, Sleeve: Three-Quarter, Occasion: Festive',
-    });
-    productSheet.addRow({
-      // Case 3 — one product carrying TWO variant axes (size and colour).
-      // Works, but every combination shares these photographs.
-      productCode: 'KUR-003', name: 'Cotton Straight Kurti',
+      // Case 2 — sizes only, one colour. No Images on its variant rows, so
+      // every size shows this product's gallery.
+      productCode: 'KUR-002', name: 'Cotton Straight Kurti',
       category: 'Kurtis', price: 899, compareAtPrice: 1299,
       stockQuantity: null,
       images: 'cotton-kurti-01.png',
@@ -1058,22 +1094,22 @@ export class ProductsExcelService {
     // KUR-001 — one axis (size). Every row repeats the SAME Product Code; only
     // the Variant Code changes. XL is priced higher to show per-size pricing.
     const rows: Array<Record<string, any>> = [
-      { productCode: 'KUR-001', variantCode: 'KUR-001-S',  attributes: 'Size: S',  price: 3499, compareAtPrice: 4299, stock: 6,  isActive: 'YES' },
-      { productCode: 'KUR-001', variantCode: 'KUR-001-M',  attributes: 'Size: M',  price: 3499, compareAtPrice: 4299, stock: 11, isActive: 'YES' },
-      { productCode: 'KUR-001', variantCode: 'KUR-001-L',  attributes: 'Size: L',  price: 3499, compareAtPrice: 4299, stock: 8,  isActive: 'YES' },
-      { productCode: 'KUR-001', variantCode: 'KUR-001-XL', attributes: 'Size: XL', price: 3699, compareAtPrice: 4499, stock: 3,  isActive: 'YES' },
+      // KUR-001 — TWO axes, Size and Colour. One row per COMBINATION.
+      // Every Rose row repeats the same Rose photographs, every Indigo row the
+      // Indigo ones, so picking a colour changes the gallery. Stock 0 on
+      // Indigo L shows how a sold-out combination appears: greyed out, not
+      // hidden. XL is priced higher to show per-variant pricing.
+      { productCode: 'KUR-001', variantCode: 'KUR-001-S-ROSE',  attributes: 'Colour: Rose, Size: S',  price: 3499, compareAtPrice: 4299, stock: 6,  isActive: 'YES', images: 'anarkali-rose-01.png, anarkali-rose-02.png' },
+      { productCode: 'KUR-001', variantCode: 'KUR-001-M-ROSE',  attributes: 'Colour: Rose, Size: M',  price: 3499, compareAtPrice: 4299, stock: 11, isActive: 'YES', images: 'anarkali-rose-01.png, anarkali-rose-02.png' },
+      { productCode: 'KUR-001', variantCode: 'KUR-001-L-ROSE',  attributes: 'Colour: Rose, Size: L',  price: 3499, compareAtPrice: 4299, stock: 8,  isActive: 'YES', images: 'anarkali-rose-01.png, anarkali-rose-02.png' },
+      { productCode: 'KUR-001', variantCode: 'KUR-001-XL-ROSE', attributes: 'Colour: Rose, Size: XL', price: 3699, compareAtPrice: 4499, stock: 3,  isActive: 'YES', images: 'anarkali-rose-01.png, anarkali-rose-02.png' },
+      { productCode: 'KUR-001', variantCode: 'KUR-001-M-INDI',  attributes: 'Colour: Indigo, Size: M', price: 3499, compareAtPrice: 4299, stock: 5, isActive: 'YES', images: 'anarkali-indigo-01, anarkali-indigo-02' },
+      { productCode: 'KUR-001', variantCode: 'KUR-001-L-INDI',  attributes: 'Colour: Indigo, Size: L', price: 3499, compareAtPrice: 4299, stock: 0, isActive: 'YES', images: 'anarkali-indigo-01, anarkali-indigo-02' },
 
-      // KUR-002 — same sizes, different product. Stock 0 on L shows how a sold
-      // out size appears: the button is greyed out rather than hidden.
-      { productCode: 'KUR-002', variantCode: 'KUR-002-M',  attributes: 'Size: M',  price: 3499, compareAtPrice: 4299, stock: 5,  isActive: 'YES' },
-      { productCode: 'KUR-002', variantCode: 'KUR-002-L',  attributes: 'Size: L',  price: 3499, compareAtPrice: 4299, stock: 0,  isActive: 'YES' },
-
-      // KUR-003 — two axes. One row per COMBINATION: 2 sizes x 2 colours = 4.
-      // The product page shows a Size row and a Colour row of buttons.
-      { productCode: 'KUR-003', variantCode: 'KUR-003-M-BLU', attributes: 'Size: M, Colour: Blue',  price: 899, compareAtPrice: 1299, stock: 7, isActive: 'YES' },
-      { productCode: 'KUR-003', variantCode: 'KUR-003-L-BLU', attributes: 'Size: L, Colour: Blue',  price: 899, compareAtPrice: 1299, stock: 9, isActive: 'YES' },
-      { productCode: 'KUR-003', variantCode: 'KUR-003-M-GRN', attributes: 'Size: M, Colour: Green', price: 899, compareAtPrice: 1299, stock: 4, isActive: 'YES' },
-      { productCode: 'KUR-003', variantCode: 'KUR-003-L-GRN', attributes: 'Size: L, Colour: Green', price: 899, compareAtPrice: 1299, stock: 2, isActive: 'YES' },
+      // KUR-002 — sizes only. Images left blank, so every size shows the
+      // product's own gallery.
+      { productCode: 'KUR-002', variantCode: 'KUR-002-M', attributes: 'Size: M', price: 899, compareAtPrice: 1299, stock: 7, isActive: 'YES', images: '' },
+      { productCode: 'KUR-002', variantCode: 'KUR-002-L', attributes: 'Size: L', price: 899, compareAtPrice: 1299, stock: 9, isActive: 'YES', images: '' },
     ];
     rows.forEach(row => variantSheet.addRow(row));
     addDropdown(variantSheet, 7, rows.length + 1, '"YES,NO"');
@@ -1099,11 +1135,12 @@ export class ProductsExcelService {
     n(11, '  most common mistake — those variants have no product to attach to and will be rejected.');
 
     b(13, 'ONE PRODUCT, OR SEVERAL?');
-    n(14, '  Different SIZE  → one product, one variant row per size.            (see KUR-001)');
-    n(15, '  Different COLOUR → usually a SEPARATE product, because the photos differ. (see KUR-001 vs KUR-002)');
-    n(16, '  You CAN put colour in variants (see KUR-003), but every combination then shares');
-    n(17, '  the same photographs — picking "Green" will not change the pictures.');
-    n(18, '  No sizes at all → no variant rows whatsoever.                        (see JWL-001)');
+    n(14, '  Different SIZE   → one product, one variant row per size.            (see KUR-002)');
+    n(15, '  Different COLOUR → STILL one product. Give each colour its own photographs in the');
+    n(16, '                     Images column on the Variants sheet, and the gallery swaps to');
+    n(17, '                     them when a shopper picks that colour.            (see KUR-001)');
+    n(18, '  Both             → one row per COMBINATION: 4 sizes x 2 colours = 8 rows.');
+    n(19, '  No sizes at all  → no variant rows whatsoever.                       (see JWL-001)');
 
     b(20, 'PRODUCT CODE — the stable key');
     n(21, '  Any short ID you like: KUR-001, JWL-002, or even 1, 2, 3.');
@@ -1124,38 +1161,42 @@ export class ProductsExcelService {
     b(36, 'CATEGORY — must match exactly');
     n(37, '  Exactly "Kurtis" or "Jewellery". Anything else is rejected — it will NOT create a new category.');
 
-    b(39, 'IMAGES');
+    b(39, 'IMAGES — on BOTH sheets');
     n(40, '  • Comma-separated filenames:  front.png, back.png     (the extension is optional)');
     n(41, '  • Put the files in the images/ folder in the ZIP. The first one becomes the thumbnail.');
-    n(42, '  • Leave the cell BLANK and any file named <product-code>-01, -02 … is picked up');
-    n(43, '    automatically, in number order.                                    (see JWL-002)');
+    n(42, '  • Leave the Products cell BLANK and any file named <product-code>-01, -02 … is');
+    n(43, '    picked up automatically, in number order.                          (see JWL-002)');
     n(44, '  • A full https:// URL is used as-is, without uploading.');
+    n(45, '  • Variants sheet: the photographs for THAT colour. Repeat the same filenames on');
+    n(46, '    every row sharing a colour. Blank → that variant shows the product gallery.');
 
-    b(46, 'ATTRIBUTES — the two columns do DIFFERENT things');
-    n(47, '  Products sheet  → storefront FILTERS in the category sidebar.');
-    n(48, '  Variants sheet  → the selectable BUTTONS on the product page.');
-    n(49, '  Format for both:  Key: Value, Key: Value      e.g.  Size: M, Colour: Blue');
-    n(50, '  Capitalise the key on the Variants sheet ("Size", not "size") and keep it consistent.');
-    n(51, '  Suggested filter keys — Kurtis: Fabric, Colour, Sleeve, Occasion');
-    n(52, '                          Jewellery: Type, Finish, Stone, Occasion');
+    b(48, 'ATTRIBUTES — the two columns do DIFFERENT things');
+    n(49, '  Products sheet  → storefront FILTERS in the category sidebar.');
+    n(50, '  Variants sheet  → the selectable BUTTONS on the product page.');
+    n(51, '  Format for both:  Key: Value, Key: Value      e.g.  Colour: Blue, Size: M');
+    n(52, '  Colour belongs on the VARIANTS sheet — it is something the shopper picks. The');
+    n(53, '  filter sidebar still offers it, because filters read the variants too.');
+    n(54, '  Capitalise the key on the Variants sheet ("Size", not "size") and keep it consistent.');
+    n(55, '  Suggested filter keys — Kurtis: Fabric, Sleeve, Occasion');
+    n(56, '                          Jewellery: Type, Finish, Stone, Occasion');
 
-    b(54, 'GST — set automatically, do not enter it');
-    n(55, '  Kurtis: 5% up to ₹1,000 per piece, 12% above.   Jewellery: 3% flat.');
-    n(56, '  Recalculated whenever you change a price.');
+    b(58, 'GST — set automatically, do not enter it');
+    n(59, '  Kurtis: 5% up to ₹1,000 per piece, 12% above.   Jewellery: 3% flat.');
+    n(60, '  Recalculated whenever you change a price.');
 
-    b(58, 'BEFORE YOU IMPORT FOR REAL');
-    n(59, '  Add ?dryRun=true to the import request to validate the whole workbook and list every');
-    n(60, '  problem without writing anything. Fix, then import properly.');
+    b(62, 'BEFORE YOU IMPORT FOR REAL');
+    n(63, '  Add ?dryRun=true to the import request to validate the whole workbook and list every');
+    n(64, '  problem without writing anything. Fix, then import properly.');
 
-    b(62, 'PACKAGING THE ZIP');
-    n(63, '  products.xlsx plus an images/ folder. Zipping the folder itself is fine —');
-    n(64, '  a single wrapper directory is detected and ignored.');
+    b(66, 'PACKAGING THE ZIP');
+    n(67, '  products.xlsx plus an images/ folder. Zipping the folder itself is fine —');
+    n(68, '  a single wrapper directory is detected and ignored.');
 
-    b(66, 'EVERYDAY WORKFLOW');
-    n(67, '  Stock changed  → edit the Stock cell(s), re-import.');
-    n(68, '  Price update   → edit Price, re-import. GST follows automatically.');
-    n(69, '  New product    → add a row with a new Product Code, re-import.');
-    n(70, '  Tip: use Export on the admin Products page to get the current catalogue in this format.');
+    b(70, 'EVERYDAY WORKFLOW');
+    n(71, '  Stock changed  → edit the Stock cell(s), re-import.');
+    n(72, '  Price update   → edit Price, re-import. GST follows automatically.');
+    n(73, '  New product    → add a row with a new Product Code, re-import.');
+    n(74, '  Tip: use Export on the admin Products page to get the current catalogue in this format.');
 
     // ── Build ZIP with dummy images ───────────────────────────────────────────
     const excelBuffer = await workbook.xlsx.writeBuffer();
