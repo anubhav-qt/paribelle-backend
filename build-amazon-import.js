@@ -13,7 +13,11 @@
  * on the storefront swaps the gallery. (Colour used to be split into separate
  * products purely because variants could not carry images; they can now.)
  *
- *   node build-amazon-import.js <amazon-listings-raw.xlsx> <template.zip> <out.xlsx>
+ *   node build-amazon-import.js <amazon-listings-raw.xlsx> <template.zip> <out.xlsx> [image-url-map.json]
+ *
+ * The optional 4th argument is the { amazonUrl: cloudinaryUrl } map written by
+ * rehost-amazon-images.js — every image URL is swapped through it, so the
+ * storefront serves our own Cloudinary rather than hotlinking Amazon.
  */
 const fs = require('fs');
 const path = require('path');
@@ -236,11 +240,20 @@ const slug = (s) => s.toUpperCase().replace(/[^A-Z0-9]+/g, '').slice(0, 6) || 'X
 /* ------------------------------------------------------------------ main -- */
 
 async function main() {
-  const [listingsPath, templateZip, outPath] = process.argv.slice(2);
+  const [listingsPath, templateZip, outPath, mapPath] = process.argv.slice(2);
   if (!listingsPath || !templateZip || !outPath) {
-    console.error('usage: node build-amazon-import.js <listings.xlsx> <template.zip> <out.xlsx>');
+    console.error('usage: node build-amazon-import.js <listings.xlsx> <template.zip> <out.xlsx> [image-url-map.json]');
     process.exit(1);
   }
+
+  const urlMap = mapPath ? JSON.parse(fs.readFileSync(mapPath, 'utf8')) : {};
+  let unmapped = 0;
+  const remap = (url) => {
+    if (!/^https?:\/\//.test(url)) return url;
+    if (urlMap[url]) return urlMap[url];
+    if (mapPath) unmapped += 1; // a URL we expected to have rehosted but didn't
+    return url;
+  };
 
   const all = await readSheet(listingsPath, 'Listings');
   const active = all.filter((r) => r.status === 'Active');
@@ -331,7 +344,11 @@ async function main() {
       if (hasSizeAxis && !size) { size = 'Free Size'; notes.defaultedSize.push(`${productCode} ${group.name}`); }
 
       const key = `${colour}|${size}`;
-      const images = String(l._Images || '').split(',').map((s) => s.trim()).filter(Boolean);
+      const images = String(l._Images || '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map(remap);
       const existing = combos.get(key);
       if (existing) {
         notes.mergedDuplicates += 1;
@@ -426,6 +443,10 @@ async function main() {
   console.log(`  Variants raised to minimum stock ${MIN_STOCK}: ${notes.stockRaised}`);
   if (notes.defaultedColour.length) console.log(`  Colour defaulted to "Assorted": ${notes.defaultedColour.length}`);
   if (notes.defaultedSize.length) console.log(`  Size defaulted to "Free Size": ${notes.defaultedSize.length}`);
+  if (mapPath) {
+    console.log(`  Image URLs remapped to Cloudinary: ${Object.keys(urlMap).length} in map`);
+    console.log(unmapped ? `  ⚠️  ${unmapped} image refs had no mapping (kept Amazon URL)` : `  All image refs remapped ✓`);
+  }
 }
 
 main().catch((e) => {
