@@ -1,4 +1,5 @@
 import { DataSource, DataSourceOptions } from 'typeorm';
+import { SnakeNamingStrategy } from 'typeorm-naming-strategies';
 import { config } from 'dotenv';
 import * as path from 'path';
 
@@ -24,6 +25,10 @@ const connection: Record<string, unknown> = databaseUrl
 export const AppDataSource = new DataSource({
   type: 'postgres',
   ...connection,
+  // Must match app.module.ts — the whole schema and every migration use
+  // snake_case column names. Without this, synchronize()/migration CLI build
+  // camelCase columns the running app then can't find.
+  namingStrategy: new SnakeNamingStrategy(),
   ssl:
     process.env.NODE_ENV === 'production' ||
     /neon\.tech|supabase\.(com|co)/.test(databaseUrl || '')
