@@ -20,6 +20,7 @@
     "render:seed_data": "node seed-all-render.js",
     "render:seed_admin": "node seed-admin.js",
     "render:start": "node run-migrations.js && node dist/main",
+    "supabase:first_time": "node supabase-first-time.js && node seed-admin.js",
     "render:start:first_time_with_data": "npm run render:create_tables && npm run render:seed_data && node dist/main",
     "render:start:first_time_no_data": "npm run render:create_tables && npm run render:seed_admin && node dist/main",
     "render:start:sql_init": "npm run render:init_db && npm run render:seed_admin && node dist/main",

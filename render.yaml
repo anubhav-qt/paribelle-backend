@@ -3,11 +3,14 @@ services:
   - type: web
     name: marketplace-backend
     env: node
-    region: frankfurt
+    region: singapore
     plan: free
     buildCommand: npm ci --legacy-peer-deps && npm run build
+    # FIRST deploy only (fresh Supabase DB): builds all tables from entities,
+    # baselines the migration history, seeds the admin, then starts.
+    #   startCommand: npm run supabase:first_time && node dist/main
+    # Every deploy after that: run pending migrations, then start.
     startCommand: npm run render:start
-    # After first successful deployment, change to: npm run render:start:normal
     envVars:
       - key: NODE_ENV
         value: production
@@ -19,18 +22,11 @@ services:
         generateValue: true
       - key: JWT_EXPIRATION
         value: 7d
+      # Set in the Render dashboard to the Supabase Singapore (ap-southeast-1)
+      # Supavisor SESSION pooler URL, port 5432. Not managed by Render anymore.
       - key: DATABASE_URL
-        fromDatabase:
-          name: marketplace-db
-          property: connectionString
+        sync: false
       - key: npm_config_sharp_binary_host
         value: https://github.com/lovell/sharp-libvips/releases/download/
       - key: npm_config_sharp_libvips_binary_host
         value: https://github.com/lovell/sharp-libvips/releases/download/
-
-databases:
-  # PostgreSQL Database
-  - name: marketplace-db
-    databaseName: marketplace
-    user: marketplace_user
-    plan: free
