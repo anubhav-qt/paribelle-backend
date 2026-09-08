@@ -1,15 +1,52 @@
 import { Controller, Post, Body, Get, Param, Headers, HttpCode, HttpStatus, UseGuards, Req, Request, RawBodyRequest, BadRequestException } from '@nestjs/common';
-import { ApiBearerAuth } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Request as ExpressRequest } from 'express';
+import { IsString, IsNotEmpty, IsOptional, IsIn, IsNumber, Min } from 'class-validator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminOnly } from '../../common/decorators/admin-only.decorator';
 import { UserRole } from '../users/user.entity';
 import { PaymentsService } from './payments.service';
 
+export class CreatePaymentOrderDto {
+  @IsString()
+  @IsNotEmpty()
+  orderId: string;
+
+  @IsString()
+  @IsOptional()
+  currency?: string;
+}
+
+export class VerifyPaymentDto {
+  @IsString()
+  @IsNotEmpty()
+  razorpayOrderId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  razorpayPaymentId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  razorpaySignature: string;
+
+  @IsOptional()
+  @IsIn(['success', 'failed'])
+  status?: 'success' | 'failed';
+}
+
+export class RefundPaymentDto {
+  @IsOptional()
+  @IsNumber()
+  @Min(0.01)
+  amount?: number;
+}
+
 /**
  * `webhook` stays unauthenticated on purpose — Razorpay calls it, and it is
  * authenticated by HMAC signature inside the service, not by a JWT.
  */
+@ApiTags('payments')
 @Controller('payments')
 export class PaymentsController {
   constructor(private readonly paymentsService: PaymentsService) {}
@@ -27,7 +64,7 @@ export class PaymentsController {
   @ApiBearerAuth()
   async createOrder(
     @Request() req,
-    @Body() body: { orderId: string; currency?: string },
+    @Body() body: CreatePaymentOrderDto,
   ) {
     return await this.paymentsService.createRazorpayOrder(
       body.orderId,
@@ -40,19 +77,13 @@ export class PaymentsController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   async verifyPayment(
-    @Body()
-    body: {
-      razorpayOrderId: string;
-      razorpayPaymentId: string;
-      razorpaySignature: string;
-      status: 'success' | 'failed';
-    },
+    @Body() body: VerifyPaymentDto,
   ) {
     return await this.paymentsService.updatePaymentStatus(
       body.razorpayOrderId,
       body.razorpayPaymentId,
       body.razorpaySignature,
-      body.status,
+      body.status || 'success',
     );
   }
 
@@ -67,7 +98,7 @@ export class PaymentsController {
   @AdminOnly(UserRole.SUPER_ADMIN)
   async refundPayment(
     @Param('paymentId') paymentId: string,
-    @Body() body: { amount?: number },
+    @Body() body: RefundPaymentDto,
   ) {
     return await this.paymentsService.initiateRefund(paymentId, body.amount);
   }

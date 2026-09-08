@@ -40,19 +40,38 @@ export class PaymentsService {
    */
   async createRazorpayOrder(orderId: string, userId: string, currency: string = 'INR') {
     if (!this.razorpay) {
-      throw new BadRequestException('Razorpay is not configured');
+      throw new BadRequestException('Razorpay is not configured. Please set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET.');
     }
 
     const order = await this.ordersService.findOne(orderId, userId);
+    if (!order) {
+      throw new BadRequestException('Order not found');
+    }
+
+    if (order.paymentStatus === 'paid') {
+      throw new BadRequestException('Order is already paid');
+    }
+
+    if (order.status === 'cancelled') {
+      throw new BadRequestException('Cannot initiate payment for a cancelled order');
+    }
+
     const amount = Number(order.total);
+    const amountInPaise = Math.round(amount * 100);
+
+    // Razorpay requires minimum 100 paise (₹1)
+    if (amountInPaise < 100) {
+      throw new BadRequestException('Order amount must be at least ₹1 (100 paise) for Razorpay checkout');
+    }
 
     try {
       const options = {
-        amount: Math.round(amount * 100), // Razorpay expects amount in smallest currency unit (paise)
+        amount: amountInPaise,
         currency,
         receipt: orderId,
         notes: {
           orderId,
+          userId,
         },
       };
 
@@ -107,7 +126,10 @@ export class PaymentsService {
         .update(text)
         .digest('hex');
 
-      return generatedSignature === razorpaySignature;
+      const genBuf = Buffer.from(generatedSignature, 'utf8');
+      const sigBuf = Buffer.from(razorpaySignature || '', 'utf8');
+
+      return genBuf.length === sigBuf.length && crypto.timingSafeEqual(genBuf, sigBuf);
     } catch (error) {
       console.error('Payment verification error:', error);
       return false;
@@ -230,7 +252,10 @@ export class PaymentsService {
       .update(rawBody)
       .digest('hex');
 
-    if (expectedSignature !== signature) {
+    const expBuf = Buffer.from(expectedSignature, 'utf8');
+    const sigBuf = Buffer.from(signature || '', 'utf8');
+
+    if (expBuf.length !== sigBuf.length || !crypto.timingSafeEqual(expBuf, sigBuf)) {
       throw new BadRequestException('Invalid webhook signature');
     }
 
