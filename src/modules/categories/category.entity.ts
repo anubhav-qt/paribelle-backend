@@ -55,6 +55,17 @@ export class Category {
   @Column({ type: 'uuid', nullable: true, name: 'featured_product_id' })
   featuredProductId: string | null;
 
+  // Which of the pinned product's images the Editor's Pick tile shows, and
+  // how it is cropped into the tile's tall portrait frame. The URL may come
+  // from the product's own gallery or from any of its variants'. Null on both
+  // means the historical behaviour: first image, centred.
+  @Column({ type: 'text', nullable: true, name: 'featured_image_url' })
+  featuredImageUrl: string | null;
+
+  /** A CSS `object-position` value, e.g. "50% 30%". */
+  @Column({ type: 'varchar', length: 64, nullable: true, name: 'featured_image_position' })
+  featuredImagePosition: string | null;
+
   // SEO
   @Column({ nullable: true, name: 'meta_title' })
   metaTitle: string;
