@@ -501,50 +501,23 @@ export class InvoicePdfService {
     
     // Tax (show separately for normal invoices, combine with subtotal for credit notes)
     if (!isCreditNote && invoice.tax && invoice.tax > 0) {
-      // Determine if transaction is intra-state or inter-state
-      const vendorState = invoice.order?.vendor?.state || invoice.order?.vendor?.gstState;
-      const customerState = invoice.billingState;
-      const isIntraState = vendorState && customerState && 
-                           vendorState.toLowerCase().trim() === customerState.toLowerCase().trim();
-      
-      // The label percentage is derived from the actual tax charged, not
-      // hardcoded — the store sells items at more than one GST rate (e.g.
-      // 3% on jewellery vs 18% on apparel), so a fixed "9%"/"18%" label was
-      // wrong on every invoice that wasn't 18% GST. The rupee split itself
-      // was already correct (CGST+SGST sum to, and IGST equals, invoice.tax
-      // either way — only the itemisation on the page changes).
+      // Prices on the store are GST-inclusive: invoice.tax is the tax already
+      // baked into the item prices, split back out for the invoice. It is not
+      // an extra charge, and we do not itemise it as CGST/SGST vs IGST — a
+      // single "GST/IGST" line covers both intra- and inter-state orders. The
+      // percentage is derived from the tax actually charged, not hardcoded,
+      // because the store sells at more than one rate (e.g. 3% on jewellery,
+      // 18% on apparel).
       const totalGstPercent = Number(invoice.subtotal) > 0
         ? (Number(invoice.tax) / Number(invoice.subtotal)) * 100
         : 0;
 
-      if (isIntraState) {
-        // Intra-state (ship-to state matches the vendor's state): CGST + SGST, each half the total GST rate.
-        const cgst = invoice.tax / 2;
-        const sgst = invoice.tax / 2;
-        const halfPercent = (totalGstPercent / 2).toFixed(2);
-
-        doc
-          .fillColor('#666666')
-          .text(`CGST (${halfPercent}%):`, labelX, lineY)
-          .fillColor('#000000')
-          .text(this.formatCurrency(cgst), valueX, lineY, { align: 'right' });
-        lineY += 15;
-
-        doc
-          .fillColor('#666666')
-          .text(`SGST (${halfPercent}%):`, labelX, lineY)
-          .fillColor('#000000')
-          .text(this.formatCurrency(sgst), valueX, lineY, { align: 'right' });
-        lineY += 15;
-      } else {
-        // Inter-state (ship-to state differs from the vendor's state): a single IGST line at the full GST rate.
-        doc
-          .fillColor('#666666')
-          .text(`IGST (${totalGstPercent.toFixed(2)}%):`, labelX, lineY)
-          .fillColor('#000000')
-          .text(this.formatCurrency(invoice.tax), valueX, lineY, { align: 'right' });
-        lineY += 15;
-      }
+      doc
+        .fillColor('#666666')
+        .text(`GST/IGST (${totalGstPercent.toFixed(2)}%):`, labelX, lineY)
+        .fillColor('#000000')
+        .text(this.formatCurrency(invoice.tax), valueX, lineY, { align: 'right' });
+      lineY += 15;
     } else if (isCreditNote && invoice.tax && invoice.tax !== 0) {
       // For credit notes, show tax as refundable amount (negative becomes positive for display)
       doc
@@ -563,6 +536,17 @@ export class InvoicePdfService {
         .text(shippingLabel, labelX, lineY)
         .fillColor('#000000')
         .text(this.formatCurrency(Math.abs(invoice.shippingCost)), valueX, lineY, { align: 'right' });
+      lineY += 15;
+    }
+
+    // COD handling fee (only on Cash on Delivery orders; already part of the total)
+    const codCharge = Number((invoice.order as any)?.codCharge) || 0;
+    if (!isCreditNote && codCharge > 0) {
+      doc
+        .fillColor('#666666')
+        .text('COD Charges:', labelX, lineY)
+        .fillColor('#000000')
+        .text(this.formatCurrency(codCharge), valueX, lineY, { align: 'right' });
       lineY += 15;
     }
 

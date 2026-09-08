@@ -51,6 +51,13 @@ export class OrdersService {
   ) {}
 
   /**
+   * Flat fee added to an order that is paid Cash on Delivery. Charged once per
+   * order, never on prepaid orders, and not treated as taxable (store prices
+   * are already GST-inclusive; this fee is not).
+   */
+  private readonly COD_CHARGE = 150;
+
+  /**
    * The admin "Currency & Commission" setting is the one place a store owner
    * actually edits this rate — it used to be written and never read, while a
    * hardcoded `10` ran on every order regardless. Defaults to 0, not 10: an
@@ -375,6 +382,16 @@ export class OrdersService {
         : 0;
       const vendorFinalTotal = Number((vendorTotal - vendorWalletDiscount).toFixed(2));
 
+      // COD handling fee: added once (to the first order of the checkout), only
+      // when the shopper pays Cash on Delivery and there is still an amount to
+      // collect at the door after wallet credit. Prepaid and wallet-settled
+      // orders never carry it.
+      const vendorCodCharge =
+        paymentMethod === 'cod' && vendorFinalTotal > 0 && createdOrders.length === 0
+          ? this.COD_CHARGE
+          : 0;
+      const vendorTotalWithCod = Number((vendorFinalTotal + vendorCodCharge).toFixed(2));
+
       // Create order
       const order = this.orderRepository.create({
         orderNumber,
@@ -395,11 +412,12 @@ export class OrdersService {
         subtotal: vendorSubtotal,
         tax: vendorTax,
         shippingCost: vendorShippingCost,
+        codCharge: vendorCodCharge,
         discount: vendorWalletDiscount,
         // A vendorFinalTotal of exactly 0 is the wallet covering the order in
         // full, not a signal to ignore the discount and charge the full
         // price — falling back to vendorTotal here used to do exactly that.
-        total: Math.max(vendorFinalTotal, 0),
+        total: Math.max(vendorTotalWithCod, 0),
         commissionRate,
         commissionAmount,
         vendorPayout,

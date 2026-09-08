@@ -77,6 +77,11 @@ export class Order {
   @Column({ type: 'decimal', precision: 10, scale: 2, default: 0, name: 'shipping_cost' })
   shippingCost: number;
 
+  // Flat handling fee added only when the order is paid Cash on Delivery.
+  // Zero for prepaid orders. Already included in `total`.
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0, name: 'cod_charge' })
+  codCharge: number;
+
   @Column({ type: 'decimal', precision: 10, scale: 2 })
   total: number;
 
