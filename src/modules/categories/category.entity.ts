@@ -50,6 +50,11 @@ export class Category {
   @Column({ type: 'uuid', nullable: true, name: 'vendor_id' })
   vendorId: string | null;
 
+  // The product an admin has pinned as this category's "Editor's Pick" in the
+  // mega menu. Null = fall back to the category's first product.
+  @Column({ type: 'uuid', nullable: true, name: 'featured_product_id' })
+  featuredProductId: string | null;
+
   // SEO
   @Column({ nullable: true, name: 'meta_title' })
   metaTitle: string;
