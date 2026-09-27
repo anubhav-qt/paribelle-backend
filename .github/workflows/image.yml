@@ -1,6 +1,6 @@
 # Every push to main: build the API image for the ThinkPad and publish it to GHCR.
-# The ThinkPad picks it up itself within 5 minutes (pom's infra/update.sh) and runs the
-# migrations against its own database first. Render keeps building main from source.
+# Then it tells the ThinkPad, which updates straight away (pom's infra/hook.mjs) and runs
+# the migrations against its own database first. Render keeps building main from source.
 name: image
 
 on:
@@ -34,3 +34,14 @@ jobs:
           push: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # The image is up: tell the ThinkPad, so it updates now (pom's infra/hook.mjs).
+      # Without the secret, or if it doesn't answer, it still does at its next 5-minute check.
+      - name: Tell the ThinkPad
+        env: { KEY: "${{ secrets.THINKPAD_DEPLOY_KEY }}" }
+        run: |
+          [ -n "$KEY" ] || { echo "No THINKPAD_DEPLOY_KEY secret: the ThinkPad updates at its next 5-minute check."; exit 0; }
+          curl -fsS --max-time 20 --retry 3 --retry-all-errors -X POST \
+            -H "Authorization: Bearer $KEY" -H "X-Paribelle-Repo: $GITHUB_REPOSITORY" \
+            https://laptop.paribelle.in/_paribelle/deploy ||
+            echo "::warning::The ThinkPad didn't answer; it updates at its next 5-minute check."
