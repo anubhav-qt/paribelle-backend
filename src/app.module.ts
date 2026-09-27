@@ -6,6 +6,7 @@ import { ThrottlerModule } from '@nestjs/throttler';
 
 // Common
 import { CommonModule } from './common/common.module';
+import { EdgeThrottlerGuard } from './common/guards/edge-throttler.guard';
 
 // Modules
 import { AuthModule } from './modules/auth/auth.module';
@@ -37,6 +38,7 @@ import { HsnCodesModule } from './modules/hsn-codes/hsn-codes.module';
 import { InvoicesModule } from './modules/invoices/invoices.module';
 import { StockModule } from './modules/stock/stock.module';
 import { ReferralsModule } from './modules/referrals/referrals.module';
+import { HealthModule } from './modules/health/health.module';
 
 @Module({
   imports: [
@@ -49,7 +51,7 @@ import { ReferralsModule } from './modules/referrals/referrals.module';
     // Rate Limiting (Security)
     ThrottlerModule.forRoot([{
       ttl: 60000, // 60 seconds
-      limit: 100, // 100 requests per minute per IP
+      limit: 100, // 100 requests per minute per visitor (see EdgeThrottlerGuard)
     }]),
 
     // Common services (global)
@@ -137,11 +139,12 @@ import { ReferralsModule } from './modules/referrals/referrals.module';
     InvoicesModule,
     StockModule,
     ReferralsModule,
+    HealthModule,
   ],
   providers: [
     {
       provide: 'APP_GUARD',
-      useClass: require('@nestjs/throttler').ThrottlerGuard,
+      useClass: EdgeThrottlerGuard,
     },
   ],
 })
