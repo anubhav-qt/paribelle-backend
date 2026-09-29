@@ -111,8 +111,14 @@ export class OrdersController {
 
   @Patch(':id/status')
   @AdminOnly()
-  updateStatus(@Param('id') id: string, @Body() body: { status: OrderStatus; reason?: string }) {
-    return this.ordersService.updateStatus(id, body.status, body.reason);
+  updateStatus(
+    @Param('id') id: string,
+    @Body() body: { status: OrderStatus; reason?: string; trackingNumber?: string; carrier?: string },
+  ) {
+    return this.ordersService.updateStatus(id, body.status, body.reason, {
+      trackingNumber: body.trackingNumber,
+      carrier: body.carrier,
+    });
   }
 
   @Patch(':id/payment-status')

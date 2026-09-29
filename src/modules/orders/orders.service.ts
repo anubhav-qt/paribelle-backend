@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, In } from 'typeorm';
 import { Order, OrderStatus, PaymentStatus } from './order.entity';
 import { OrderItem } from './order-item.entity';
 import { Product } from '../products/product.entity';
@@ -68,6 +68,41 @@ export class OrdersService {
     const raw = await this.settingsService.getSetting('platform_commission_rate');
     const rate = Number(raw);
     return Number.isFinite(rate) ? rate : 0;
+  }
+
+  /**
+   * The photo to freeze on an order line: the colour the customer actually
+   * picked, resolved the same way the product page resolves its gallery. The
+   * exact variant's own images first, then any sibling variant of the same
+   * colour that carries images (one colour usually shares a photo set across
+   * its sizes), then the product's cover.
+   */
+  private resolveItemPhoto(
+    product: Product,
+    variantId: string | null | undefined,
+    attributes: Record<string, any> | null | undefined,
+    variants: ProductVariant[],
+  ): string | undefined {
+    const cover = product.featuredImage || product.images?.[0] || undefined;
+    if (!variantId) return cover;
+
+    const own = variants.find((v) => v.id === variantId);
+    if (own?.images?.length) return own.images[0];
+
+    const attrs = attributes || own?.variantAttributes || {};
+    const colourKey = Object.keys(attrs).find((k) => /^colou?r$/i.test(k.trim()));
+    if (colourKey) {
+      const colour = String(attrs[colourKey]).trim().toLowerCase();
+      const sibling = variants.find((v) => {
+        if (v.productId !== product.id || !v.images?.length) return false;
+        const va = v.variantAttributes || {};
+        const key = Object.keys(va).find((k) => /^colou?r$/i.test(k.trim()));
+        return key != null && String(va[key]).trim().toLowerCase() === colour;
+      });
+      if (sibling) return sibling.images[0];
+    }
+
+    return cover;
   }
 
   async create(userId: string, createOrderDto: any, idempotencyKey?: string) {
@@ -138,9 +173,18 @@ export class OrdersService {
       relations: ['vendor'],
     });
 
-    if (products.length !== items.length) {
+    // Compare against distinct ids: two sizes of the same kurti are two cart
+    // lines but one product row, so items.length would reject a valid order.
+    if (products.length !== new Set(productIds).size) {
       throw new NotFoundException('One or more products not found');
     }
+
+    // Every variant of every ordered product, loaded once, so each line can
+    // snapshot the photo of the colour that was bought rather than the
+    // product's cover shot (which may show a different colour).
+    const orderedVariants = await this.productVariantsRepository.find({
+      where: { productId: In(Array.from(new Set(productIds))) },
+    });
 
     // Every requested quantity must be a positive whole number. Without this a
     // crafted request with a negative quantity would *increase* stock on the
@@ -467,7 +511,7 @@ export class OrdersService {
           total: Number((Number(item.price) || 0) * item.quantity),
           productName: item.product.name,
           productSku: item.product.sku || '',
-          productImage: item.product.featuredImage,
+          productImage: this.resolveItemPhoto(item.product, item.variantId, item.variantAttributes, orderedVariants),
           variantId: item.variantId || null,
           variantDetails: item.variantId ? {
             sku: item.variantSku || null,
@@ -781,7 +825,9 @@ export class OrdersService {
 
   async findAllForAdmin() {
     const orders = await this.orderRepository.find({
-      relations: ['items', 'items.product', 'vendor', 'user', 'invoices'],
+      // productVariants lets the admin screen show the photo of the colour
+      // that was bought on orders placed before that photo was snapshotted.
+      relations: ['items', 'items.product', 'items.product.productVariants', 'vendor', 'user', 'invoices'],
       order: { createdAt: 'DESC' },
     });
     const exchangeWindowDays = await this.getExchangeWindowDays();
@@ -987,7 +1033,12 @@ export class OrdersService {
     };
   }
 
-  async updateStatus(id: string, status: OrderStatus, reason?: string) {
+  async updateStatus(
+    id: string,
+    status: OrderStatus,
+    reason?: string,
+    shipment?: { trackingNumber?: string; carrier?: string },
+  ) {
     const startTime = Date.now();
     console.log(`[updateStatus] Starting status update for order ${id} to ${status}`);
     
@@ -1027,9 +1078,17 @@ export class OrdersService {
         .catch((err) => console.error('Failed to notify customer of confirmation:', err));
     } else if (status === OrderStatus.SHIPPED) {
       order.shippedAt = new Date();
+      // Recorded before the notification below so the customer's bell
+      // carries the tracking number the admin typed when marking shipped.
+      const trackingNumber = shipment?.trackingNumber?.trim();
+      const carrier = shipment?.carrier?.trim();
+      if (trackingNumber) order.trackingNumber = trackingNumber;
+      if (carrier) order.carrier = carrier;
       this.notificationsService
         .notifyUser(order.userId, NotificationType.ORDER_SHIPPED, `Order #${order.orderNumber} shipped`, {
-          body: order.trackingNumber ? `Tracking: ${order.trackingNumber}` : undefined,
+          body: order.trackingNumber
+            ? `${order.carrier ? `${order.carrier} ` : ''}tracking: ${order.trackingNumber}`
+            : undefined,
           link: '/orders', orderId: order.id,
         })
         .catch((err) => console.error('Failed to notify customer of shipping:', err));

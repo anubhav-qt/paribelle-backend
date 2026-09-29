@@ -61,6 +61,16 @@ export function gstRateFor(categorySlug: string | undefined | null, unitPrice: n
 }
 
 /**
+ * The slug to tax a product by, out of all the categories it is filed under.
+ * A kurti usually sits in "Kurtis" and a sub-category such as "Anarkali";
+ * only the top one carries a rule, and the database returns them in no
+ * particular order, so pick the one that has a rule rather than the first.
+ */
+export function gstSlugFrom(slugs: Array<string | null | undefined>): string | undefined {
+  return slugs.find((s) => s && CATEGORY_GST_RULES[s]) ?? slugs.find((s) => !!s) ?? undefined;
+}
+
+/**
  * Human-readable explanation of how a rate was reached, for admin screens and
  * invoice footnotes.
  */

@@ -10,7 +10,7 @@ import { FileCleanupService } from '../../common/services/file-cleanup.service';
 import { CloudinaryService } from '../../common/services/cloudinary.service';
 import { MarketplaceGateway } from '../stock/stock.gateway';
 import { ConfigService } from '@nestjs/config';
-import { gstRateFor } from './gst-rates';
+import { gstRateFor, gstSlugFrom } from './gst-rates';
 
 @Injectable()
 export class ProductsService {
@@ -131,6 +131,7 @@ export class ProductsService {
     subLocationId?: string,
     productType?: string,
     includeUnverifiedVendors: boolean = false, // Only show KYC approved vendors by default
+    stock?: 'low' | 'out', // Mirrors the low/out-of-stock definition used by getAdminStats
   ): Promise<{ products: Product[]; total: number; page: number; limit: number }> {
     const queryBuilder = this.productsRepository
       .createQueryBuilder('product')
@@ -209,6 +210,13 @@ export class ProductsService {
     // Apply product type filter
     if (productType) {
       queryBuilder.andWhere('product.productType = :productType', { productType });
+    }
+
+    // Apply stock filter — same thresholds as getAdminStats above (low: 0 < qty < 10, out: qty = 0)
+    if (stock === 'low') {
+      queryBuilder.andWhere('product.stockQuantity > 0 AND product.stockQuantity < 10');
+    } else if (stock === 'out') {
+      queryBuilder.andWhere('product.stockQuantity = 0');
     }
 
     // Order by creation date
@@ -627,26 +635,16 @@ export class ProductsService {
     // Platform vendor ID for products created by super admin
     const PLATFORM_VENDOR_ID = '00000000-0000-0000-0000-000000000001';
     
-    // CRITICAL: Validate vendor can create products
-    // Vendors must complete setup and KYC before adding products
-    // Skip validation for platform vendor (super admin products)
+    // The store sells for itself, so there is no seller KYC to wait on; the
+    // vendor row only has to exist. (Invoices read the business details from
+    // it, which the admin fills in under Settings > Business details.)
     if (data.vendorId && data.vendorId !== PLATFORM_VENDOR_ID) {
       const vendor = await this.vendorsRepository.findOne({
         where: { id: data.vendorId },
       });
-      
+
       if (!vendor) {
         throw new BadRequestException('Vendor not found');
-      }
-      
-      // Check if vendor has completed basic setup
-      if (!vendor.storeName || !vendor.contactEmail || !vendor.contactPhone) {
-        throw new BadRequestException('Please complete your store setup before adding products. Go to Vendor Settings to complete your profile.');
-      }
-      
-      // Check KYC status
-      if (vendor.kycStatus !== 'approved') {
-        throw new BadRequestException(`KYC verification required. Your KYC status is: ${vendor.kycStatus}. Please complete KYC verification before adding products.`);
       }
     }
     
@@ -681,7 +679,7 @@ export class ProductsService {
     // rate fixed at creation time goes stale the moment the price is edited —
     // `update` recomputes it for the same reason.
     if (data.gstRate === undefined || data.gstRate === null || data.gstRate === '') {
-      data.gstRate = gstRateFor(categories[0]?.slug, Number(data.price));
+      data.gstRate = gstRateFor(gstSlugFrom(categories.map((c) => c.slug)), Number(data.price));
     }
 
     // If new filter options are provided, add them to the category
@@ -730,7 +728,11 @@ export class ProductsService {
 
     // If variants are provided, create ProductVariant entries
     if (variants && Array.isArray(variants) && variants.length > 0) {
+      let totalStock = 0;
       for (const variant of variants) {
+        if (Array.isArray(variant.images) && variant.images.length > 0) {
+          this.validateImageUrls(variant.images);
+        }
         const productVariant = this.productVariantsRepository.create({
           productId: parentProduct.id,
           variantAttributes: variant.attributes,
@@ -738,11 +740,18 @@ export class ProductsService {
           price: variant.price,
           compareAtPrice: variant.compareAtPrice,
           stockQuantity: variant.stock,
+          // A colour's own photos, so the product page and the orders show the colour bought.
+          images: Array.isArray(variant.images) && variant.images.length > 0 ? variant.images : undefined,
           isActive: true,
         });
 
         await this.productVariantsRepository.save(productVariant);
+        totalStock += Number(variant.stock) || 0;
       }
+
+      // The product's stock is its variants' total, as everywhere else keeps it.
+      await this.productsRepository.update(parentProduct.id, { stockQuantity: totalStock });
+      parentProduct.stockQuantity = totalStock;
     }
 
     await this.storeAttributesOnVariants(parentProduct, attributes);
@@ -923,9 +932,11 @@ export class ProductsService {
         relations: ['categories'],
       });
 
-      const slug = categoryChanged
-        ? (await this.categoriesRepository.findOne({ where: { id: categoryIds[0] } }))?.slug
-        : existing?.categories?.[0]?.slug;
+      const slug = gstSlugFrom(
+        categoryChanged
+          ? (await this.categoriesRepository.find({ where: { id: In(categoryIds) } })).map((c) => c.slug)
+          : (existing?.categories ?? []).map((c) => c.slug),
+      );
 
       const unitPrice = priceChanged ? Number(data.price) : Number(existing?.price);
       data.gstRate = gstRateFor(slug, unitPrice);
@@ -935,7 +946,7 @@ export class ProductsService {
         where: { id },
         relations: ['categories'],
       });
-      data.gstRate = gstRateFor(existing?.categories?.[0]?.slug, Number(existing?.price));
+      data.gstRate = gstRateFor(gstSlugFrom((existing?.categories ?? []).map((c) => c.slug)), Number(existing?.price));
     }
 
     // Validate image URLs in production
@@ -955,13 +966,30 @@ export class ProductsService {
     if (productVariants && Array.isArray(productVariants) && productVariants.length > 0) {
       for (const variantData of productVariants) {
         if (variantData.id) {
-          // Update existing variant
-          await this.productVariantsRepository.update(variantData.id, {
+          // Update existing variant. `images` is the colour's own photo set
+          // (the storefront gallery and the order snapshot both prefer it),
+          // written only when the admin sent it so older clients leave it be.
+          const patch: Partial<ProductVariant> = {
             price: variantData.price,
             compareAtPrice: variantData.compareAtPrice,
             stockQuantity: variantData.stockQuantity,
-          });
+          };
+          if (Array.isArray(variantData.images)) {
+            this.validateImageUrls(variantData.images);
+            patch.images = variantData.images;
+          }
+          if (typeof variantData.isActive === 'boolean') patch.isActive = variantData.isActive;
+          await this.productVariantsRepository.update(variantData.id, patch);
         }
+      }
+
+      // The product's own stock is the sum of its variants', the figure the
+      // catalogue list, the low/out-of-stock counts and the storefront read.
+      // Orders keep it in step when they move stock; an edit here must too.
+      const variants = await this.productVariantsRepository.find({ where: { productId: id } });
+      if (variants.length > 0) {
+        const total = variants.reduce((s, v) => s + (v.stockQuantity || 0), 0);
+        await this.productsRepository.update(id, { stockQuantity: total });
       }
     }
 

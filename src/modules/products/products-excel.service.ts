@@ -845,8 +845,14 @@ export class ProductsExcelService {
               existing.images = productImages;
               existing.featuredImage = productImages[0];
             }
-            if (category) {
-              existing.categories = [category];
+            // Amazon is the source of truth for name/price/images, not for how
+            // this storefront organizes its catalogue: an update ADDS the
+            // file's category if the product doesn't already carry it, rather
+            // than replacing the set — a bare `= [category]` here used to wipe
+            // every other category (e.g. "Festive", "Co-ord Sets") a product
+            // had picked up outside this importer.
+            if (category && !(existing.categories ?? []).some((c) => c.id === category.id)) {
+              existing.categories = [...(existing.categories ?? []), category];
             }
             await this.productsRepository.save(existing);
             pendingAttributes.set(existing.id, parsedAttributes);

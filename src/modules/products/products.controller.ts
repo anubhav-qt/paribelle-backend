@@ -44,6 +44,7 @@ export class ProductsController {
   @ApiQuery({ name: 'cityId', required: false })
   @ApiQuery({ name: 'subLocationId', required: false })
   @ApiQuery({ name: 'productType', required: false })
+  @ApiQuery({ name: 'stock', required: false, description: 'Filter by stock level: low | out (admin panel)' })
   async findAll(
     @Query('categoryId') categoryId?: string,
     @Query('filters') filters?: string,
@@ -56,6 +57,7 @@ export class ProductsController {
     @Query('cityId') cityId?: string,
     @Query('subLocationId') subLocationId?: string,
     @Query('productType') productType?: string,
+    @Query('stock') stock?: string,
   ) {
     if (categoryId) {
       const parsedFilters = filters ? JSON.parse(filters) : {};
@@ -73,7 +75,8 @@ export class ProductsController {
     const limitNum = limit ? parseInt(limit, 10) : 20;
     const isUncategorized = uncategorized === 'true';
     
-    return this.productsService.findAll(pageNum, limitNum, status, search, vendorId, isUncategorized, cityId, subLocationId, productType);
+    const stockFilter = stock === 'low' || stock === 'out' ? stock : undefined;
+    return this.productsService.findAll(pageNum, limitNum, status, search, vendorId, isUncategorized, cityId, subLocationId, productType, false, stockFilter);
   }
 
   @Get('template-simple/download')
