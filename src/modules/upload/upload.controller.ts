@@ -1,6 +1,7 @@
 import {
   Controller,
   Post,
+  Req,
   UploadedFile,
   UploadedFiles,
   UseInterceptors,
@@ -8,6 +9,10 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
+import { randomBytes } from 'crypto';
+import { mkdir, writeFile } from 'fs/promises';
+import { join } from 'path';
+import type { Request } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminOnly } from '../../common/decorators/admin-only.decorator';
 import { CloudinaryService } from '../../common/services/cloudinary.service';
@@ -210,6 +215,58 @@ export class UploadController {
     return {
       url: `/uploads/${file.filename}`,
       filename: file.filename,
+      originalName: file.originalname,
+      size: file.size,
+      mimetype: file.mimetype,
+    };
+  }
+
+  /**
+   * A product video (the OMS's Seelie makes them): the storefront gallery plays an
+   * MP4 found among a product's or colour's `images`, so the caller appends the URL
+   * returned here to those lists with the usual product update. Admins only.
+   * Without Cloudinary (a local stack) the file is kept under public/uploads/videos
+   * and served by the API itself.
+   *
+   * POST /api/v1/upload/product-video
+   */
+  @Post('product-video')
+  @AdminOnly()
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadProductVideo(@UploadedFile() file: MulterFile, @Req() req: Request) {
+    if (!file) {
+      throw new BadRequestException('No file uploaded');
+    }
+    if (!['video/mp4', 'video/quicktime', 'video/webm'].includes(file.mimetype)) {
+      throw new BadRequestException(`"${file.originalname}" is not an MP4, MOV or WebM video.`);
+    }
+    if (file.size > this.MAX_VIDEO_SIZE) {
+      throw new BadRequestException(
+        `"${file.originalname}" is ${(file.size / 1024 / 1024).toFixed(1)}MB — the limit is ${this.MAX_VIDEO_SIZE / 1024 / 1024}MB`,
+      );
+    }
+
+    if (this.cloudinaryService.isEnabled()) {
+      const result = await this.cloudinaryService.uploadVideo(file.buffer, 'marketplace/products');
+      return {
+        url: result.secure_url,
+        publicId: result.public_id,
+        originalName: file.originalname,
+        size: result.bytes,
+        duration: result.duration,
+        width: result.width,
+        height: result.height,
+        format: result.format,
+      };
+    }
+
+    const ext = file.mimetype === 'video/webm' ? 'webm' : file.mimetype === 'video/quicktime' ? 'mov' : 'mp4';
+    const name = `${Date.now()}-${randomBytes(6).toString('hex')}.${ext}`;
+    const dir = join(process.cwd(), 'public', 'uploads', 'videos');
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, name), file.buffer);
+    return {
+      url: `${req.protocol}://${req.get('host')}/uploads/videos/${name}`,
       originalName: file.originalname,
       size: file.size,
       mimetype: file.mimetype,
