@@ -117,11 +117,14 @@ export class CloudinaryService {
 
     return new Promise((resolve, reject) => {
       const uploadStream = cloudinary.uploader.upload_stream(
-        { folder, resource_type: 'video', quality: 'auto' },
+        // No incoming transformation: Cloudinary refuses to transcode a large video while
+        // it uploads ("too large to process synchronously"); the file is kept as it is.
+        { folder, resource_type: 'video' },
         (error, result) => {
           if (error || !result) {
             this.logger.error('Cloudinary video upload failed:', error);
-            reject(error || new Error('Upload failed'));
+            // Cloudinary's error is a plain object, which would become a bare 500.
+            reject(new Error(error?.message || 'Upload failed'));
           } else {
             this.logger.log(`Video uploaded: ${result.public_id}`);
             resolve(result);

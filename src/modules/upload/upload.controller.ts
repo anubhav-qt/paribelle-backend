@@ -6,6 +6,7 @@ import {
   UploadedFiles,
   UseInterceptors,
   BadRequestException,
+  UnprocessableEntityException,
   UseGuards,
 } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
@@ -247,7 +248,9 @@ export class UploadController {
     }
 
     if (this.cloudinaryService.isEnabled()) {
-      const result = await this.cloudinaryService.uploadVideo(file.buffer, 'marketplace/products');
+      const result = await this.cloudinaryService.uploadVideo(file.buffer, 'marketplace/products').catch((err: Error) => {
+        throw new UnprocessableEntityException(`The video host refused "${file.originalname}": ${err.message}`);
+      });
       return {
         url: result.secure_url,
         publicId: result.public_id,

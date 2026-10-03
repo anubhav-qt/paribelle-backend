@@ -1,7 +1,7 @@
 // Force output immediately
 process.stdout.write('🟢 main.ts file loading...\n');
 
-import { NestFactory } from '@nestjs/core';
+import { HttpAdapterHost, NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import helmet from 'helmet';
@@ -10,6 +10,7 @@ import { AppModule } from './app.module';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
+import { QueryFailedFilter } from './common/filters/query-failed.filter';
 import { MonitoringService } from './modules/monitoring/monitoring.service';
 
 // Force output immediately
@@ -47,6 +48,9 @@ async function bootstrap() {
 
   // Add logging interceptor for request monitoring
   app.useGlobalInterceptors(new LoggingInterceptor(monitoringService));
+
+  // The database's refusals (a taken SKU, a missing field) as 4xx with the reason, not a bare 500.
+  app.useGlobalFilters(new QueryFailedFilter(app.get(HttpAdapterHost).httpAdapter));
 
   // Serve static files from public directory
   // In development: __dirname is 'src', go up one level to project root, then into 'public'

@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { Product, ProductStatus } from './product.entity';
@@ -714,6 +714,27 @@ export class ProductsService {
       }
     }
     
+    // Variant SKUs are unique store-wide. Say which are taken before anything is saved,
+    // rather than leaving a product behind without its variants.
+    if (Array.isArray(variants) && variants.length > 0) {
+      const skus: string[] = variants.map((v: any) => v?.sku).filter((s: unknown): s is string => typeof s === 'string' && s.length > 0);
+      const repeated = [...new Set(skus.filter((s, i) => skus.indexOf(s) !== i))];
+      if (repeated.length) {
+        throw new BadRequestException(`These variant SKUs appear more than once: ${repeated.join(', ')}`);
+      }
+      const taken = skus.length
+        ? await this.productVariantsRepository.find({ where: { sku: In(skus) }, select: { sku: true } })
+        : [];
+      if (taken.length) {
+        throw new ConflictException(`These SKUs already belong to other products: ${taken.map((t) => t.sku).join(', ')}`);
+      }
+      for (const variant of variants) {
+        if (Array.isArray(variant.images) && variant.images.length > 0) {
+          this.validateImageUrls(variant.images);
+        }
+      }
+    }
+
     // Create and save the product with categories
     const productToSave = {
       ...data,
@@ -730,9 +751,6 @@ export class ProductsService {
     if (variants && Array.isArray(variants) && variants.length > 0) {
       let totalStock = 0;
       for (const variant of variants) {
-        if (Array.isArray(variant.images) && variant.images.length > 0) {
-          this.validateImageUrls(variant.images);
-        }
         const productVariant = this.productVariantsRepository.create({
           productId: parentProduct.id,
           variantAttributes: variant.attributes,
