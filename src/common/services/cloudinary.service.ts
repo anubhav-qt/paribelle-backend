@@ -119,7 +119,9 @@ export class CloudinaryService {
       const uploadStream = cloudinary.uploader.upload_stream(
         // No incoming transformation: Cloudinary refuses to transcode a large video while
         // it uploads ("too large to process synchronously"); the file is kept as it is.
-        { folder, resource_type: 'video' },
+        // A big file can sit quiet past the SDK's 60 s socket timeout while Cloudinary
+        // stores it, so it gets 10 minutes.
+        { folder, resource_type: 'video', timeout: 10 * 60_000 },
         (error, result) => {
           if (error || !result) {
             this.logger.error('Cloudinary video upload failed:', error);
