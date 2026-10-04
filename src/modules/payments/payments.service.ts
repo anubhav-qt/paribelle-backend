@@ -313,7 +313,11 @@ export class PaymentsService {
       where: { gatewayOrderId: paymentData.order_id },
     });
 
-    if (payment) {
+    // One Razorpay order can carry a failed attempt and then a successful
+    // retry, and the webhooks can arrive in either order. A late
+    // `payment.failed` must not overwrite a capture — that row is what
+    // refunds are issued against.
+    if (payment && payment.status !== PaymentStatus.CAPTURED) {
       payment.status = PaymentStatus.FAILED;
       payment.failureReason = paymentData.error_description || 'Payment failed';
       await this.paymentRepository.save(payment);
