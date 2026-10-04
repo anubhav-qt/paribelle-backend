@@ -294,8 +294,17 @@ export class PaymentsService {
     if (payment) {
       payment.status = PaymentStatus.CAPTURED;
       payment.gatewayPaymentId = paymentData.id;
-      payment.capturedAt = new Date();
+      payment.capturedAt = payment.capturedAt ?? new Date();
       await this.paymentRepository.save(payment);
+
+      // The webhook is the only confirmation when the shopper paid but never
+      // made it back to the site (closed the tab, UPI app switch killed the
+      // page), so it must settle the order too — not just the payment row.
+      // `updatePaymentStatus` only generates invoices on the first transition
+      // to paid, so a redelivery or a prior /verify is harmless.
+      if (payment.orderId) {
+        await this.ordersService.updatePaymentStatus(payment.orderId, 'paid');
+      }
     }
   }
 
