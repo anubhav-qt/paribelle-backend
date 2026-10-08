@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
+import { codEnabled } from '../../common/features';
 import { Order, OrderStatus, PaymentStatus } from './order.entity';
 import { OrderItem } from './order-item.entity';
 import { Return, ReturnStatus, ReturnRequestType, InspectionResult } from './return.entity';
@@ -247,15 +248,23 @@ export class ExchangesService {
     const courierCharge = exchangeVariantId ? configuredCourierCharge : 0;
     let resolvedCourierMethod: 'wallet' | 'cod' | 'online' | null = null;
     if (courierCharge > 0) {
-      const allowedMethods: string[] = isSameProductSwap
-        ? ['wallet', 'cod']
-        : ['wallet', 'cod', 'online'];
+      // Paying on delivery is archived while the store is prepaid only.
+      const cod = codEnabled();
+      const allowedMethods: string[] = [
+        'wallet',
+        ...(cod ? ['cod'] : []),
+        ...(isSameProductSwap ? [] : ['online']),
+      ];
       if (!allowedMethods.includes(String(courierChargePaymentMethod))) {
         throw new BadRequestException(
           `Shipping the replacement out costs ₹${courierCharge.toFixed(2)}. ` +
           (isSameProductSwap
-            ? 'Choose how you want to pay it: store credit or Cash on Delivery.'
-            : 'Choose how you want to pay it: store credit, Cash on Delivery, or online.'),
+            ? cod
+              ? 'Choose how you want to pay it: store credit or Cash on Delivery.'
+              : 'It is paid from your store credit for a size or colour swap; choose a different product to pay online.'
+            : cod
+              ? 'Choose how you want to pay it: store credit, Cash on Delivery, or online.'
+              : 'Choose how you want to pay it: store credit or online.'),
         );
       }
       // Online payment needs an order to sit on, and only a
@@ -265,7 +274,7 @@ export class ExchangesService {
       if (courierChargePaymentMethod === 'online' && isSameProductSwap) {
         throw new BadRequestException(
           'Paying online isn\'t available for a straight size or colour swap — ' +
-          'choose store credit or Cash on Delivery.',
+          (cod ? 'choose store credit or Cash on Delivery.' : 'choose store credit.'),
         );
       }
       if (courierChargePaymentMethod === 'wallet') {
@@ -273,7 +282,12 @@ export class ExchangesService {
         if (currentBalance < courierCharge) {
           throw new BadRequestException(
             `Your wallet balance (₹${currentBalance.toFixed(2)}) isn't enough to cover the ` +
-            `₹${courierCharge.toFixed(2)} courier charge. Choose Cash on Delivery instead, or top up your wallet first.`,
+            `₹${courierCharge.toFixed(2)} courier charge. ` +
+            (cod
+              ? 'Choose Cash on Delivery instead, or top up your wallet first.'
+              : isSameProductSwap
+                ? 'Choose a different product to pay online instead.'
+                : 'Choose to pay online instead.'),
           );
         }
       }

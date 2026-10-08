@@ -6,6 +6,7 @@ import { UserRole } from '../users/user.entity';
 import { OrderStatus } from './order.entity';
 import { ReviewsService } from '../reviews/reviews.service';
 import { Response } from 'express';
+import { codEnabled } from '../../common/features';
 
 @Controller('orders')
 @UseGuards(JwtAuthGuard)
@@ -17,6 +18,14 @@ export class OrdersController {
 
   @Post()
   create(@Request() req, @Body() createOrderDto: any, @Headers('idempotency-key') idempotencyKey?: string) {
+    // A checkout without a method used to fall back to COD. With COD archived
+    // (COD_ENABLED off) the store is prepaid only. Checked here, on the
+    // shopper's route, because the service also places replacement and
+    // refusal orders that ride on an existing order's payment.
+    const method = createOrderDto?.paymentMethod;
+    if (!codEnabled() && (!method || method === 'cod')) {
+      throw new BadRequestException('Cash on Delivery isn\'t available. Please pay online (UPI, card or net banking).');
+    }
     return this.ordersService.create(req.user.id, createOrderDto, idempotencyKey);
   }
 
