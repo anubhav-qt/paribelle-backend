@@ -128,7 +128,7 @@ async function bootstrap() {
       const [scheme, token] = String(req.headers.authorization || '').split(' ');
       try {
         const payload = scheme === 'Bearer' && token ? jwt.verify(token) : null;
-        if (payload && (payload.role === UserRole.SUPER_ADMIN || payload.role === UserRole.VENDOR_ADMIN)) return next();
+        if (payload?.role === UserRole.SUPER_ADMIN) return next();
       } catch {
         // Expired or forged: refused below.
       }

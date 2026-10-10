@@ -50,7 +50,7 @@ export class ExchangesController {
   @Get('orders/:orderId/exchanges')
   async getOrderExchanges(@Param('orderId') orderId: string, @Request() req) {
     const isAdmin =
-      req.user.role === UserRole.SUPER_ADMIN || req.user.role === UserRole.VENDOR_ADMIN;
+      req.user.role === UserRole.SUPER_ADMIN;
     const rows = await this.exchangesService.findByOrder(orderId);
     if (!isAdmin && rows.some((r) => r.userId !== req.user.id)) {
       throw new NotFoundException('Order not found');

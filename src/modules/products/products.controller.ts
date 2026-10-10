@@ -104,7 +104,7 @@ export class ProductsController {
 
   @Post(['import-simple', 'import-simple/:scope'])
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
+  @Roles(UserRole.SUPER_ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Import physical products from simple ZIP (admin only)' })
   @ApiConsumes('multipart/form-data')
@@ -161,7 +161,7 @@ export class ProductsController {
    */
   @Get('admin/stats')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
+  @Roles(UserRole.SUPER_ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Product counts by status and stock level (admin only)' })
   async getAdminStats() {
@@ -182,7 +182,7 @@ export class ProductsController {
 
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
+  @Roles(UserRole.SUPER_ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Create a new product (admin only)' })
   async create(@Body() productData: Partial<Product>) {
@@ -191,7 +191,7 @@ export class ProductsController {
 
   @Patch(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
+  @Roles(UserRole.SUPER_ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Update a product (admin only)' })
   async update(@Param('id') id: string, @Body() productData: Partial<Product>) {
@@ -200,7 +200,7 @@ export class ProductsController {
 
   @Delete(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
+  @Roles(UserRole.SUPER_ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Delete a product (admin only)' })
   async remove(@Param('id') id: string) {

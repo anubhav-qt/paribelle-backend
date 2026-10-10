@@ -21,7 +21,7 @@ export class CategoriesController {
 
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
+  @Roles(UserRole.SUPER_ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Create a new category (admin only)' })
   async create(@Body() categoryData: any) {
@@ -55,7 +55,7 @@ export class CategoriesController {
 
   @Put(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
+  @Roles(UserRole.SUPER_ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Update category (admin only)' })
   async update(@Param('id') id: string, @Body() categoryData: any) {
@@ -64,7 +64,7 @@ export class CategoriesController {
 
   @Delete(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
+  @Roles(UserRole.SUPER_ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Delete category (admin only)' })
   async delete(@Param('id') id: string) {
@@ -86,7 +86,7 @@ export class CategoriesController {
 
   @Put(':id/filters')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
+  @Roles(UserRole.SUPER_ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Update category filters (Admin only)' })
   @ApiBody({ type: UpdateCategoryFiltersDto })
@@ -114,7 +114,7 @@ export class CategoriesController {
 
   @Get(':id/filter-suggestions')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
+  @Roles(UserRole.SUPER_ADMIN)
   @ApiBearerAuth()
   @ApiOperation({
     summary: "Filters derived from the attributes this category's variants carry (admin only)",

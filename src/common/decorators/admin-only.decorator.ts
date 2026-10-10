@@ -6,16 +6,14 @@ import { Roles } from './roles.decorator';
 import { UserRole } from '../../modules/users/user.entity';
 
 /**
- * Requires a valid JWT belonging to a store administrator.
+ * Requires a valid JWT belonging to the store's admin: `super_admin` only.
  *
- * Most admin work is done by the seeded vendor_admin, so both admin roles pass
- * by default. Pass explicit roles for the narrower cases —
- * `AdminOnly(UserRole.SUPER_ADMIN)` for anything destructive.
+ * `vendor_admin` used to pass too. It is the marketplace's vendor role, and
+ * until 10 Oct 2026 anyone could register as a vendor and get it, so it no
+ * longer opens anything.
  */
 export function AdminOnly(...roles: UserRole[]) {
-  const allowed = roles.length
-    ? roles
-    : [UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN];
+  const allowed = roles.length ? roles : [UserRole.SUPER_ADMIN];
 
   return applyDecorators(
     UseGuards(JwtAuthGuard, RolesGuard),
@@ -24,7 +22,7 @@ export function AdminOnly(...roles: UserRole[]) {
   );
 }
 
-/** The in-handler counterpart of `AdminOnly()`: either admin role. */
+/** The in-handler counterpart of `AdminOnly()`. */
 export function isStoreAdmin(user: { role?: UserRole } | null | undefined): boolean {
-  return user?.role === UserRole.SUPER_ADMIN || user?.role === UserRole.VENDOR_ADMIN;
+  return user?.role === UserRole.SUPER_ADMIN;
 }

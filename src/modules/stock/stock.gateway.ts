@@ -40,7 +40,7 @@ export class MarketplaceGateway implements OnGatewayConnection, OnGatewayDisconn
       try {
         const payload = this.jwtService.verify(token);
         client.join(userRoom(payload.sub));
-        if (payload.role === 'super_admin' || payload.role === 'vendor_admin') {
+        if (payload.role === 'super_admin') {
           client.join(ADMIN_ROOM);
         }
         this.logger.log(`Client connected: ${client.id} (user ${payload.sub})`);

@@ -278,7 +278,7 @@ export class PaymentsService {
 
   /** The latest payment on an order. Admins see any; a customer only their own. */
   async getPaymentByOrderId(orderId: string, user: { id: string; role: UserRole }) {
-    const isAdmin = user.role === UserRole.SUPER_ADMIN || user.role === UserRole.VENDOR_ADMIN;
+    const isAdmin = user.role === UserRole.SUPER_ADMIN;
     if (!isAdmin && !(await this.ordersService.isOwnedBy(orderId, user.id))) {
       throw new NotFoundException('Payment not found');
     }

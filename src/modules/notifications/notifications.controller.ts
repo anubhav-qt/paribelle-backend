@@ -9,7 +9,7 @@ export class NotificationsController {
   constructor(private readonly notificationsService: NotificationsService) {}
 
   private isAdmin(req: any): boolean {
-    return req.user.role === UserRole.SUPER_ADMIN || req.user.role === UserRole.VENDOR_ADMIN;
+    return req.user.role === UserRole.SUPER_ADMIN;
   }
 
   @Get()

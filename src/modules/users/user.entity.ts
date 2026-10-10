@@ -10,8 +10,9 @@ import { Order } from '../orders/order.entity';
 import { Review } from '../reviews/review.entity';
 
 /**
- * `vendor_admin` is the store's own admin account (the name is from the
- * marketplace this grew out of); `super_admin` can also do destructive things.
+ * `super_admin` is the store's admin. `vendor_admin` is the old marketplace's
+ * vendor role, which anyone could sign up for; it stays in the enum because
+ * the database column has it, but it opens nothing (see AdminOnly).
  */
 export enum UserRole {
   SUPER_ADMIN = 'super_admin',

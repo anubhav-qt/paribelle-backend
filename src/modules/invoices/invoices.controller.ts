@@ -49,7 +49,7 @@ export class InvoicesController {
    * Create invoice from order (Admin only)
    */
   @Post()
-  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
+  @Roles(UserRole.SUPER_ADMIN)
   create(@Body() createInvoiceDto: CreateInvoiceDto) {
     return this.invoicesService.createFromOrder(createInvoiceDto);
   }
@@ -58,7 +58,7 @@ export class InvoicesController {
    * Get all invoices with filters
    */
   @Get()
-  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
+  @Roles(UserRole.SUPER_ADMIN)
   findAll(
     @Query('status') status?: string,
     @Query('customerId') customerId?: string,
@@ -81,7 +81,7 @@ export class InvoicesController {
    * Get customer invoices (for customer dashboard)
    */
   @Get('customer/:customerId')
-  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN, UserRole.CUSTOMER)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.CUSTOMER)
   findCustomerInvoices(
     @Request() req,
     @Param('customerId') customerId: string,
@@ -127,7 +127,7 @@ export class InvoicesController {
    * Send invoice via email
    */
   @Post(':id/send')
-  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
+  @Roles(UserRole.SUPER_ADMIN)
   sendInvoice(@Param('id') id: string, @Body() sendInvoiceDto?: SendInvoiceDto) {
     return this.invoicesService.sendInvoice(id, sendInvoiceDto);
   }
@@ -136,7 +136,7 @@ export class InvoicesController {
    * Mark invoice as paid
    */
   @Patch(':id/mark-paid')
-  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
+  @Roles(UserRole.SUPER_ADMIN)
   markAsPaid(@Param('id') id: string) {
     return this.invoicesService.markAsPaid(id);
   }
@@ -145,7 +145,7 @@ export class InvoicesController {
    * Update invoice
    */
   @Patch(':id')
-  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
+  @Roles(UserRole.SUPER_ADMIN)
   update(@Param('id') id: string, @Body() updateInvoiceDto: UpdateInvoiceDto) {
     return this.invoicesService.update(id, updateInvoiceDto);
   }
@@ -163,7 +163,7 @@ export class InvoicesController {
    * Auto-generate invoices for completed orders (Admin only)
    */
   @Post('auto-generate')
-  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
+  @Roles(UserRole.SUPER_ADMIN)
   autoGenerate() {
     return this.invoicesService.autoGenerateInvoices();
   }
