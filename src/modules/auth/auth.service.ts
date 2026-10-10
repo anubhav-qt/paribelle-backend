@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, BadRequestException, ServiceUnavailableException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException, ConflictException, ServiceUnavailableException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -73,7 +73,7 @@ export class AuthService {
     // Check if user already exists
     const existingUser = await this.usersService.findByEmail(userData.email);
     if (existingUser) {
-      throw new UnauthorizedException('User with this email already exists');
+      throw new ConflictException('An account with this email already exists. Please sign in instead.');
     }
 
     const hashedPassword = await bcrypt.hash(userData.password, 10);
