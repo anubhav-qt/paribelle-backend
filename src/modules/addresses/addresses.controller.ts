@@ -3,6 +3,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AddressesService } from './addresses.service';
 import { Address } from './address.entity';
+import { CreateAddressDto, UpdateAddressDto } from './dto/address.dto';
 
 @ApiTags('addresses')
 @Controller('user/addresses')
@@ -25,7 +26,7 @@ export class AddressesController {
 
   @Post()
   @ApiOperation({ summary: 'Create a new address' })
-  async create(@Body() addressData: Partial<Address>, @Request() req): Promise<Address> {
+  async create(@Body() addressData: CreateAddressDto, @Request() req): Promise<Address> {
     return this.addressesService.create(req.user.id, addressData);
   }
 
@@ -33,7 +34,7 @@ export class AddressesController {
   @ApiOperation({ summary: 'Update an address' })
   async update(
     @Param('id') id: string,
-    @Body() addressData: Partial<Address>,
+    @Body() addressData: UpdateAddressDto,
     @Request() req,
   ): Promise<Address> {
     return this.addressesService.update(id, req.user.id, addressData);
