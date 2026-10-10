@@ -3,6 +3,8 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { LocalAuthGuard } from './guards/local-auth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { AdminOnly } from '../../common/decorators/admin-only.decorator';
+import { UserRole } from '../users/user.entity';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -42,19 +44,18 @@ export class AuthController {
    */
   @Post('google-login')
   @ApiOperation({ summary: 'Login/Register user via Google OAuth' })
-  async googleLogin(
-    @Body()
-    body: {
-      email: string;
-      name: string;
-      googleId: string;
-      picture?: string;
-    },
-  ) {
-    return this.authService.googleLogin(body);
+  async googleLogin(@Body() body: { accessToken: string }) {
+    // Only Google's answer for this token says who is signing in. This used
+    // to take `email` and `googleId` straight from the body, so anyone could
+    // post an address — the admin's included — and get a session for it.
+    const profile = await this.authService.verifyGoogleAccessToken(body?.accessToken);
+    return this.authService.googleLogin(profile);
   }
 
+  // A vendor_admin passes `AdminOnly()`, so this is an admin account: only a
+  // super admin may create one. It used to be public, and returns a token.
   @Post('register-vendor')
+  @AdminOnly(UserRole.SUPER_ADMIN)
   @ApiOperation({ summary: 'Register a new vendor/store' })
   async registerVendor(
     @Body()

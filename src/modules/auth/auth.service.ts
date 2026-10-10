@@ -111,6 +111,59 @@ export class AuthService {
     }
   }
 
+  /**
+   * Ask Google who an OAuth access token belongs to. The token must carry a
+   * verified email, and — when GOOGLE_CLIENT_ID is configured here — have
+   * been issued to this site's own client, not some other app's.
+   */
+  async verifyGoogleAccessToken(accessToken: string): Promise<{
+    email: string;
+    name: string;
+    googleId: string;
+    picture?: string;
+  }> {
+    if (typeof accessToken !== 'string' || !accessToken.trim()) {
+      throw new UnauthorizedException('Google sign-in failed. Please try again.');
+    }
+
+    const fetchJson = async (url: string, init?: RequestInit) => {
+      try {
+        const res = await fetch(url, { ...init, signal: AbortSignal.timeout(10000) });
+        return res.ok ? await res.json() : null;
+      } catch {
+        return null;
+      }
+    };
+
+    const [tokenInfo, userInfo] = await Promise.all([
+      fetchJson(`https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(accessToken)}`),
+      fetchJson('https://www.googleapis.com/oauth2/v3/userinfo', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }),
+    ]);
+
+    if (!tokenInfo || !userInfo || !userInfo.email || !userInfo.sub) {
+      throw new UnauthorizedException('Google sign-in failed. Please try again.');
+    }
+
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    if (clientId && tokenInfo.aud !== clientId && tokenInfo.azp !== clientId) {
+      throw new UnauthorizedException('Google sign-in failed. Please try again.');
+    }
+
+    const emailVerified = userInfo.email_verified === true || userInfo.email_verified === 'true';
+    if (!emailVerified || tokenInfo.sub !== userInfo.sub) {
+      throw new UnauthorizedException('Google sign-in failed. Please try again.');
+    }
+
+    return {
+      email: String(userInfo.email),
+      name: userInfo.name || String(userInfo.email).split('@')[0],
+      googleId: String(userInfo.sub),
+      picture: userInfo.picture,
+    };
+  }
+
   async googleLogin(googleData: {
     email: string;
     name: string;
