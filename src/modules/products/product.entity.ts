@@ -57,7 +57,9 @@ export class Product {
   @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, name: 'compare_at_price' })
   compareAtPrice: number;
 
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, name: 'cost_per_item' })
+  // What the piece cost us. Never sent to shoppers: the public product
+  // endpoints return whole entities, so it stays out of every query.
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, name: 'cost_per_item', select: false })
   costPerItem: number;
 
   // GST and Tax fields
