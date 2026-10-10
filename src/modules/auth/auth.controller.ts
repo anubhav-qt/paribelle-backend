@@ -1,10 +1,16 @@
-import { Controller, Post, Body, UseGuards, Request, Get, Query, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Body, UseGuards, Request, Get, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { LocalAuthGuard } from './guards/local-auth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
-import { AdminOnly } from '../../common/decorators/admin-only.decorator';
-import { UserRole } from '../users/user.entity';
+import { RegisterDto, GoogleLoginDto, ForgotPasswordDto, ResetPasswordDto } from './dto/auth.dto';
+
+/**
+ * Ten tries a minute per visitor for anything that checks a password or
+ * sends an email — the global 100/min is plenty for guessing passwords.
+ */
+const AUTH_LIMIT = { default: { limit: 10, ttl: 60_000 } };
 
 @ApiTags('auth')
 @Controller('auth')
@@ -12,22 +18,15 @@ export class AuthController {
   constructor(private authService: AuthService) {}
 
   @Post('register')
+  @Throttle(AUTH_LIMIT)
   @ApiOperation({ summary: 'Register a new user' })
-  async register(
-    @Body()
-    body: {
-      email: string;
-      password: string;
-      firstName: string;
-      lastName: string;
-      phone?: string;
-    },
-  ) {
+  async register(@Body() body: RegisterDto) {
     return this.authService.register(body);
   }
 
   @UseGuards(LocalAuthGuard)
   @Post('login')
+  @Throttle(AUTH_LIMIT)
   @ApiOperation({ summary: 'Login user' })
   async login(@Request() req) {
     return this.authService.login(req.user);
@@ -35,49 +34,16 @@ export class AuthController {
 
   /**
    * The web app does the OAuth code exchange itself (a Next.js route handler
-   * talks to Google directly, using GOOGLE_CLIENT_ID/SECRET set in Vercel, not
-   * here), then posts the resulting profile to this endpoint. This is the only
-   * Google entry point the backend has — `passport-google-oauth20` and its
-   * `GET /auth/google` / `GET /auth/google/callback` pair used to exist
-   * alongside it, unregistered in any module and unreachable, and were removed
-   * rather than left as a second implementation nobody was maintaining.
+   * talks to Google), then posts Google's access token here. No tighter
+   * limit: these arrive relayed through the web server, so they would all
+   * share one bucket, and a token only works once Google has vouched for it.
    */
   @Post('google-login')
   @ApiOperation({ summary: 'Login/Register user via Google OAuth' })
-  async googleLogin(@Body() body: { accessToken: string }) {
-    // Only Google's answer for this token says who is signing in. This used
-    // to take `email` and `googleId` straight from the body, so anyone could
-    // post an address — the admin's included — and get a session for it.
-    const profile = await this.authService.verifyGoogleAccessToken(body?.accessToken);
+  async googleLogin(@Body() body: GoogleLoginDto) {
+    // Only Google's answer for this token says who is signing in.
+    const profile = await this.authService.verifyGoogleAccessToken(body.accessToken);
     return this.authService.googleLogin(profile);
-  }
-
-  // A vendor_admin passes `AdminOnly()`, so this is an admin account: only a
-  // super admin may create one. It used to be public, and returns a token.
-  @Post('register-vendor')
-  @AdminOnly(UserRole.SUPER_ADMIN)
-  @ApiOperation({ summary: 'Register a new vendor/store' })
-  async registerVendor(
-    @Body()
-    body: {
-      email: string;
-      password?: string;
-      firstName: string;
-      lastName: string;
-      phone: string;
-      storeName: string;
-      description?: string;
-      businessName?: string;
-      address?: string;
-      city?: string;
-      state?: string;
-      country?: string;
-      postalCode?: string;
-      isGoogleAuth?: boolean;
-      referralCode?: string;
-    },
-  ) {
-    return this.authService.registerVendor(body);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -89,39 +55,22 @@ export class AuthController {
     return user;
   }
 
-  @Get('verify-email')
-  @ApiOperation({ summary: 'Verify email with token' })
-  async verifyEmail(@Query('token') token: string) {
-    await this.authService.verifyEmailToken(token);
-    return {
-      message: 'Email verified successfully. You can now login.',
-    };
-  }
-
-  @Post('resend-verification')
-  @ApiOperation({ summary: 'Resend email verification link' })
-  async resendVerification(@Body('email') email: string) {
-    await this.authService.resendVerificationEmail(email);
-    return {
-      message: 'Verification email sent. Please check your inbox.',
-    };
-  }
-
   @Post('forgot-password')
   @HttpCode(HttpStatus.OK)
+  @Throttle(AUTH_LIMIT)
   @ApiOperation({ summary: 'Request password reset' })
-  async forgotPassword(@Body('email') email: string) {
-    await this.authService.forgotPassword(email);
+  async forgotPassword(@Body() body: ForgotPasswordDto) {
+    await this.authService.forgotPassword(body.email);
     return {
       message: 'If an account exists with that email, a password reset link has been sent.',
     };
   }
 
   @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  @Throttle(AUTH_LIMIT)
   @ApiOperation({ summary: 'Reset password with token' })
-  async resetPassword(
-    @Body() body: { token: string; newPassword: string }
-  ) {
+  async resetPassword(@Body() body: ResetPasswordDto) {
     await this.authService.resetPassword(body.token, body.newPassword);
     return {
       message: 'Password has been reset successfully. You can now login with your new password.',

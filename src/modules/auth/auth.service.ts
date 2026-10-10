@@ -1,15 +1,15 @@
-import { Injectable, UnauthorizedException, BadRequestException, ConflictException, ServiceUnavailableException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException, ConflictException, ServiceUnavailableException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
-import { User, UserRole } from '../users/user.entity';
+import { User } from '../users/user.entity';
 import { UsersService } from '../users/users.service';
-import { Vendor, VendorStatus } from '../vendors/vendor.entity';
 import { SimpleEmailService } from '../simple-email/simple-email.service';
-import { ReferralsService } from '../referrals/referrals.service';
-import { Logger } from '@nestjs/common';
+
+/** Reset links carry the token; the database keeps only its hash. */
+const hashResetToken = (token: string) => crypto.createHash('sha256').update(token).digest('hex');
 
 @Injectable()
 export class AuthService {
@@ -21,9 +21,6 @@ export class AuthService {
     private emailService: SimpleEmailService,
     @InjectRepository(User)
     private usersRepository: Repository<User>,
-    @InjectRepository(Vendor)
-    private vendorsRepository: Repository<Vendor>,
-    private referralsService: ReferralsService,
   ) {}
 
   async validateUser(email: string, password: string): Promise<any> {
@@ -37,29 +34,9 @@ export class AuthService {
   }
 
   async login(user: any) {
-    // For vendor_admin users, fetch their vendor ID
-    let vendorId: string | null = null;
-    if (user.role === 'vendor_admin') {
-      const vendor = await this.vendorsRepository.findOne({
-        where: { userId: user.id },
-      });
-      if (vendor) {
-        vendorId = vendor.id;
-      }
-    }
-
-    const payload = { 
-      email: user.email, 
-      sub: user.id, 
-      role: user.role,
-      ...(vendorId && { vendorId })
-    };
     return {
-      access_token: this.jwtService.sign(payload),
-      user: {
-        ...user,
-        ...(vendorId && { vendorId }),
-      },
+      access_token: this.jwtService.sign({ email: user.email, sub: user.id, role: user.role }),
+      user,
     };
   }
 
@@ -78,9 +55,6 @@ export class AuthService {
 
     const hashedPassword = await bcrypt.hash(userData.password, 10);
 
-    // Generate referral code for new user
-    const referralCode = await this.referralsService.generateReferralCode();
-
     // Named fields only: the body is an inline type the ValidationPipe can't
     // whitelist, so spreading it would let a signup set `role` or any other
     // column on its own account.
@@ -90,12 +64,11 @@ export class AuthService {
       lastName: userData.lastName,
       phone: userData.phone,
       password: hashedPassword,
-      referralCode,
     });
 
     // No verification email: signing in doesn't need one, so the new
     // account is signed in straight away, the same as `login`.
-    const { password, emailVerificationToken, emailVerificationTokenExpiry, ...result } = user;
+    const { password, ...result } = user;
 
     return {
       message: 'Registration successful!',
@@ -170,22 +143,15 @@ export class AuthService {
     googleId: string;
     picture?: string;
   }) {
-    console.log('[GoogleLogin] Attempting login for:', googleData.email);
-    
-    // Check if user exists
     let user = await this.usersService.findByEmail(googleData.email);
 
     if (!user) {
-      console.log('[GoogleLogin] User not found, creating new user');
-      // Create new user from Google data
       const [firstName, ...lastNameParts] = googleData.name.split(' ');
       const lastName = lastNameParts.join(' ') || firstName;
 
-      // Generate a random password for Google users
-      const randomPassword = await bcrypt.hash(
-        Math.random().toString(36).slice(-8),
-        10,
-      );
+      // Nobody knows this password; the account signs in with Google, or
+      // sets one through "Forgot password".
+      const randomPassword = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 10);
 
       user = await this.usersService.create({
         email: googleData.email,
@@ -195,324 +161,60 @@ export class AuthService {
         emailVerifiedAt: new Date(), // Google has already confirmed this address.
         googleId: googleData.googleId,
       });
-      console.log('[GoogleLogin] New user created successfully');
-    } else {
-      console.log('[GoogleLogin] Existing user found');
-      // Record the Google id and verify the email even for an account that
-      // originally registered with a password — signing in with Google here
-      // is proof of the same address.
-      let changed = false;
-      if (!user.googleId) {
-        user.googleId = googleData.googleId;
-        changed = true;
-      }
-      if (!user.emailVerifiedAt) {
-        user.emailVerifiedAt = new Date();
-        changed = true;
-      }
-      if (changed) {
-        await this.usersRepository.save(user);
-        console.log('[GoogleLogin] Updated googleId/emailVerifiedAt for existing user');
-      }
+    } else if (!user.googleId || !user.emailVerifiedAt) {
+      // Signing in with Google is proof of the same address, even for an
+      // account that registered with a password.
+      await this.usersRepository.update(user.id, {
+        googleId: user.googleId || googleData.googleId,
+        emailVerifiedAt: user.emailVerifiedAt || new Date(),
+      });
     }
 
     const { password, ...result } = user;
-    
-    // For vendor_admin users, fetch their vendor ID
-    let vendorId: string | null = null;
-    if (result.role === 'vendor_admin') {
-      const vendor = await this.vendorsRepository.findOne({
-        where: { userId: result.id },
-      });
-      if (vendor) {
-        vendorId = vendor.id;
-      }
-    }
-    
-    const token = this.jwtService.sign({
-      email: result.email,
-      sub: result.id,
-      role: result.role,
-      ...(vendorId && { vendorId }),
-    });
-    
-    console.log('[GoogleLogin] Login successful, returning token and user');
-    return {
-      token,
-      user: {
-        ...result,
-        ...(vendorId && { vendorId }),
-      },
-    };
-  }
-
-  async registerVendor(vendorData: {
-    email: string;
-    password?: string;
-    firstName: string;
-    lastName: string;
-    phone: string;
-    storeName: string;
-    description?: string;
-    businessName?: string;
-    address?: string;
-    city?: string;
-    state?: string;
-    country?: string;
-    postalCode?: string;
-    isGoogleAuth?: boolean;
-    referralCode?: string;
-  }) {
-    // Check if user already exists
-    const existingUser = await this.usersService.findByEmail(vendorData.email);
-    if (existingUser) {
-      throw new BadRequestException('User with this email already exists');
-    }
-
-    // Check if store name already exists
-    const existingStore = await this.vendorsRepository.findOne({
-      where: { storeName: vendorData.storeName },
-    });
-    if (existingStore) {
-      throw new BadRequestException('Store name already taken');
-    }
-
-    // Process referral code if provided
-    let referrerId: string | null = null;
-    let registrationDiscount = 0;
-    if (vendorData.referralCode) {
-      const feeData = await this.referralsService.calculateDiscountedFee(
-        vendorData.referralCode,
-      );
-      referrerId = feeData.referrerId;
-      registrationDiscount = feeData.discount;
-    }
-
-    // Create user account
-    let hashedPassword: string;
-    if (vendorData.isGoogleAuth) {
-      // Generate random password for Google users
-      hashedPassword = await bcrypt.hash(
-        Math.random().toString(36).slice(-8),
-        10,
-      );
-    } else {
-      if (!vendorData.password) {
-        throw new BadRequestException('Password is required');
-      }
-      hashedPassword = await bcrypt.hash(vendorData.password, 10);
-    }
-
-    // Generate referral code for the new vendor
-    const referralCode = await this.referralsService.generateReferralCode();
-
-    const user = await this.usersRepository.save({
-      email: vendorData.email,
-      password: hashedPassword,
-      firstName: vendorData.firstName,
-      lastName: vendorData.lastName,
-      phone: vendorData.phone,
-      role: UserRole.VENDOR_ADMIN,
-      referralCode,
-      referredBy: referrerId || undefined,
-    });
-
-    // Create vendor/store
-    const slug = vendorData.storeName
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '');
-
-    const vendor = await this.vendorsRepository.save({
-      storeName: vendorData.storeName,
-      slug,
-      description: vendorData.description,
-      businessName: vendorData.businessName,
-      contactEmail: vendorData.email,
-      contactPhone: vendorData.phone,
-      address: vendorData.address,
-      city: vendorData.city,
-      state: vendorData.state,
-      country: vendorData.country,
-      postalCode: vendorData.postalCode,
-      status: VendorStatus.PENDING,
-      userId: user.id,
-      referredBy: referrerId || undefined,
-      referralDiscount: registrationDiscount,
-    });
-
-    // Link vendor to user
-    user.vendorId = vendor.id;
-    
-    // Generate email verification token
-    const verificationToken = crypto.randomBytes(32).toString('hex');
-    user.emailVerificationToken = verificationToken;
-    user.emailVerificationTokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
-    await this.usersRepository.save(user);
-
-    // Send verification email - CRITICAL: Must succeed for registration to complete
-    try {
-      await this.emailService.sendVerificationEmail(user.email, verificationToken);
-      this.logger.log(`Verification email sent to vendor: ${user.email}`);
-    } catch (error) {
-      this.logger.error(`Failed to send verification email to vendor ${user.email}:`, error);
-      // Rollback: Delete vendor and user since verification email failed
-      await this.vendorsRepository.delete(vendor.id);
-      await this.usersRepository.delete(user.id);
-      throw new BadRequestException(
-        'Failed to send verification email. Please check your email address and try again, or contact support if the problem persists.',
-      );
-    }
-
-    // Send vendor welcome email - non-critical, can fail without affecting registration
-    try {
-      await this.emailService.sendVendorWelcomeEmail(
-        user.email,
-        vendorData.firstName,
-        vendor.storeName,
-      );
-      this.logger.log(`Welcome email sent to vendor: ${user.email}`);
-    } catch (error) {
-      this.logger.error(`Failed to send welcome email to vendor ${user.email}:`, error);
-      // Don't fail registration if welcome email fails
-    }
-
-    const { password, ...userResult } = user;
-    return {
-      message: 'Vendor registration successful. Your account is pending approval. Please check your email to verify your account.',
-      vendor: {
-        id: vendor.id,
-        storeName: vendor.storeName,
-        status: vendor.status,
-      },
-      user: userResult,
-      token: this.jwtService.sign({
-        email: userResult.email,
-        sub: userResult.id,
-        role: userResult.role,
-        vendorId: vendor.id,
-      }),
-    };
-  }
-
-  async verifyEmailToken(token: string) {
-    const user = await this.usersRepository.findOne({
-      where: { emailVerificationToken: token },
-    });
-
-    if (!user) {
-      throw new BadRequestException('Invalid verification token');
-    }
-
-    if (!user.emailVerificationTokenExpiry || user.emailVerificationTokenExpiry < new Date()) {
-      throw new BadRequestException('Verification token has expired');
-    }
-
-    if (user.emailVerifiedAt) {
-      throw new BadRequestException('Email already verified');
-    }
-
-    // Mark email as verified
-    user.emailVerifiedAt = new Date();
-    user.emailVerificationToken = null;
-    user.emailVerificationTokenExpiry = null;
-    await this.usersRepository.save(user);
-
-    return {
-      message: 'Email verified successfully! You can now login.',
-      verified: true,
-    };
-  }
-
-  async resendVerificationEmail(email: string) {
-    const user = await this.usersService.findByEmail(email);
-
-    if (!user) {
-      throw new BadRequestException('User not found');
-    }
-
-    if (user.emailVerifiedAt) {
-      throw new BadRequestException('Email already verified');
-    }
-
-    // Generate new verification token
-    const verificationToken = crypto.randomBytes(32).toString('hex');
-    const verificationTokenExpiry = new Date();
-    verificationTokenExpiry.setHours(verificationTokenExpiry.getHours() + 24);
-
-    user.emailVerificationToken = verificationToken;
-    user.emailVerificationTokenExpiry = verificationTokenExpiry;
-    await this.usersRepository.save(user);
-
-    // Send verification email. Unlike `register`, there is no account
-    // creation to protect here — if the email genuinely can't be sent, the
-    // caller needs to know, not receive a false "check your inbox". But the
-    // failure should read as "the mail provider is down", a 503, not an
-    // unhandled crash presenting as a generic 500 with no explanation.
-    try {
-      await this.emailService.sendVerificationEmail(user.email, verificationToken);
-    } catch (error) {
-      throw new ServiceUnavailableException(
-        'Could not send the verification email right now. Please try again in a few minutes.',
-      );
-    }
-
-    return {
-      message: 'Verification email sent successfully. Please check your inbox.',
-    };
+    const { access_token } = await this.login(result);
+    return { token: access_token, user: result };
   }
 
   async forgotPassword(email: string) {
-    const user = await this.usersService.findByEmail(email);
+    const user = typeof email === 'string' ? await this.usersService.findByEmail(email.trim()) : null;
 
-    // Don't reveal if user exists or not (security best practice)
-    if (!user) {
-      return {
-        message: 'If an account exists with that email, a password reset link has been sent.',
-      };
-    }
+    // The same answer either way, so this can't be used to find out who has
+    // an account.
+    if (!user) return;
 
-    // Generate password reset token
     const resetToken = crypto.randomBytes(32).toString('hex');
-    const resetTokenExpiry = new Date();
-    resetTokenExpiry.setHours(resetTokenExpiry.getHours() + 1); // 1 hour expiry
+    await this.usersRepository.update(user.id, {
+      passwordResetToken: hashResetToken(resetToken),
+      passwordResetTokenExpiry: new Date(Date.now() + 60 * 60 * 1000), // 1 hour
+    });
 
-    user.passwordResetToken = resetToken;
-    user.passwordResetTokenExpiry = resetTokenExpiry;
-    await this.usersRepository.save(user);
-
-    // Send password reset email
-    await this.emailService.sendPasswordResetEmail(user.email, resetToken, user.firstName);
-
-    return {
-      message: 'If an account exists with that email, a password reset link has been sent.',
-    };
+    try {
+      await this.emailService.sendPasswordResetEmail(user.email, resetToken, user.firstName);
+    } catch (error) {
+      this.logger.error(`Failed to send a password reset email: ${error?.message || error}`);
+      throw new ServiceUnavailableException(
+        'Could not send the reset email right now. Please try again in a few minutes.',
+      );
+    }
   }
 
   async resetPassword(token: string, newPassword: string) {
-    const user = await this.usersRepository.findOne({
-      where: { passwordResetToken: token },
+    // The token columns are `select: false`, so they never leave the API in
+    // a user object; this lookup asks for the expiry explicitly.
+    const user = await this.usersRepository
+      .createQueryBuilder('user')
+      .addSelect('user.passwordResetTokenExpiry')
+      .where('user.passwordResetToken = :token', { token: hashResetToken(String(token ?? '')) })
+      .getOne();
+
+    if (!user || !user.passwordResetTokenExpiry || user.passwordResetTokenExpiry < new Date()) {
+      throw new BadRequestException('This reset link is invalid or has expired. Please request a new one.');
+    }
+
+    await this.usersRepository.update(user.id, {
+      password: await bcrypt.hash(newPassword, 10),
+      passwordResetToken: null,
+      passwordResetTokenExpiry: null,
     });
-
-    if (!user) {
-      throw new BadRequestException('Invalid or expired reset token');
-    }
-
-    if (!user.passwordResetTokenExpiry || user.passwordResetTokenExpiry < new Date()) {
-      throw new BadRequestException('Reset token has expired');
-    }
-
-    // Hash new password
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
-
-    // Update password and clear reset token
-    user.password = hashedPassword;
-    user.passwordResetToken = null;
-    user.passwordResetTokenExpiry = null;
-    await this.usersRepository.save(user);
-
-    return {
-      message: 'Password has been reset successfully.',
-    };
   }
 }

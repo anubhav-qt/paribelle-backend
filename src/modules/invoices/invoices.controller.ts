@@ -9,6 +9,9 @@ import {
   Query,
   UseGuards,
   Res,
+  Request,
+  NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InvoicesService } from './invoices.service';
 import { CreateInvoiceDto, UpdateInvoiceDto, SendInvoiceDto } from './dto/create-invoice.dto';
@@ -19,6 +22,7 @@ import { InvoiceType } from './invoice.entity';
 import { Response } from 'express';
 import { InvoicePdfService } from './invoice-pdf.service';
 import { UserRole } from '../users/user.entity';
+import { isStoreAdmin } from '../../common/decorators/admin-only.decorator';
 
 @Controller('invoices')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -27,6 +31,19 @@ export class InvoicesController {
     private readonly invoicesService: InvoicesService,
     private readonly invoicePdfService: InvoicePdfService,
   ) {}
+
+  /**
+   * An invoice carries the customer's name, address and phone. Admins see
+   * any; a customer only their own customer invoice. Anyone else gets the
+   * same 404 as a made-up id.
+   */
+  private async findVisible(id: string, user: any) {
+    const invoice = await this.invoicesService.findOne(id);
+    if (!isStoreAdmin(user) && (invoice.customerId !== user?.id || invoice.type !== InvoiceType.CUSTOMER)) {
+      throw new NotFoundException('Invoice not found');
+    }
+    return invoice;
+  }
 
   /**
    * Create invoice from order (Admin only)
@@ -87,10 +104,14 @@ export class InvoicesController {
   @Get('customer/:customerId')
   @Roles(UserRole.SUPER_ADMIN, UserRole.CUSTOMER)
   findCustomerInvoices(
+    @Request() req,
     @Param('customerId') customerId: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
+    if (!isStoreAdmin(req.user) && customerId !== req.user.id) {
+      throw new ForbiddenException('You can only see your own invoices');
+    }
     return this.invoicesService.findAll({
       customerId,
       type: InvoiceType.CUSTOMER,
@@ -103,17 +124,17 @@ export class InvoicesController {
    * Get invoice by ID
    */
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.invoicesService.findOne(id);
+  findOne(@Request() req, @Param('id') id: string) {
+    return this.findVisible(id, req.user);
   }
 
   /**
    * Download invoice PDF
    */
   @Get(':id/download')
-  async downloadPdf(@Param('id') id: string, @Res() res: Response) {
+  async downloadPdf(@Request() req, @Param('id') id: string, @Res() res: Response) {
+    const invoice = await this.findVisible(id, req.user);
     const pdfBuffer = await this.invoicePdfService.generateInvoicePdf(id);
-    const invoice = await this.invoicesService.findOne(id);
 
     res.set({
       'Content-Type': 'application/pdf',

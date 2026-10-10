@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, Inject, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Razorpay from 'razorpay';
 import * as crypto from 'crypto';
@@ -6,6 +6,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Payment, PaymentStatus, PaymentMethod } from './payment.entity';
 import { OrdersService } from '../orders/orders.service';
+import { UserRole } from '../users/user.entity';
 
 @Injectable()
 export class PaymentsService {
@@ -136,50 +137,53 @@ export class PaymentsService {
     }
   }
 
-  async updatePaymentStatus(
+  /**
+   * The shopper's browser reporting a successful Razorpay payment. Only ever
+   * moves a payment forward: a bad signature is refused without touching the
+   * row, and a failed attempt is not reported here at all — Razorpay keeps
+   * the sheet open for a retry, and its `payment.failed` webhook is the
+   * authority on failure. This used to accept `status: "failed"` and mark
+   * the payment and order failed, for any order, from any signed-in user.
+   */
+  async confirmPayment(
+    userId: string,
     razorpayOrderId: string,
     razorpayPaymentId: string,
     razorpaySignature: string,
-    status: 'success' | 'failed',
   ) {
     const payment = await this.paymentRepository.findOne({
       where: { gatewayOrderId: razorpayOrderId },
     });
 
-    if (!payment) {
-      throw new BadRequestException('Payment record not found');
+    if (!payment || !payment.orderId || !(await this.ordersService.isOwnedBy(payment.orderId, userId))) {
+      throw new NotFoundException('Payment not found');
     }
 
-    if (status === 'success') {
-      const isValid = await this.verifyPayment(razorpayOrderId, razorpayPaymentId, razorpaySignature);
-
-      if (!isValid) {
-        payment.status = PaymentStatus.FAILED;
-        payment.failureReason = 'Signature verification failed';
-        await this.paymentRepository.save(payment);
-        throw new BadRequestException('Payment signature verification failed');
-      }
-
-      payment.status = PaymentStatus.CAPTURED;
-      payment.gatewayPaymentId = razorpayPaymentId;
-      payment.gatewaySignature = razorpaySignature;
-      payment.capturedAt = new Date();
-
-      // Update order payment status to 'paid' when payment is captured
-      await this.ordersService.updatePaymentStatus(payment.orderId, 'paid');
-    } else {
-      payment.status = PaymentStatus.FAILED;
-      payment.failureReason = 'Payment failed';
-
-      // Update order payment status to 'failed' when payment fails
-      await this.ordersService.updatePaymentStatus(payment.orderId, 'failed');
+    if (payment.status === PaymentStatus.CAPTURED) {
+      return payment;
     }
 
+    const isValid = await this.verifyPayment(razorpayOrderId, razorpayPaymentId, razorpaySignature);
+    if (!isValid) {
+      throw new BadRequestException('Payment signature verification failed');
+    }
+
+    payment.status = PaymentStatus.CAPTURED;
+    payment.gatewayPaymentId = razorpayPaymentId;
+    payment.gatewaySignature = razorpaySignature;
+    payment.capturedAt = new Date();
     await this.paymentRepository.save(payment);
+
+    await this.ordersService.updatePaymentStatus(payment.orderId, 'paid');
     return payment;
   }
 
-  async getPaymentByOrderId(orderId: string) {
+  /** The latest payment on an order. Admins see any; a customer only their own. */
+  async getPaymentByOrderId(orderId: string, user: { id: string; role: UserRole }) {
+    const isAdmin = user.role === UserRole.SUPER_ADMIN || user.role === UserRole.VENDOR_ADMIN;
+    if (!isAdmin && !(await this.ordersService.isOwnedBy(orderId, user.id))) {
+      throw new NotFoundException('Payment not found');
+    }
     return await this.paymentRepository.findOne({
       where: { orderId },
       order: { createdAt: 'DESC' },

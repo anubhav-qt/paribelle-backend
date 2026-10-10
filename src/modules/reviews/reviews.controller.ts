@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { ReviewsService } from './reviews.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { AdminOnly } from '../../common/decorators/admin-only.decorator';
 
 @Controller('reviews')
 export class ReviewsController {
@@ -195,6 +196,7 @@ export class ReviewsController {
 
   // Recalculate product rating (admin utility)
   @Post('products/:productId/recalculate')
+  @AdminOnly()
   async recalculateProductRating(@Param('productId') productId: string) {
     await this.reviewsService.updateProductRating(productId);
     return { message: 'Product rating recalculated successfully' };

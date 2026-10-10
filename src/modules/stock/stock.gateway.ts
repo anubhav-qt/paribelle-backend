@@ -128,17 +128,6 @@ export class MarketplaceGateway implements OnGatewayConnection, OnGatewayDisconn
     });
   }
 
-  emitNewOrderForVendor(vendorId: string, orderData: any) {
-    this.logger.log(`Emitting new order for vendor ${vendorId}`);
-    // Every admin manages the single store's orders — there is no
-    // per-vendor room to target instead.
-    this.server.to(ADMIN_ROOM).emit('newVendorOrder', {
-      vendorId,
-      order: orderData,
-      timestamp: new Date().toISOString(),
-    });
-  }
-
   // ==================== NOTIFICATION EVENTS (private) ====================
 
   emitNotificationToUser(userId: string, notification: any) {

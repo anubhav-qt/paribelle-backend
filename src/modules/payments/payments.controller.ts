@@ -1,7 +1,7 @@
 import { Controller, Post, Body, Get, Param, Headers, HttpCode, HttpStatus, UseGuards, Req, Request, RawBodyRequest, BadRequestException } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Request as ExpressRequest } from 'express';
-import { IsString, IsNotEmpty, IsOptional, IsIn, IsNumber, Min } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsNumber, Min } from 'class-validator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminOnly } from '../../common/decorators/admin-only.decorator';
 import { UserRole } from '../users/user.entity';
@@ -29,10 +29,6 @@ export class VerifyPaymentDto {
   @IsString()
   @IsNotEmpty()
   razorpaySignature: string;
-
-  @IsOptional()
-  @IsIn(['success', 'failed'])
-  status?: 'success' | 'failed';
 }
 
 export class RefundPaymentDto {
@@ -77,21 +73,22 @@ export class PaymentsController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   async verifyPayment(
+    @Request() req,
     @Body() body: VerifyPaymentDto,
   ) {
-    return await this.paymentsService.updatePaymentStatus(
+    return await this.paymentsService.confirmPayment(
+      req.user.id,
       body.razorpayOrderId,
       body.razorpayPaymentId,
       body.razorpaySignature,
-      body.status || 'success',
     );
   }
 
   @Get('order/:orderId')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  async getPaymentByOrder(@Param('orderId') orderId: string) {
-    return await this.paymentsService.getPaymentByOrderId(orderId);
+  async getPaymentByOrder(@Request() req, @Param('orderId') orderId: string) {
+    return await this.paymentsService.getPaymentByOrderId(orderId, req.user);
   }
 
   @Post('refund/:paymentId')

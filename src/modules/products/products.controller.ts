@@ -1,8 +1,10 @@
-import { Controller, Get, Post, Put, Patch, Delete, Param, Query, Body, UseGuards, UseInterceptors, UploadedFile, Res, HttpStatus, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Delete, Param, Query, Body, UseGuards, UseInterceptors, UploadedFile, Res, Request, HttpStatus, BadRequestException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiQuery, ApiConsumes, ApiBearerAuth } from '@nestjs/swagger';
 import { Response } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
+import { AdminOnly, isStoreAdmin } from '../../common/decorators/admin-only.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../users/user.entity';
@@ -32,7 +34,8 @@ export class ProductsController {
   ) {}
 
   @Get()
-  @ApiOperation({ summary: 'Get all products' })
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiOperation({ summary: 'Get all products (drafts and archived ones only for admins)' })
   @ApiQuery({ name: 'categoryId', required: false })
   @ApiQuery({ name: 'filters', required: false, description: 'JSON string of filters' })
   @ApiQuery({ name: 'page', required: false })
@@ -46,6 +49,7 @@ export class ProductsController {
   @ApiQuery({ name: 'productType', required: false })
   @ApiQuery({ name: 'stock', required: false, description: 'Filter by stock level: low | out (admin panel)' })
   async findAll(
+    @Request() req,
     @Query('categoryId') categoryId?: string,
     @Query('filters') filters?: string,
     @Query('page') page?: string,
@@ -59,8 +63,17 @@ export class ProductsController {
     @Query('productType') productType?: string,
     @Query('stock') stock?: string,
   ) {
+    // Shoppers only ever see what is on sale, a page at a time.
+    const admin = isStoreAdmin(req.user);
+    if (!admin) status = 'active';
+
     if (categoryId) {
-      const parsedFilters = filters ? JSON.parse(filters) : {};
+      let parsedFilters: Record<string, any> = {};
+      try {
+        parsedFilters = filters ? JSON.parse(filters) : {};
+      } catch {
+        throw new BadRequestException('filters must be JSON');
+      }
       // Add location filters to the filters object
       if (cityId) parsedFilters.cityId = cityId;
       if (subLocationId) parsedFilters.subLocationId = subLocationId;
@@ -71,8 +84,8 @@ export class ProductsController {
       return this.productsService.findByCategory(categoryId, parsedFilters);
     }
     
-    const pageNum = page ? parseInt(page, 10) : 1;
-    const limitNum = limit ? parseInt(limit, 10) : 20;
+    const pageNum = Math.max(parseInt(page || '1', 10) || 1, 1);
+    const limitNum = Math.min(Math.max(parseInt(limit || '20', 10) || 20, 1), admin ? 1000 : 100);
     const isUncategorized = uncategorized === 'true';
     
     const stockFilter = stock === 'low' || stock === 'out' ? stock : undefined;
@@ -80,6 +93,7 @@ export class ProductsController {
   }
 
   @Get('template-simple/download')
+  @AdminOnly()
   @ApiOperation({ summary: 'Download simple physical-product template (ZIP with sample Excel + images)' })
   async downloadSimpleTemplate(@Res() res: Response) {
     const buffer = await this.productsExcelService.generateSimpleTemplate();
@@ -89,6 +103,7 @@ export class ProductsController {
   }
 
   @Get('export-simple/:vendorId')
+  @AdminOnly()
   @ApiOperation({ summary: 'Export physical products as simple ZIP. Pass ?ids=id1,id2 to export selected products.' })
   @ApiQuery({ name: 'ids', required: false, description: 'Comma-separated product IDs to export (optional)' })
   async exportSimplePhysical(

@@ -23,3 +23,8 @@ export function AdminOnly(...roles: UserRole[]) {
     ApiBearerAuth(),
   );
 }
+
+/** The in-handler counterpart of `AdminOnly()`: either admin role. */
+export function isStoreAdmin(user: { role?: UserRole } | null | undefined): boolean {
+  return user?.role === UserRole.SUPER_ADMIN || user?.role === UserRole.VENDOR_ADMIN;
+}

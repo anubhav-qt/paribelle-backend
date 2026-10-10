@@ -677,33 +677,13 @@ export class ExchangesService {
       throw new BadRequestException('This exchange is for the same product — use "Ship Replacement" instead.');
     }
 
-    // Mirror the storefront's tax-inclusive pricing (see checkout's
-    // calculateTaxBreakdown): item.price already includes GST for the
-    // common mrp_with_gst pricing type, so the tax shown is extracted from
-    // it, not added on top.
-    const itemTotal = Number(exchangeVariant.price) * row.quantity;
-    const gstRate = product.gstRate != null ? Number(product.gstRate) : 18;
-    const priceType = product.priceType || 'mrp_with_gst';
-    let subtotal: number;
-    let tax: number;
-    if (priceType === 'mrp_with_gst' && gstRate > 0) {
-      subtotal = itemTotal / (1 + gstRate / 100);
-      tax = itemTotal - subtotal;
-    } else if (priceType === 'mrp_with_gst') {
-      subtotal = itemTotal;
-      tax = 0;
-    } else {
-      subtotal = itemTotal;
-      tax = itemTotal * (gstRate / 100);
-    }
     // The configured courier charge as quoted when the request was made —
     // see `Return.courierCharge`, deliberately frozen there rather than
     // re-read from settings, which may have changed since.
     const shippingCost = Number(row.courierCharge) || 0;
-    const totalAmount = Number((itemTotal + shippingCost).toFixed(2));
 
     const order = await this.ordersService.create(row.userId, {
-      items: [{ productId: exchangeVariant.productId, variantId: exchangeVariant.id, quantity: row.quantity, price: exchangeVariant.price }],
+      items: [{ productId: exchangeVariant.productId, variantId: exchangeVariant.id, quantity: row.quantity }],
       shippingAddress: {
         fullName: originalOrder.shippingName,
         email: originalOrder.shippingEmail,
@@ -724,24 +704,19 @@ export class ExchangesService {
         country: originalOrder.billingCountry,
         postalCode: originalOrder.billingPostalCode,
       },
-      subtotal: Number(subtotal.toFixed(2)),
-      shippingCost,
-      tax: Number(tax.toFixed(2)),
-      totalAmount,
-      // The goods always come out of the credit issued at inspection; the
-      // only thing that can still be owing is the courier charge, so the
-      // order's payment method is really the customer's answer to "how are
-      // you paying that?" — 'online' leaves it as a Razorpay balance they
-      // settle from their orders page, anything else as COD at the door.
-      paymentMethod: row.courierChargePaymentMethod === 'online' ? 'razorpay' : 'cod',
+      // The goods always come out of the credit issued at inspection.
       useWalletBalance: true,
-      // Capping the drawdown at the value of the goods is what leaves
-      // exactly the courier fee behind to be collected. Not applied for a
-      // 'wallet' charge, where the whole point is that the credit covers it.
-      maxWalletAmount:
-        shippingCost > 0 && row.courierChargePaymentMethod !== 'wallet'
-          ? Number(itemTotal.toFixed(2))
-          : undefined,
+    }, undefined, {
+      shippingCost,
+      // The only thing that can still be owing is the courier charge, so the
+      // payment method is the customer's answer to "how are you paying
+      // that?" — 'online' leaves it as a Razorpay balance they settle from
+      // their orders page, anything else as COD at the door.
+      paymentMethod: row.courierChargePaymentMethod === 'online' ? 'razorpay' : 'cod',
+      // Capping the drawdown at the value of the goods is what leaves exactly
+      // the courier fee behind to be collected. Not for a 'wallet' charge,
+      // where the whole point is that the credit covers it.
+      walletCoversGoodsOnly: shippingCost > 0 && row.courierChargePaymentMethod !== 'wallet',
     });
     const createdOrder = Array.isArray(order) ? order[0] : order;
 

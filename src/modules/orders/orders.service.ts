@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
 import { Order, OrderStatus, PaymentStatus } from './order.entity';
 import { OrderItem } from './order-item.entity';
-import { Product } from '../products/product.entity';
+import { Product, ProductStatus } from '../products/product.entity';
 import { ProductVariant } from '../products/product-variant.entity';
 import { User, UserRole } from '../users/user.entity';
 import { MarketplaceGateway } from '../stock/stock.gateway';
@@ -58,19 +58,6 @@ export class OrdersService {
   private readonly COD_CHARGE = 150;
 
   /**
-   * The admin "Currency & Commission" setting is the one place a store owner
-   * actually edits this rate — it used to be written and never read, while a
-   * hardcoded `10` ran on every order regardless. Defaults to 0, not 10: an
-   * unset rate should mean no commission, not silently reinstate the old
-   * platform cut.
-   */
-  private async getPlatformCommissionRate(): Promise<number> {
-    const raw = await this.settingsService.getSetting('platform_commission_rate');
-    const rate = Number(raw);
-    return Number.isFinite(rate) ? rate : 0;
-  }
-
-  /**
    * The photo to freeze on an order line: the colour the customer actually
    * picked, resolved the same way the product page resolves its gallery. The
    * exact variant's own images first, then any sibling variant of the same
@@ -105,8 +92,36 @@ export class OrdersService {
     return cover;
   }
 
-  async create(userId: string, createOrderDto: any, idempotencyKey?: string) {
-    const { items, shippingAddress, billingAddress, paymentMethod, subtotal, shippingCost, tax, totalAmount, useWalletBalance, maxWalletAmount } = createOrderDto;
+  /**
+   * Places one order. Everything that decides what the customer pays — each
+   * line's price, the GST inside it, shipping and the total — is worked out
+   * here from the catalogue. The request only says what to buy and where to
+   * send it; any price, subtotal or total in the body is ignored. Those used
+   * to be trusted, so a hand-made request could buy anything for ₹1, ship
+   * with negative shipping, or name a payment method that marked the order
+   * paid outright.
+   *
+   * A shopper's checkout always ships free and pays online (or COD, while
+   * that is switched on). `placedByStore` is for the orders the store places
+   * itself — an exchange's replacement, a refused COD parcel's swap — which
+   * may carry the frozen courier charge as shipping and leave it owing.
+   */
+  async create(
+    userId: string,
+    createOrderDto: any,
+    idempotencyKey?: string,
+    placedByStore?: {
+      shippingCost: number;
+      paymentMethod: 'razorpay' | 'cod';
+      /** Store credit pays for the goods only, leaving the shipping owing. */
+      walletCoversGoodsOnly?: boolean;
+    },
+  ) {
+    const { items, shippingAddress, billingAddress, useWalletBalance } = createOrderDto || {};
+    const paymentMethod = placedByStore?.paymentMethod ?? createOrderDto?.paymentMethod;
+    if (paymentMethod !== 'razorpay' && paymentMethod !== 'cod') {
+      throw new BadRequestException('Please pay online (UPI, card or net banking).');
+    }
 
     // Replay protection. A double-click, an impatient refresh or a client
     // retry after a timeout all arrive as a second POST for an order that was
@@ -119,85 +134,112 @@ export class OrdersService {
         relations: ['items'],
       });
       if (existing.length > 0) {
-        console.log(`[create] Replayed idempotency key ${normalizedKey}; returning ${existing.length} existing order(s)`);
         return existing.length === 1 ? existing[0] : existing;
       }
     }
 
-    console.log('Create order DTO received:', {
-      subtotal, shippingCost, tax, totalAmount,
-      itemsCount: items.length,
-      useWalletBalance,
-    });
+    if (!Array.isArray(items) || items.length === 0) {
+      throw new BadRequestException('Your bag is empty.');
+    }
+    if (items.length > 50) {
+      throw new BadRequestException('Too many lines in one order.');
+    }
+    const requiredAddressFields = ['fullName', 'phone', 'addressLine1', 'city', 'state', 'postalCode'];
+    if (!shippingAddress || requiredAddressFields.some((f) => !String(shippingAddress[f] ?? '').trim())) {
+      throw new BadRequestException('Please complete the delivery address.');
+    }
 
-    // Convert to numbers and ensure proper decimal precision
-    let numSubtotal = Number(subtotal) || 0;
-    let numShippingCost = Number(shippingCost) || 0;
-    let numTax = Number(tax) || 0;
-    let numTotalAmount = Number(totalAmount) || 0;
-
-    // Get user's wallet balance
     const user = await this.userRepository.findOne({ where: { id: userId } });
     if (!user) {
       throw new NotFoundException('User not found');
     }
 
-    // Apply wallet balance if requested
-    let walletAmountUsed = 0;
-    let finalAmountToPay = numTotalAmount;
-
-    if (useWalletBalance && user.walletBalance > 0) {
-      // `maxWalletAmount` caps the drawdown below the order total on purpose,
-      // leaving the remainder to be collected some other way. The exchange
-      // flow uses it to let a customer pay the courier charge in cash while
-      // the goods themselves still come out of their store credit — see
-      // ExchangesService.createReplacementOrder. Absent (the normal case),
-      // the wallet covers as much of the order as it can.
-      const cap = Number(maxWalletAmount);
-      const spendable = Number.isFinite(cap) && cap >= 0 ? Math.min(numTotalAmount, cap) : numTotalAmount;
-      walletAmountUsed = Math.min(user.walletBalance, spendable);
-      finalAmountToPay = Number((numTotalAmount - walletAmountUsed).toFixed(2));
-
-      console.log('Wallet balance applied:', {
-        availableBalance: user.walletBalance,
-        walletAmountUsed,
-        originalTotal: numTotalAmount,
-        finalAmountToPay,
-      });
-    }
-
-    // Load all products with vendor information
-    const productIds = items.map((item: any) => item.productId);
-    const products = await this.productRepository.find({
-      where: productIds.map(id => ({ id })),
-      relations: ['vendor'],
-    });
-
-    // Compare against distinct ids: two sizes of the same kurti are two cart
-    // lines but one product row, so items.length would reject a valid order.
-    if (products.length !== new Set(productIds).size) {
-      throw new NotFoundException('One or more products not found');
-    }
-
-    // Every variant of every ordered product, loaded once, so each line can
-    // snapshot the photo of the colour that was bought rather than the
-    // product's cover shot (which may show a different colour).
-    const orderedVariants = await this.productVariantsRepository.find({
-      where: { productId: In(Array.from(new Set(productIds))) },
-    });
-
     // Every requested quantity must be a positive whole number. Without this a
     // crafted request with a negative quantity would *increase* stock on the
-    // decrement below and push the order total the wrong way.
+    // decrement below.
     for (const item of items) {
-      const quantity = Number(item.quantity);
-      if (!Number.isInteger(quantity) || quantity < 1) {
-        throw new BadRequestException(
-          `Invalid quantity for product ${item.productId}: quantity must be a whole number of at least 1`,
-        );
+      const quantity = Number(item?.quantity);
+      if (!Number.isInteger(quantity) || quantity < 1 || quantity > 100) {
+        throw new BadRequestException('Each item needs a quantity between 1 and 100.');
       }
       item.quantity = quantity;
     }
+
+    const productIds = Array.from(new Set<string>(items.map((item: any) => String(item.productId))));
+    const products = await this.productRepository.find({
+      where: { id: In(productIds) },
+      relations: ['vendor'],
+    });
+    // Compare against distinct ids: two sizes of the same kurti are two cart
+    // lines but one product row.
+    if (products.length !== productIds.length) {
+      throw new NotFoundException('One or more items in your bag are no longer available.');
+    }
+    const productById = new Map(products.map((p) => [p.id, p]));
+
+    // Every variant of every ordered product, loaded once: for pricing, and
+    // so each line can snapshot the photo of the colour that was bought
+    // rather than the product's cover shot (which may show another colour).
+    const orderedVariants = await this.productVariantsRepository.find({
+      where: { productId: In(productIds) },
+    });
+
+    // Price every line from the catalogue.
+    const lines = items.map((item: any) => {
+      const product = productById.get(String(item.productId))!;
+      const purchasable =
+        (product.status === ProductStatus.ACTIVE || product.status === ProductStatus.OUT_OF_STOCK) &&
+        !product.isParent;
+      if (!purchasable) {
+        throw new BadRequestException(`"${product.name}" is no longer available.`);
+      }
+
+      let variant: ProductVariant | undefined;
+      if (item.variantId) {
+        variant = orderedVariants.find((v) => v.id === item.variantId);
+        if (!variant || variant.productId !== product.id || variant.isActive === false) {
+          throw new BadRequestException(`That option of "${product.name}" is no longer available.`);
+        }
+      } else if (product.hasVariants) {
+        throw new BadRequestException(`Please choose a size for "${product.name}".`);
+      }
+
+      const unitPrice = Number(variant ? variant.price : product.price);
+      if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
+        throw new BadRequestException(`"${product.name}" can't be ordered right now.`);
+      }
+
+      const gstRate = product.gstRate != null ? Number(product.gstRate) : 18;
+      const listed = unitPrice * item.quantity;
+      // Store prices are GST-inclusive ('mrp_with_gst'): the tax is inside the
+      // price. A 'selling_price_without_gst' product has it added on top.
+      const inclusive = (product.priceType || 'mrp_with_gst') === 'mrp_with_gst';
+      const tax = inclusive ? listed - listed / (1 + gstRate / 100) : listed * (gstRate / 100);
+      const payable = inclusive ? listed : listed + tax;
+
+      return { item, product, variant, unitPrice, listed, tax, payable };
+    });
+
+    const round2 = (n: number) => Number(n.toFixed(2));
+    const goodsTotal = round2(lines.reduce((s, l) => s + l.payable, 0));
+    const tax = round2(lines.reduce((s, l) => s + l.tax, 0));
+    const subtotal = round2(goodsTotal - tax);
+    // Shipping is free. Only a store-placed order carries a courier charge.
+    const shippingCost = Math.max(round2(Number(placedByStore?.shippingCost) || 0), 0);
+    const totalBeforeWallet = round2(goodsTotal + shippingCost);
+
+    let walletAmountUsed = 0;
+    if (useWalletBalance && Number(user.walletBalance) > 0) {
+      const spendable = placedByStore?.walletCoversGoodsOnly ? goodsTotal : totalBeforeWallet;
+      walletAmountUsed = round2(Math.min(Number(user.walletBalance), spendable));
+    }
+    const leftToPay = round2(totalBeforeWallet - walletAmountUsed);
+    const paidByWallet = leftToPay <= 0 && walletAmountUsed > 0;
+
+    // COD handling fee, only when there is still something to collect at the
+    // door after store credit.
+    const codCharge = paymentMethod === 'cod' && leftToPay > 0 ? this.COD_CHARGE : 0;
+    const total = Math.max(round2(leftToPay + codCharge), 0);
 
     // Reserve stock atomically.
     //
@@ -211,45 +253,24 @@ export class OrdersService {
     const stockUpdates: Array<{ productId: string; stockQuantity: number }> = [];
 
     await this.dataSource.transaction(async (manager) => {
-      for (const item of items) {
-        const product = products.find(p => p.id === item.productId);
-        if (!product) {
-          throw new NotFoundException(`Product ${item.productId} not found`);
-        }
-
-        // Popularity sort reads this — see Task 4. Counted for every order
-        // regardless of inventory tracking, since "popular" means "people
-        // bought it", not "we track its stock". Same transaction as the stock
-        // reservation below, so a rolled-back order (insufficient stock)
-        // cannot inflate it.
+      for (const { item, product, variant } of lines) {
+        // Popularity sort reads this. Counted for every order regardless of
+        // inventory tracking, and in the same transaction as the stock
+        // reservation, so a rolled-back order cannot inflate it.
         await manager.increment(Product, { id: product.id }, 'salesCount', item.quantity);
 
-        // Only track stock for products with inventory tracking enabled
         if (!product.trackInventory) continue;
 
-        if (item.variantId) {
-          const variant = await manager.findOne(ProductVariant, { where: { id: item.variantId } });
-          if (!variant) throw new NotFoundException(`Variant ${item.variantId} not found`);
-          if (variant.productId !== product.id) {
-            throw new BadRequestException(
-              `Variant ${item.variantId} does not belong to product "${product.name}"`,
-            );
-          }
-
+        if (variant) {
           // The raw SQL fragments below must name the *column*
-          // (`stock_quantity`), not the entity property (`stockQuantity`).
-          // TypeORM only rewrites identifiers it parses itself; inside a raw
-          // `.set(() => '...')` or a raw `.where('...')` string it has no idea
-          // the token is a property name and passes it straight to Postgres,
-          // which has no such column and throws `column "stockQuantity" does
-          // not exist`. That crash took down every order on every payment
-          // method, since stock reservation runs before payment.
+          // (`stock_quantity`), not the entity property (`stockQuantity`):
+          // TypeORM passes raw strings straight to Postgres.
           const reserved = await manager
             .createQueryBuilder()
             .update(ProductVariant)
             .set({ stockQuantity: () => `"stock_quantity" - ${item.quantity}` })
             .where('id = :id AND "stock_quantity" >= :quantity', {
-              id: item.variantId,
+              id: variant.id,
               quantity: item.quantity,
             })
             .execute();
@@ -257,8 +278,7 @@ export class OrdersService {
           if (!reserved.affected) {
             const label = Object.values(variant.variantAttributes || {}).join('/');
             throw new BadRequestException(
-              `Insufficient stock for "${product.name}"${label ? ` (${label})` : ''}. ` +
-              `Available: ${variant.stockQuantity ?? 0}, Requested: ${item.quantity}`,
+              `Only ${variant.stockQuantity ?? 0} left of "${product.name}"${label ? ` (${label})` : ''}.`,
             );
           }
 
@@ -279,10 +299,7 @@ export class OrdersService {
             .execute();
 
           if (!reserved.affected) {
-            throw new BadRequestException(
-              `Insufficient stock for "${product.name}". ` +
-              `Available: ${product.stockQuantity ?? 0}, Requested: ${item.quantity}`,
-            );
+            throw new BadRequestException(`Only ${product.stockQuantity ?? 0} left of "${product.name}".`);
           }
 
           stockUpdates.push({
@@ -293,333 +310,148 @@ export class OrdersService {
       }
     });
 
-    // Emit stock updates via WebSocket
     if (stockUpdates.length > 0) {
       this.marketplaceGateway.emitBulkStockUpdate(stockUpdates);
     }
 
     // Notify admins the moment a product crosses its low-stock threshold —
-    // only on the order that crosses it, not every order after, so this
-    // fires once per dip rather than spamming on every sale while stock
-    // stays low.
+    // only on the order that crosses it, so this fires once per dip rather
+    // than on every sale while stock stays low.
     for (const update of stockUpdates) {
-      const product = products.find((p) => p.id === update.productId);
+      const product = productById.get(update.productId);
       if (!product?.lowStockThreshold) continue;
-      const orderedQty = items
-        .filter((i: any) => i.productId === update.productId)
-        .reduce((sum: number, i: any) => sum + Number(i.quantity), 0);
+      const orderedQty = lines
+        .filter((l) => l.product.id === update.productId)
+        .reduce((sum, l) => sum + l.item.quantity, 0);
       const stockBefore = update.stockQuantity + orderedQty;
       if (update.stockQuantity <= product.lowStockThreshold && stockBefore > product.lowStockThreshold) {
         this.notificationsService
           .notifyAdmins(NotificationType.LOW_STOCK, `${product.name} is low on stock (${update.stockQuantity} left)`, {
             body: `Only ${update.stockQuantity} left — restock or the listing will sell out.`,
-            // Pre-filters the product list to this one product, so the click
-            // lands on the item the notification is about rather than on
-            // page 1 of the whole catalogue.
             link: `/admin/products?search=${encodeURIComponent(product.name)}`,
           })
           .catch((err) => console.error('Failed to notify admins of low stock:', err));
       }
     }
 
-    // Group items by vendorId
-    const itemsByVendor = new Map<string, any[]>();
-    
-    for (const item of items) {
-      const product = products.find(p => p.id === item.productId);
-      if (!product || !product.vendorId) {
-        throw new NotFoundException(`Product ${item.productId} not found or has no vendor`);
-      }
+    // The seller details printed on the invoice, frozen as they are today.
+    const store = products[0].vendor;
+    const oneLine = (a: any) => `${a.addressLine1}${a.addressLine2 ? ', ' + a.addressLine2 : ''}`;
+    const billing = billingAddress && requiredAddressFields.every((f) => String(billingAddress[f] ?? '').trim())
+      ? billingAddress
+      : null;
 
-      if (!itemsByVendor.has(product.vendorId)) {
-        itemsByVendor.set(product.vendorId, []);
-      }
+    const order = this.orderRepository.create({
+      orderNumber: this.generateOrderNumber(),
+      idempotencyKey: normalizedKey || null,
+      userId,
+      vendorId: products[0].vendorId,
+      vendorBusinessName: store?.businessName,
+      vendorStoreName: store?.storeName,
+      vendorGstNumber: store?.gstNumber,
+      vendorAddress: store?.address,
+      vendorCity: store?.city,
+      vendorState: store?.state,
+      vendorPostalCode: store?.postalCode,
+      vendorCountry: store?.country,
+      vendorContactEmail: store?.contactEmail,
+      vendorContactPhone: store?.contactPhone,
+      subtotal,
+      tax,
+      shippingCost,
+      codCharge,
+      discount: walletAmountUsed,
+      total,
+      status: OrderStatus.PENDING,
+      // Store credit covering the whole order settles it immediately; there
+      // is nothing left to collect. Anything else waits for the payment.
+      paymentMethod: paidByWallet ? 'wallet' : paymentMethod,
+      paymentStatus: paidByWallet ? PaymentStatus.PAID : PaymentStatus.PENDING,
+      shippingName: shippingAddress.fullName,
+      shippingEmail: shippingAddress.email || user.email,
+      shippingPhone: shippingAddress.phone,
+      shippingAddress: oneLine(shippingAddress),
+      shippingCity: shippingAddress.city,
+      shippingState: shippingAddress.state,
+      shippingCountry: shippingAddress.country || 'India',
+      shippingPostalCode: shippingAddress.postalCode,
+      billingAddressSameAsShipping: !billing || JSON.stringify(billing) === JSON.stringify(shippingAddress),
+      billingName: (billing || shippingAddress).fullName,
+      billingEmail: (billing || shippingAddress).email || user.email,
+      billingPhone: (billing || shippingAddress).phone,
+      billingAddress: oneLine(billing || shippingAddress),
+      billingCity: (billing || shippingAddress).city,
+      billingState: (billing || shippingAddress).state,
+      billingCountry: (billing || shippingAddress).country || 'India',
+      billingPostalCode: (billing || shippingAddress).postalCode,
+    });
+    const savedOrder = await this.orderRepository.save(order);
 
-      itemsByVendor.get(product.vendorId)!.push({
-        ...item,
-        product,
-      });
-    }
-
-    console.log(`Creating orders for ${itemsByVendor.size} vendor(s)`);
-
-    // Read once for every vendor order in this checkout, not per vendor — the
-    // rate does not vary between the orders one checkout produces. Falls back
-    // to 0, not the old hardcoded 10, so an unset setting charges no commission
-    // rather than silently defaulting to the platform's old cut.
-    const platformCommissionRate = await this.getPlatformCommissionRate();
-
-    // Create separate orders for each vendor
-    const createdOrders: Order[] = [];
-
-    for (const [vendorId, vendorItems] of itemsByVendor.entries()) {
-      // Get vendor details for snapshot
-      const vendor = vendorItems[0].product.vendor;
-      
-      // Calculate vendor-specific totals
-      // Extract base price (without tax) from each item
-      const vendorSubtotal = vendorItems.reduce((sum, item) => {
-        const itemPrice = Number(item.price) || 0;
-        const product = item.product;
-        const priceType = product.priceType || 'mrp_with_gst';
-        const gstRate = Number(product.gstRate) || 18;
-
-        let basePrice = itemPrice;
-        if (priceType === 'mrp_with_gst') {
-          // Extract base price from tax-inclusive price
-          basePrice = itemPrice / (1 + gstRate / 100);
-        }
-        // For 'selling_price_without_gst', basePrice is already the price
-
-        return sum + basePrice * item.quantity;
-      }, 0);
-
-      // Calculate vendor tax from items
-      const vendorTaxFromItems = vendorItems.reduce((sum, item) => {
-        const itemPrice = Number(item.price) || 0;
-        const product = item.product;
-        const priceType = product.priceType || 'mrp_with_gst';
-        const gstRate = Number(product.gstRate) || 18;
-
-        let itemTax = 0;
-        if (priceType === 'mrp_with_gst') {
-          // Extract tax from inclusive price
-          const basePrice = itemPrice / (1 + gstRate / 100);
-          itemTax = itemPrice - basePrice;
-        } else {
-          // Calculate tax on exclusive price
-          itemTax = itemPrice * (gstRate / 100);
-        }
-
-        return sum + itemTax * item.quantity;
-      }, 0);
-
-      // Proportionally distribute shipping based on subtotal
-      const proportionOfTotal = numSubtotal > 0 ? vendorSubtotal / numSubtotal : 1 / itemsByVendor.size;
-      const vendorShippingCost = Number((numShippingCost * proportionOfTotal).toFixed(2));
-      const vendorTax = Number(vendorTaxFromItems.toFixed(2));
-      const vendorTotal = Number((vendorSubtotal + vendorShippingCost + vendorTax).toFixed(2));
-
-      // Calculate commission on subtotal + tax (excluding shipping)
-      const commissionRate = platformCommissionRate;
-      const commissionBase = vendorSubtotal + vendorTax; // Base for commission calculation
-      const commissionAmount = Number((commissionBase * commissionRate / 100).toFixed(2));
-      const vendorPayout = Number((commissionBase - commissionAmount + vendorShippingCost).toFixed(2));
-
-      // Generate order number
-      const orderNumber = this.generateOrderNumber();
-
-      console.log(`Creating order for vendor ${vendorId}:`, {
-        orderNumber,
-        vendorSubtotal,
-        vendorShippingCost,
-        vendorTax,
-        vendorTotal,
-        commissionAmount,
-        vendorPayout,
-        itemsCount: vendorItems.length,
-      });
-
-      // Proportionally apply wallet discount to this vendor's order
-      const vendorWalletDiscount = walletAmountUsed > 0 
-        ? Number((walletAmountUsed * proportionOfTotal).toFixed(2))
-        : 0;
-      const vendorFinalTotal = Number((vendorTotal - vendorWalletDiscount).toFixed(2));
-
-      // COD handling fee: added once (to the first order of the checkout), only
-      // when the shopper pays Cash on Delivery and there is still an amount to
-      // collect at the door after wallet credit. Prepaid and wallet-settled
-      // orders never carry it.
-      const vendorCodCharge =
-        paymentMethod === 'cod' && vendorFinalTotal > 0 && createdOrders.length === 0
-          ? this.COD_CHARGE
-          : 0;
-      const vendorTotalWithCod = Number((vendorFinalTotal + vendorCodCharge).toFixed(2));
-
-      // Create order
-      const order = this.orderRepository.create({
-        orderNumber,
-        idempotencyKey: normalizedKey || null,
-        userId,
-        vendorId,
-        // Vendor snapshot (for invoices and historical accuracy)
-        vendorBusinessName: vendor.businessName,
-        vendorStoreName: vendor.storeName,
-        vendorGstNumber: vendor.gstNumber,
-        vendorAddress: vendor.address,
-        vendorCity: vendor.city,
-        vendorState: vendor.state,
-        vendorPostalCode: vendor.postalCode,
-        vendorCountry: vendor.country,
-        vendorContactEmail: vendor.contactEmail,
-        vendorContactPhone: vendor.contactPhone,
-        subtotal: vendorSubtotal,
-        tax: vendorTax,
-        shippingCost: vendorShippingCost,
-        codCharge: vendorCodCharge,
-        discount: vendorWalletDiscount,
-        // A vendorFinalTotal of exactly 0 is the wallet covering the order in
-        // full, not a signal to ignore the discount and charge the full
-        // price — falling back to vendorTotal here used to do exactly that.
-        total: Math.max(vendorTotalWithCod, 0),
-        commissionRate,
-        commissionAmount,
-        vendorPayout,
-        status: OrderStatus.PENDING,
-        // The wallet fully covering the order settles it immediately,
-        // regardless of which gateway was nominally chosen — there is
-        // nothing left to collect via COD or Razorpay.
-        paymentMethod: vendorFinalTotal <= 0 && walletAmountUsed > 0 ? 'wallet' : (paymentMethod || 'cod'),
-        paymentStatus: vendorFinalTotal <= 0 && walletAmountUsed > 0
-          ? PaymentStatus.PAID
-          : paymentMethod === 'cod' ? PaymentStatus.PENDING :
-            paymentMethod === 'razorpay' ? PaymentStatus.PENDING :
-            PaymentStatus.PAID, // Only mark as paid for other payment methods
-        shippingName: shippingAddress.fullName,
-        shippingEmail: shippingAddress.email || '', // Use from address if available
-        shippingPhone: shippingAddress.phone,
-        shippingAddress: `${shippingAddress.addressLine1}${shippingAddress.addressLine2 ? ', ' + shippingAddress.addressLine2 : ''}`,
-        shippingCity: shippingAddress.city,
-        shippingState: shippingAddress.state,
-        shippingCountry: shippingAddress.country,
-        shippingPostalCode: shippingAddress.postalCode,
-        // Billing address (use billing if provided, otherwise same as shipping)
-        billingAddressSameAsShipping: !billingAddress || JSON.stringify(billingAddress) === JSON.stringify(shippingAddress),
-        billingName: billingAddress?.fullName || shippingAddress.fullName,
-        billingEmail: billingAddress?.email || shippingAddress.email || '',
-        billingPhone: billingAddress?.phone || shippingAddress.phone,
-        billingAddress: billingAddress 
-          ? `${billingAddress.addressLine1}${billingAddress.addressLine2 ? ', ' + billingAddress.addressLine2 : ''}`
-          : `${shippingAddress.addressLine1}${shippingAddress.addressLine2 ? ', ' + shippingAddress.addressLine2 : ''}`,
-        billingCity: billingAddress?.city || shippingAddress.city,
-        billingState: billingAddress?.state || shippingAddress.state,
-        billingCountry: billingAddress?.country || shippingAddress.country,
-        billingPostalCode: billingAddress?.postalCode || shippingAddress.postalCode,
-      });
-
-      const savedOrder = await this.orderRepository.save(order);
-
-      // Create order items for this vendor
-      const orderItems: OrderItem[] = [];
-      for (const item of vendorItems) {
-        const orderItem = this.orderItemRepository.create({
+    await this.orderItemRepository.save(
+      lines.map(({ item, product, variant, unitPrice, listed }) =>
+        this.orderItemRepository.create({
           orderId: savedOrder.id,
-          productId: item.product.id,
+          productId: product.id,
           quantity: item.quantity,
-          price: Number(item.price) || 0,
-          subtotal: Number((Number(item.price) || 0) * item.quantity),
-          total: Number((Number(item.price) || 0) * item.quantity),
-          productName: item.product.name,
-          productSku: item.product.sku || '',
-          productImage: this.resolveItemPhoto(item.product, item.variantId, item.variantAttributes, orderedVariants),
-          variantId: item.variantId || null,
-          variantDetails: item.variantId ? {
-            sku: item.variantSku || null,
-            attributes: item.variantAttributes || null,
-          } : null,
-        });
+          price: unitPrice,
+          subtotal: round2(listed),
+          total: round2(listed),
+          productName: product.name,
+          productSku: product.sku || '',
+          productImage: this.resolveItemPhoto(product, variant?.id, variant?.variantAttributes, orderedVariants),
+          variantId: variant?.id || null,
+          variantDetails: variant ? { sku: variant.sku, attributes: variant.variantAttributes } : null,
+        }),
+      ),
+    );
 
-        orderItems.push(orderItem);
-      }
-
-      await this.orderItemRepository.save(orderItems);
-      createdOrders.push(savedOrder);
-      
-      // Emit new order event for vendor
-      this.marketplaceGateway.emitNewOrderForVendor(vendorId, {
-        id: savedOrder.id,
-        orderNumber: savedOrder.orderNumber,
-        total: vendorTotal,
-        itemCount: vendorItems.length,
-        status: savedOrder.status,
-      });
-    }
-
-    console.log(`Created ${createdOrders.length} order(s)`);
-
-    // Deduct wallet balance if it was used — through the ledger, not a raw
-    // column update, so this spend shows up in the customer's wallet history.
+    // Through the ledger, not a raw column update, so this spend shows up in
+    // the customer's wallet history.
     if (walletAmountUsed > 0) {
-      const { balance } = await this.walletService.debit(userId, walletAmountUsed, WalletLedgerType.CHECKOUT_SPEND, {
-        orderId: createdOrders[0]?.id,
-        description: `Applied at checkout across ${createdOrders.length} order(s)`,
+      await this.walletService.debit(userId, walletAmountUsed, WalletLedgerType.CHECKOUT_SPEND, {
+        orderId: savedOrder.id,
+        description: `Applied to order #${savedOrder.orderNumber}`,
       });
-      console.log(`Deducted ${walletAmountUsed} from user wallet. Remaining balance: ${balance}`);
     }
 
-    // Return all orders with items
-    const ordersWithDetails = await this.orderRepository.find({
-      where: createdOrders.map(order => ({ id: order.id })),
-      relations: ['items', 'items.product', 'vendor', 'user'],
+    const placed = await this.orderRepository.findOneOrFail({
+      where: { id: savedOrder.id },
+      relations: ['items', 'items.product'],
     });
 
-    // Notify the customer their order was received, and admins that a new
-    // order needs attention. Never lets a notification failure fail the order.
-    for (const order of ordersWithDetails) {
-      this.notificationsService
-        .notifyUser(order.userId, NotificationType.ORDER_PLACED, `Order #${order.orderNumber} received`, {
-          body: 'Awaiting confirmation.',
-          link: '/orders',
-          orderId: order.id,
-        })
-        .catch((err) => console.error('Failed to notify customer of new order:', err));
-      this.notificationsService
-        .notifyAdmins(NotificationType.ORDER_PLACED, `New order #${order.orderNumber} — ₹${order.total}`, {
-          link: '/admin/orders',
-          orderId: order.id,
-        })
-        .catch((err) => console.error('Failed to notify admins of new order:', err));
-    }
+    // Never lets a notification failure fail the order.
+    this.notificationsService
+      .notifyUser(userId, NotificationType.ORDER_PLACED, `Order #${savedOrder.orderNumber} received`, {
+        body: 'Awaiting confirmation.',
+        link: '/orders',
+        orderId: savedOrder.id,
+      })
+      .catch((err) => console.error('Failed to notify customer of new order:', err));
+    this.notificationsService
+      .notifyAdmins(NotificationType.ORDER_PLACED, `New order #${savedOrder.orderNumber} — ₹${savedOrder.total}`, {
+        link: '/admin/orders',
+        orderId: savedOrder.id,
+      })
+      .catch((err) => console.error('Failed to notify admins of new order:', err));
 
-    // Auto-generate invoices for orders that are already paid
-    for (const order of ordersWithDetails) {
-      if (order.paymentStatus === PaymentStatus.PAID) {
-        try {
-          console.log(`Order ${order.orderNumber} is already paid. Generating invoices...`);
-          
-          // Check if customer invoice already exists
-          const existingCustomerInvoice = await this.invoicesService.findByOrderAndType(order.id, 'customer');
-          if (!existingCustomerInvoice) {
-            await this.invoicesService.createFromOrder({
-              orderId: order.id,
-              type: 'customer' as any,
-              notes: 'Thank you for your purchase!',
-            });
-            console.log(`Customer invoice generated for order ${order.orderNumber}`);
-          }
-          
-          // Check if vendor invoice already exists
-          const existingVendorInvoice = await this.invoicesService.findByOrderAndType(order.id, 'vendor');
-          if (!existingVendorInvoice) {
-            await this.invoicesService.createFromOrder({
-              orderId: order.id,
-              type: 'vendor' as any,
-              notes: `Vendor payout for order ${order.orderNumber}`,
-            });
-            console.log(`Vendor invoice generated for order ${order.orderNumber}`);
-          }
-          
-          // A commission-free order has nothing for a platform invoice to
-          // state — skip it rather than generating a ₹0 document per order.
-          if (Number(order.commissionAmount) > 0) {
-            const existingPlatformInvoice = await this.invoicesService.findByOrderAndType(order.id, 'platform');
-            if (!existingPlatformInvoice) {
-              await this.invoicesService.createFromOrder({
-                orderId: order.id,
-                type: 'platform' as any,
-                notes: `Platform commission for order ${order.orderNumber}`,
-              });
-              console.log(`Platform invoice generated for order ${order.orderNumber}`);
-            }
-          }
-        } catch (error) {
-          console.error(`Failed to generate invoices for order ${order.orderNumber}:`, error);
-          // Don't throw - order creation should succeed even if invoice generation fails
+    // Paid in full by store credit: the invoice is due now. Razorpay orders
+    // get theirs when the payment is captured.
+    if (paidByWallet) {
+      try {
+        const existing = await this.invoicesService.findByOrderAndType(savedOrder.id, 'customer');
+        if (!existing) {
+          await this.invoicesService.createFromOrder({
+            orderId: savedOrder.id,
+            type: 'customer' as any,
+            notes: 'Thank you for your purchase!',
+          });
         }
+      } catch (error) {
+        console.error(`Failed to generate the invoice for order ${savedOrder.orderNumber}:`, error);
       }
     }
 
-    return ordersWithDetails;
+    return placed;
   }
 
   async findAll(userId: string) {
@@ -932,6 +764,11 @@ export class OrdersService {
     });
   }
 
+  /** Whether the order belongs to this customer — for checks that need no more. */
+  async isOwnedBy(id: string, userId: string): Promise<boolean> {
+    return (await this.orderRepository.count({ where: { id, userId } })) > 0;
+  }
+
   async findOne(id: string, userId: string) {
     const order = await this.orderRepository.findOne({
       where: { id, userId },
@@ -947,8 +784,7 @@ export class OrdersService {
   }
 
   /**
-   * `platform_commission_rate`'s sibling for the exchange window — see
-   * `getPlatformCommissionRate` above. Duplicated (rather than shared with
+   * The admin-set exchange window. Duplicated (rather than shared with
    * `ExchangesService`) to avoid a circular module dependency for a
    * three-line settings lookup.
    */
@@ -1522,27 +1358,8 @@ export class OrdersService {
     const cancelledOrder = await this.orderRepository.save(order);
     this.marketplaceGateway.emitOrderStatusUpdate(order.id, OrderStatus.CANCELLED, order.userId);
 
-    // Same tax-inclusive pricing the storefront's checkout uses (see
-    // calculateTaxBreakdown) — item price already includes GST for the
-    // common mrp_with_gst pricing type.
-    const itemTotal = Number(variant.price) * quantity;
-    const gstRate = product.gstRate != null ? Number(product.gstRate) : 18;
-    const priceType = product.priceType || 'mrp_with_gst';
-    let subtotal: number;
-    let tax: number;
-    if (priceType === 'mrp_with_gst' && gstRate > 0) {
-      subtotal = itemTotal / (1 + gstRate / 100);
-      tax = itemTotal - subtotal;
-    } else if (priceType === 'mrp_with_gst') {
-      subtotal = itemTotal;
-      tax = 0;
-    } else {
-      subtotal = itemTotal;
-      tax = itemTotal * (gstRate / 100);
-    }
-
     const created = await this.create(order.userId, {
-      items: [{ productId, variantId, quantity, price: variant.price }],
+      items: [{ productId, variantId, quantity }],
       shippingAddress: {
         fullName: order.shippingName,
         email: order.shippingEmail,
@@ -1563,13 +1380,8 @@ export class OrdersService {
         country: order.billingCountry,
         postalCode: order.billingPostalCode,
       },
-      subtotal: Number(subtotal.toFixed(2)),
-      shippingCost: 0,
-      tax: Number(tax.toFixed(2)),
-      totalAmount: Number(itemTotal.toFixed(2)),
-      paymentMethod: 'cod',
       useWalletBalance: true,
-    });
+    }, undefined, { shippingCost: 0, paymentMethod: 'cod' });
     const newOrder = Array.isArray(created) ? created[0] : created;
 
     this.notificationsService

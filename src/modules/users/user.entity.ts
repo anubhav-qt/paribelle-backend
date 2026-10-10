@@ -70,28 +70,17 @@ export class User {
   @Column({ type: 'timestamp', nullable: true, name: 'email_verified_at' })
   emailVerifiedAt: Date;
 
-  /**
-   * The Google account id, when this user signed in with Google. Used to skip
-   * the email-verification gate for Google accounts — Google has already
-   * confirmed the address — without guessing from the address itself. Before
-   * this column existed, `JwtStrategy` approximated "signed up with Google" by
-   * checking whether the address ended in `@gmail.com`, which also exempted
-   * anyone who registered a Gmail address with a plain password from ever
-   * verifying it.
-   */
+  /** The Google account id, when this user has signed in with Google. */
   @Column({ type: 'varchar', nullable: true, name: 'google_id' })
   googleId: string | null;
 
-  @Column({ type: 'varchar', nullable: true, name: 'email_verification_token' })
-  emailVerificationToken: string | null;
-
-  @Column({ type: 'timestamp', nullable: true, name: 'email_verification_token_expiry' })
-  emailVerificationTokenExpiry: Date | null;
-
-  @Column({ type: 'varchar', nullable: true, name: 'password_reset_token' })
+  // `select: false`: a user object goes out in API responses, and a reset
+  // token in one is a password reset for whoever reads it. Only
+  // AuthService.resetPassword asks for these back.
+  @Column({ type: 'varchar', nullable: true, name: 'password_reset_token', select: false })
   passwordResetToken: string | null;
 
-  @Column({ type: 'timestamp', nullable: true, name: 'password_reset_token_expiry' })
+  @Column({ type: 'timestamp', nullable: true, name: 'password_reset_token_expiry', select: false })
   passwordResetTokenExpiry: Date | null;
 
   @Column({ type: 'timestamp', nullable: true, name: 'phone_verified_at' })
