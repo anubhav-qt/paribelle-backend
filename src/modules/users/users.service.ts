@@ -18,8 +18,25 @@ export class UsersService {
     return this.usersRepository.findOne({ where: { id } });
   }
 
+  /**
+   * Email lookups ignore case and surrounding spaces. They were exact, so an
+   * account made as "Anu@Gmail.com" (a phone keyboard capitalises the first
+   * letter) couldn't sign in as "anu@gmail.com", and Google sign-in, which
+   * reports the address in lowercase, made it a second account. Older rows
+   * may differ only in case; the exact match wins if so.
+   */
+  private byEmail(email: string) {
+    const exact = String(email ?? '').trim();
+    return this.usersRepository
+      .createQueryBuilder('user')
+      .where('LOWER(user.email) = LOWER(:email)', { email: exact })
+      .orderBy('CASE WHEN user.email = :exact THEN 0 ELSE 1 END', 'ASC')
+      .addOrderBy('user.createdAt', 'ASC')
+      .setParameter('exact', exact);
+  }
+
   async findByEmail(email: string): Promise<User | null> {
-    return this.usersRepository.findOne({ where: { email } });
+    return this.byEmail(email).getOne();
   }
 
   /**
@@ -30,11 +47,7 @@ export class UsersService {
   async findByEmailWithPassword(email: string): Promise<User | null> {
     // addSelect rather than select, so every other column still comes back —
     // the login response spreads this user straight through to the client.
-    return this.usersRepository
-      .createQueryBuilder('user')
-      .addSelect('user.password')
-      .where('user.email = :email', { email })
-      .getOne();
+    return this.byEmail(email).addSelect('user.password').getOne();
   }
 
   async create(userData: Partial<User>): Promise<User> {

@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, In } from 'typeorm';
+import { Repository, DataSource, EntityManager, In } from 'typeorm';
 import { Order, OrderStatus, PaymentStatus } from './order.entity';
 import { OrderItem } from './order-item.entity';
 import { Product, ProductStatus } from '../products/product.entity';
@@ -93,6 +93,68 @@ export class OrdersService {
     }
 
     return cover;
+  }
+
+  /**
+   * Takes one line's quantity off the shelf inside `manager`'s transaction.
+   *
+   * The client-side checks are advisory only — the shopper's cart may be
+   * hours stale and the request can be crafted by hand. Validating and then
+   * decrementing in two steps still oversells whenever two orders for the
+   * last unit interleave between the two, so the reservation is a single
+   * conditional UPDATE that only succeeds while the stock is actually there.
+   * Returns the product's new stock for the live stock push, or null for a
+   * product that doesn't track inventory.
+   */
+  private async reserveLine(
+    manager: EntityManager,
+    product: Product,
+    variant: ProductVariant | null | undefined,
+    quantity: number,
+  ): Promise<number | null> {
+    // Popularity sort reads this. Counted for every order regardless of
+    // inventory tracking, and in the same transaction as the stock
+    // reservation, so a rolled-back order cannot inflate it.
+    await manager.increment(Product, { id: product.id }, 'salesCount', quantity);
+
+    if (!product.trackInventory) return null;
+
+    // The raw SQL fragments below must name the *column* (`stock_quantity`),
+    // not the entity property (`stockQuantity`): TypeORM passes raw strings
+    // straight to Postgres. `quantity` is a validated whole number.
+    if (variant) {
+      const reserved = await manager
+        .createQueryBuilder()
+        .update(ProductVariant)
+        .set({ stockQuantity: () => `"stock_quantity" - ${quantity}` })
+        .where('id = :id AND "stock_quantity" >= :quantity', { id: variant.id, quantity })
+        .execute();
+
+      if (!reserved.affected) {
+        const label = Object.values(variant.variantAttributes || {}).join('/');
+        throw new BadRequestException(
+          `Only ${variant.stockQuantity ?? 0} left of "${product.name}"${label ? ` (${label})` : ''}.`,
+        );
+      }
+
+      // Roll the new total up to the parent product
+      const variants = await manager.find(ProductVariant, { where: { productId: product.id } });
+      const newTotal = variants.reduce((s, v) => s + (v.stockQuantity || 0), 0);
+      await manager.update(Product, product.id, { stockQuantity: newTotal });
+      return newTotal;
+    }
+
+    const reserved = await manager
+      .createQueryBuilder()
+      .update(Product)
+      .set({ stockQuantity: () => `"stock_quantity" - ${quantity}` })
+      .where('id = :id AND "stock_quantity" >= :quantity', { id: product.id, quantity })
+      .execute();
+
+    if (!reserved.affected) {
+      throw new BadRequestException(`Only ${product.stockQuantity ?? 0} left of "${product.name}".`);
+    }
+    return (product.stockQuantity ?? 0) - quantity;
   }
 
   /**
@@ -245,99 +307,6 @@ export class OrdersService {
     const codCharge = paymentMethod === 'cod' && leftToPay > 0 ? this.COD_CHARGE : 0;
     const total = Math.max(round2(leftToPay + codCharge), 0);
 
-    // Reserve stock atomically.
-    //
-    // The client-side checks are advisory only — the shopper's cart may be
-    // hours stale and the request can be crafted by hand. Validating and then
-    // decrementing in two steps still oversells whenever two orders for the
-    // last unit interleave between the two, so each reservation is a single
-    // conditional UPDATE that only succeeds while the stock is actually there.
-    // The whole set runs in one transaction, so a shortfall on the third line
-    // gives the first two back.
-    const stockUpdates: Array<{ productId: string; stockQuantity: number }> = [];
-
-    await this.dataSource.transaction(async (manager) => {
-      for (const { item, product, variant } of lines) {
-        // Popularity sort reads this. Counted for every order regardless of
-        // inventory tracking, and in the same transaction as the stock
-        // reservation, so a rolled-back order cannot inflate it.
-        await manager.increment(Product, { id: product.id }, 'salesCount', item.quantity);
-
-        if (!product.trackInventory) continue;
-
-        if (variant) {
-          // The raw SQL fragments below must name the *column*
-          // (`stock_quantity`), not the entity property (`stockQuantity`):
-          // TypeORM passes raw strings straight to Postgres.
-          const reserved = await manager
-            .createQueryBuilder()
-            .update(ProductVariant)
-            .set({ stockQuantity: () => `"stock_quantity" - ${item.quantity}` })
-            .where('id = :id AND "stock_quantity" >= :quantity', {
-              id: variant.id,
-              quantity: item.quantity,
-            })
-            .execute();
-
-          if (!reserved.affected) {
-            const label = Object.values(variant.variantAttributes || {}).join('/');
-            throw new BadRequestException(
-              `Only ${variant.stockQuantity ?? 0} left of "${product.name}"${label ? ` (${label})` : ''}.`,
-            );
-          }
-
-          // Roll the new total up to the parent product
-          const variants = await manager.find(ProductVariant, { where: { productId: product.id } });
-          const newTotal = variants.reduce((s, v) => s + (v.stockQuantity || 0), 0);
-          await manager.update(Product, product.id, { stockQuantity: newTotal });
-          stockUpdates.push({ productId: product.id, stockQuantity: newTotal });
-        } else {
-          const reserved = await manager
-            .createQueryBuilder()
-            .update(Product)
-            .set({ stockQuantity: () => `"stock_quantity" - ${item.quantity}` })
-            .where('id = :id AND "stock_quantity" >= :quantity', {
-              id: product.id,
-              quantity: item.quantity,
-            })
-            .execute();
-
-          if (!reserved.affected) {
-            throw new BadRequestException(`Only ${product.stockQuantity ?? 0} left of "${product.name}".`);
-          }
-
-          stockUpdates.push({
-            productId: product.id,
-            stockQuantity: (product.stockQuantity ?? 0) - item.quantity,
-          });
-        }
-      }
-    });
-
-    if (stockUpdates.length > 0) {
-      this.marketplaceGateway.emitBulkStockUpdate(stockUpdates);
-    }
-
-    // Notify admins the moment a product crosses its low-stock threshold —
-    // only on the order that crosses it, so this fires once per dip rather
-    // than on every sale while stock stays low.
-    for (const update of stockUpdates) {
-      const product = productById.get(update.productId);
-      if (!product?.lowStockThreshold) continue;
-      const orderedQty = lines
-        .filter((l) => l.product.id === update.productId)
-        .reduce((sum, l) => sum + l.item.quantity, 0);
-      const stockBefore = update.stockQuantity + orderedQty;
-      if (update.stockQuantity <= product.lowStockThreshold && stockBefore > product.lowStockThreshold) {
-        this.notificationsService
-          .notifyAdmins(NotificationType.LOW_STOCK, `${product.name} is low on stock (${update.stockQuantity} left)`, {
-            body: `Only ${update.stockQuantity} left — restock or the listing will sell out.`,
-            link: `/admin/products?search=${encodeURIComponent(product.name)}`,
-          })
-          .catch((err) => console.error('Failed to notify admins of low stock:', err));
-      }
-    }
-
     const oneLine = (a: any) => `${a.addressLine1}${a.addressLine2 ? ', ' + a.addressLine2 : ''}`;
     const billing = billingAddress && requiredAddressFields.every((f) => String(billingAddress[f] ?? '').trim())
       ? billingAddress
@@ -378,33 +347,78 @@ export class OrdersService {
       billingCountry: (billing || shippingAddress).country || 'India',
       billingPostalCode: (billing || shippingAddress).postalCode,
     });
-    const savedOrder = await this.orderRepository.save(order);
 
-    await this.orderItemRepository.save(
-      lines.map(({ item, product, variant, unitPrice, listed }) =>
-        this.orderItemRepository.create({
-          orderId: savedOrder.id,
-          productId: product.id,
-          quantity: item.quantity,
-          price: unitPrice,
-          subtotal: round2(listed),
-          total: round2(listed),
-          productName: product.name,
-          productSku: product.sku || '',
-          productImage: this.resolveItemPhoto(product, variant?.id, variant?.variantAttributes, orderedVariants),
-          variantId: variant?.id || null,
-          variantDetails: variant ? { sku: variant.sku, attributes: variant.variantAttributes } : null,
-        }),
-      ),
-    );
+    // The stock, the order and the store credit it spends are one
+    // transaction, so a shortfall on any of them gives everything back. The
+    // credit used to be taken after the order was saved: two checkouts placed
+    // at the same moment could both spend the same balance, and the second
+    // debit failed only after its order was already saved — paid in full.
+    const stockUpdates: Array<{ productId: string; stockQuantity: number }> = [];
+    const savedOrder = await this.dataSource.transaction(async (manager) => {
+      for (const { item, product, variant } of lines) {
+        const stock = await this.reserveLine(manager, product, variant, item.quantity);
+        if (stock !== null) stockUpdates.push({ productId: product.id, stockQuantity: stock });
+      }
 
-    // Through the ledger, not a raw column update, so this spend shows up in
-    // the customer's wallet history.
-    if (walletAmountUsed > 0) {
-      await this.walletService.debit(userId, walletAmountUsed, WalletLedgerType.CHECKOUT_SPEND, {
-        orderId: savedOrder.id,
-        description: `Applied to order #${savedOrder.orderNumber}`,
-      });
+      const saved = await manager.save(order);
+      await manager.save(
+        lines.map(({ item, product, variant, unitPrice, listed }) =>
+          this.orderItemRepository.create({
+            orderId: saved.id,
+            productId: product.id,
+            quantity: item.quantity,
+            price: unitPrice,
+            subtotal: round2(listed),
+            total: round2(listed),
+            productName: product.name,
+            productSku: product.sku || '',
+            productImage: this.resolveItemPhoto(product, variant?.id, variant?.variantAttributes, orderedVariants),
+            variantId: variant?.id || null,
+            variantDetails: variant ? { sku: variant.sku, attributes: variant.variantAttributes } : null,
+          }),
+        ),
+      );
+
+      // Through the ledger, not a raw column update, so this spend shows up
+      // in the customer's wallet history.
+      if (walletAmountUsed > 0) {
+        try {
+          await this.walletService.debit(
+            userId,
+            walletAmountUsed,
+            WalletLedgerType.CHECKOUT_SPEND,
+            { orderId: saved.id, description: `Applied to order #${saved.orderNumber}` },
+            manager,
+          );
+        } catch {
+          throw new BadRequestException('Your store credit balance has changed. Please review your order and try again.');
+        }
+      }
+      return saved;
+    });
+
+    if (stockUpdates.length > 0) {
+      this.marketplaceGateway.emitBulkStockUpdate(stockUpdates);
+    }
+
+    // Notify admins the moment a product crosses its low-stock threshold —
+    // only on the order that crosses it, so this fires once per dip rather
+    // than on every sale while stock stays low.
+    for (const update of stockUpdates) {
+      const product = productById.get(update.productId);
+      if (!product?.lowStockThreshold) continue;
+      const orderedQty = lines
+        .filter((l) => l.product.id === update.productId)
+        .reduce((sum, l) => sum + l.item.quantity, 0);
+      const stockBefore = update.stockQuantity + orderedQty;
+      if (update.stockQuantity <= product.lowStockThreshold && stockBefore > product.lowStockThreshold) {
+        this.notificationsService
+          .notifyAdmins(NotificationType.LOW_STOCK, `${product.name} is low on stock (${update.stockQuantity} left)`, {
+            body: `Only ${update.stockQuantity} left — restock or the listing will sell out.`,
+            link: `/admin/products?search=${encodeURIComponent(product.name)}`,
+          })
+          .catch((err) => console.error('Failed to notify admins of low stock:', err));
+      }
     }
 
     const placed = await this.orderRepository.findOneOrFail({
@@ -691,6 +705,183 @@ export class OrdersService {
   }
 
   /**
+   * Moves an order to cancelled only while it is still in one of `from`, as a
+   * single conditional UPDATE. Every cancel path claims the order this way
+   * before it gives back stock or money: they used to read, check and save,
+   * so two requests cancelling the same order at once both restocked it and
+   * both credited the customer. `unpaid` adds the release-for-non-payment
+   * conditions (not paid, and marked failed in the same statement).
+   */
+  private async claimCancellation(orderId: string, from: OrderStatus[], unpaid = false): Promise<boolean> {
+    const query = this.orderRepository
+      .createQueryBuilder()
+      .update(Order)
+      .set({
+        status: OrderStatus.CANCELLED,
+        cancelledAt: new Date(),
+        ...(unpaid ? { paymentStatus: PaymentStatus.FAILED } : {}),
+      })
+      .where('id = :id AND status IN (:...from)', { id: orderId, from });
+    if (unpaid) query.andWhere('payment_status <> :paid', { paid: PaymentStatus.PAID });
+    const result = await query.execute();
+    return !!result.affected;
+  }
+
+  /**
+   * Gives a cancelled order's money back as store credit: the credit applied
+   * at checkout (`discount`) always, and the online payment (`total`) when it
+   * was paid. Only the online part used to come back, so a cancelled order
+   * kept the credit spent on it, and an order paid wholly with credit (total
+   * ₹0) couldn't be cancelled at all — crediting ₹0 throws.
+   */
+  private async returnOrderMoney(
+    order: Order,
+    paidType: WalletLedgerType,
+    description: string,
+  ): Promise<{ amount: number; balance: number } | null> {
+    const paid = order.paymentStatus === PaymentStatus.PAID;
+    const amount = Number(((paid ? Number(order.total) || 0 : 0) + (Number(order.discount) || 0)).toFixed(2));
+    if (amount <= 0) return null;
+    const { balance } = await this.walletService.credit(
+      order.userId,
+      amount,
+      paid ? paidType : WalletLedgerType.CHECKOUT_RETURN,
+      { orderId: order.id, description },
+    );
+    return { amount, balance };
+  }
+
+  /**
+   * A Razorpay payment for this order has been captured. Marks the order paid
+   * and returns true, or returns false when the order can no longer take the
+   * money and it has to go back (PaymentsService refunds it).
+   *
+   * The order may have been released while the shopper was still paying: the
+   * sheet was closed while a UPI approval was pending, or the approval landed
+   * after the page gave up. Such an order is put back if its stock and store
+   * credit are still there. An order the customer or the store cancelled on
+   * purpose is never reopened.
+   */
+  async acceptCapturedPayment(orderId: string): Promise<boolean> {
+    const order = await this.orderRepository.findOne({ where: { id: orderId }, relations: ['items'] });
+    if (!order) return false;
+    if (order.status === OrderStatus.CANCELLED) {
+      const releasedUnpaid = order.paymentStatus === PaymentStatus.FAILED;
+      if (!releasedUnpaid || !(await this.reopenReleasedOrder(order))) return false;
+    }
+    // Lost to a cancellation since the read above, or paid already by another
+    // payment (PaymentsService counts those as duplicates first): either way
+    // this money goes back.
+    if (!(await this.claimPaid(order.id))) return false;
+    await this.onPaid(order);
+    return true;
+  }
+
+  /** Whether the order is live and paid: what the checkout shows after a payment. */
+  async isPaid(orderId: string): Promise<boolean> {
+    const order = await this.orderRepository.findOne({ where: { id: orderId } });
+    return !!order && order.status !== OrderStatus.CANCELLED && order.paymentStatus === PaymentStatus.PAID;
+  }
+
+  /**
+   * Undoes `markPaymentFailed` for an order whose payment came through after
+   * all: takes the stock and the store credit again, in one transaction, and
+   * puts the order back to pending. False if either is gone.
+   */
+  private async reopenReleasedOrder(order: Order): Promise<boolean> {
+    const stockUpdates: Array<{ productId: string; stockQuantity: number }> = [];
+    try {
+      await this.dataSource.transaction(async (manager) => {
+        for (const item of order.items ?? []) {
+          const product = await manager.findOne(Product, { where: { id: item.productId } });
+          const variant = item.variantId
+            ? await manager.findOne(ProductVariant, { where: { id: item.variantId } })
+            : null;
+          if (!product || (item.variantId && !variant)) {
+            throw new BadRequestException(`"${item.productName}" no longer exists.`);
+          }
+          const stock = await this.reserveLine(manager, product, variant, item.quantity);
+          if (stock !== null) stockUpdates.push({ productId: product.id, stockQuantity: stock });
+        }
+
+        const credit = Number(order.discount) || 0;
+        if (credit > 0) {
+          await this.walletService.debit(
+            order.userId,
+            credit,
+            WalletLedgerType.CHECKOUT_SPEND,
+            { orderId: order.id, description: `Applied to order #${order.orderNumber}` },
+            manager,
+          );
+        }
+
+        await manager.update(Order, order.id, {
+          status: OrderStatus.PENDING,
+          cancelledAt: () => 'NULL',
+          cancellationReason: null,
+          adminNotes:
+            (order.adminNotes || '') +
+            `\nReopened at ${new Date().toISOString()}: the payment came through after the order was released.`,
+        });
+      });
+    } catch (error) {
+      console.warn(`[reopen] Order ${order.orderNumber} could not be reopened: ${error?.message || error}`);
+      return false;
+    }
+
+    if (stockUpdates.length > 0) this.marketplaceGateway.emitBulkStockUpdate(stockUpdates);
+    this.marketplaceGateway.emitOrderStatusUpdate(order.id, OrderStatus.PENDING, order.userId);
+    return true;
+  }
+
+  /**
+   * A payment came through that the order couldn't take (see
+   * `acceptCapturedPayment`, and PaymentsService for a second payment on an
+   * order already paid) and is being sent back. `refundStarted` is false
+   * when Razorpay refused the refund and it has to be done by hand.
+   */
+  async recordReturnedPayment(
+    orderId: string,
+    amount: number,
+    refundStarted: boolean,
+    duplicate: boolean,
+  ): Promise<void> {
+    const order = await this.orderRepository.findOne({ where: { id: orderId } });
+    if (!order) return;
+
+    const why = duplicate ? 'the order had already been paid' : 'the order was released';
+    const rupees = `₹${amount.toFixed(2)}`;
+    const note = refundStarted
+      ? `${rupees} payment came through after ${why}; refunded to the customer at ${new Date().toISOString()}.`
+      : `${rupees} payment came through after ${why}, and the automatic refund failed. Refund it from the Razorpay dashboard.`;
+
+    await this.orderRepository.update(order.id, {
+      adminNotes: (order.adminNotes || '') + `\n${note}`,
+      // A second payment on a paid order leaves the order paid by the first.
+      ...(!duplicate && refundStarted ? { paymentStatus: PaymentStatus.REFUND_PENDING } : {}),
+    });
+
+    this.notificationsService
+      .notifyUser(order.userId, NotificationType.ORDER_CANCELLED, `${rupees} refunded for order #${order.orderNumber}`, {
+        body: duplicate
+          ? 'This order was already paid, so the second payment is being refunded to your account.'
+          : 'Your payment came through after the order had been released, so it is being refunded to your account.',
+        link: '/orders',
+        orderId: order.id,
+      })
+      .catch((err) => console.error('Failed to notify customer of returned payment:', err));
+    this.notificationsService
+      .notifyAdmins(
+        NotificationType.PAYMENT_RECEIVED,
+        refundStarted
+          ? `Refunded a ${rupees} payment on order #${order.orderNumber}`
+          : `Refund ${rupees} by hand on order #${order.orderNumber}`,
+        { body: note, link: '/admin/orders', orderId: order.id },
+      )
+      .catch((err) => console.error('Failed to notify admins of returned payment:', err));
+  }
+
+  /**
    * The admin-set exchange window. Duplicated (rather than shared with
    * `ExchangesService`) to avoid a circular module dependency for a
    * three-line settings lookup.
@@ -797,10 +988,34 @@ export class OrdersService {
       );
     }
 
+    // Any other move is claimed from the status read above, in one UPDATE. A
+    // customer cancelling while the admin confirmed used to end with the
+    // admin's write putting the order back to confirmed, after the cancel had
+    // restocked it and returned its money, and it could then ship.
+    if (status !== OrderStatus.CANCELLED) {
+      if (previousStatus === OrderStatus.CANCELLED) {
+        throw new BadRequestException('This order has been cancelled.');
+      }
+      const moved = await this.orderRepository
+        .createQueryBuilder()
+        .update(Order)
+        .set({ status })
+        .where('id = :id AND status = :previous', { id, previous: previousStatus })
+        .execute();
+      if (!moved.affected) {
+        throw new BadRequestException('This order changed in the meantime. Reload it and try again.');
+      }
+    }
+
     order.status = status;
+    // What this method writes back. A `save()` of the order read above would
+    // also write every other column as it was read, putting back a payment
+    // status the Razorpay capture changed in the meantime.
+    const changed: Array<keyof Order> = ['status'];
 
     if (status === OrderStatus.CONFIRMED) {
       order.confirmedAt = new Date();
+      changed.push('confirmedAt');
       this.notificationsService
         .notifyUser(order.userId, NotificationType.ORDER_CONFIRMED, `Order #${order.orderNumber} confirmed`, {
           link: '/orders', orderId: order.id,
@@ -808,6 +1023,7 @@ export class OrdersService {
         .catch((err) => console.error('Failed to notify customer of confirmation:', err));
     } else if (status === OrderStatus.SHIPPED) {
       order.shippedAt = new Date();
+      changed.push('shippedAt', 'trackingNumber', 'carrier');
       // Recorded before the notification below so the customer's bell
       // carries the tracking number the admin typed when marking shipped.
       const trackingNumber = shipment?.trackingNumber?.trim();
@@ -824,6 +1040,7 @@ export class OrdersService {
         .catch((err) => console.error('Failed to notify customer of shipping:', err));
     } else if (status === OrderStatus.DELIVERED) {
       order.deliveredAt = new Date();
+      changed.push('deliveredAt');
 
       this.notificationsService
         .notifyUser(order.userId, NotificationType.ORDER_DELIVERED, `Order #${order.orderNumber} delivered`, {
@@ -831,7 +1048,14 @@ export class OrdersService {
         })
         .catch((err) => console.error('Failed to notify customer of delivery:', err));
     } else if (status === OrderStatus.CANCELLED) {
-      order.cancelledAt = new Date();
+      if (!(await this.claimCancellation(order.id, [OrderStatus.PENDING, OrderStatus.CONFIRMED]))) {
+        throw new BadRequestException('This order has already been cancelled.');
+      }
+      // The claim set status and cancelledAt. Whether the order was paid is
+      // read after it: a capture could have marked it paid since the read
+      // above, and none can now (a cancelled order never becomes paid).
+      await this.refreshPaymentState(order);
+      changed.push('cancellationReason', 'adminNotes', 'paymentStatus');
       if (reason) {
         order.cancellationReason = reason;
         order.adminNotes = (order.adminNotes || '') + `\nCancellation reason: ${reason}`;
@@ -848,25 +1072,27 @@ export class OrdersService {
       // A paid order that is cancelled owes the customer money. Rather than
       // parking it in REFUND_PENDING waiting on the Razorpay refund.processed
       // webhook — which is not configured, so it would sit there forever —
-      // the amount is issued as store credit immediately.
-      if (order.paymentStatus === PaymentStatus.PAID) {
-        const { balance } = await this.walletService.credit(
-          order.userId,
-          Number(order.total),
-          WalletLedgerType.ADMIN_CANCEL_CREDIT,
-          { orderId: order.id, description: `Order #${order.orderNumber} cancelled after payment` },
-        );
-        order.paymentStatus = PaymentStatus.CREDITED;
+      // the amount is issued as store credit immediately, along with any
+      // store credit the order used.
+      const wasPaid = order.paymentStatus === PaymentStatus.PAID;
+      const returned = await this.returnOrderMoney(
+        order,
+        WalletLedgerType.ADMIN_CANCEL_CREDIT,
+        `Order #${order.orderNumber} cancelled`,
+      );
+      if (returned) {
         order.adminNotes = (order.adminNotes || '') +
-          `\n₹${Number(order.total).toFixed(2)} issued as store credit (order cancelled) at ${new Date().toISOString()}. New wallet balance: ₹${balance.toFixed(2)}`;
-
+          `\n₹${returned.amount.toFixed(2)} issued as store credit (order cancelled) at ${new Date().toISOString()}. New wallet balance: ₹${returned.balance.toFixed(2)}`;
         this.notificationsService
-          .notifyUser(order.userId, NotificationType.ORDER_REJECTED, `₹${Number(order.total).toFixed(2)} credited to your wallet`, {
-            body: `Order #${order.orderNumber} was cancelled after payment — the amount has been added to your store credit.`,
+          .notifyUser(order.userId, NotificationType.ORDER_REJECTED, `₹${returned.amount.toFixed(2)} credited to your wallet`, {
+            body: `Order #${order.orderNumber} was cancelled — the amount has been added to your store credit.`,
             link: '/orders', orderId: order.id,
           })
           .catch((err) => console.error('Failed to notify customer of cancellation credit:', err));
+      }
 
+      if (wasPaid) {
+        order.paymentStatus = PaymentStatus.CREDITED;
         try {
           await this.invoicesService.createCreditNote(order.id, 'Order cancelled');
         } catch (error) {
@@ -875,57 +1101,116 @@ export class OrdersService {
       }
     }
 
-    const savedOrder = await this.orderRepository.save(order);
-    
+    await this.writeChanges(order, changed);
+
     // Emit order status update via WebSocket
     this.marketplaceGateway.emitOrderStatusUpdate(order.id, status, order.userId);
-    
-    
-    return savedOrder;
-  }
 
-  async updatePaymentStatus(id: string, paymentStatus: string) {
-    const order = await this.orderRepository.findOne({ 
+    return this.orderRepository.findOne({
       where: { id },
       relations: ['user', 'items', 'items.product'],
     });
+  }
 
+  /** Writes just `fields` of `order`: see `updateStatus` for why not `save()`. */
+  private async writeChanges(order: Order, fields: Array<keyof Order>) {
+    const values: Record<string, unknown> = {};
+    for (const field of new Set(fields)) {
+      if (order[field] !== undefined) values[field] = order[field];
+    }
+    await this.orderRepository.update(order.id, values as any);
+  }
+
+  /**
+   * Re-reads what a payment can change behind a cancellation's back (the
+   * payment status, and the notes a returned payment appends) once the
+   * cancellation is claimed and nothing can change them any more.
+   */
+  private async refreshPaymentState(order: Order) {
+    const fresh = await this.orderRepository.findOne({ where: { id: order.id } });
+    if (!fresh) return;
+    order.paymentStatus = fresh.paymentStatus;
+    order.adminNotes = fresh.adminNotes;
+    order.customerNotes = fresh.customerNotes;
+  }
+
+  /**
+   * The admin's "payment collected" (a COD order paid at the door). Writes
+   * only the payment status: a `save()` of the order read here would also
+   * write back every other column as it was read.
+   */
+  async updatePaymentStatus(id: string, paymentStatus: string) {
+    if (!Object.values(PaymentStatus).includes(paymentStatus as PaymentStatus)) {
+      throw new BadRequestException('Unknown payment status.');
+    }
+
+    const order = await this.orderRepository.findOne({ where: { id } });
     if (!order) {
       throw new NotFoundException('Order not found');
     }
 
-    const previousStatus = order.paymentStatus;
-    order.paymentStatus = paymentStatus as PaymentStatus;
-    const savedOrder = await this.orderRepository.save(order);
-
-    // Auto-generate customer and platform invoices when payment is completed
-    if (paymentStatus === PaymentStatus.PAID && previousStatus !== PaymentStatus.PAID) {
-      this.notificationsService
-        .notifyUser(order.userId, NotificationType.PAYMENT_RECEIVED, 'Payment received — invoice ready', {
-          link: '/orders', orderId: order.id,
-        })
-        .catch((err) => console.error('Failed to notify customer of payment:', err));
-      this.notificationsService
-        .notifyAdmins(NotificationType.PAYMENT_RECEIVED, `Payment received for order #${order.orderNumber}`, {
-          link: '/admin/orders', orderId: order.id,
-        })
-        .catch((err) => console.error('Failed to notify admins of payment:', err));
-
-      try {
-        if (!(await this.invoicesService.findByOrderAndType(order.id, InvoiceType.CUSTOMER))) {
-          await this.invoicesService.createFromOrder({
-            orderId: order.id,
-            type: InvoiceType.CUSTOMER,
-            notes: 'Thank you for your purchase!',
-          });
-        }
-      } catch (error) {
-        // The payment stands either way; the invoice can be generated later.
-        console.error(`Failed to generate the invoice for order ${order.orderNumber}:`, error);
+    if (paymentStatus === PaymentStatus.PAID) {
+      if (await this.claimPaid(id)) {
+        await this.onPaid(order);
+      } else if (order.status === OrderStatus.CANCELLED) {
+        throw new BadRequestException('A cancelled order can’t be marked paid.');
       }
+    } else {
+      await this.orderRepository.update(id, { paymentStatus: paymentStatus as PaymentStatus });
     }
-    
-    return savedOrder;
+
+    return this.orderRepository.findOne({
+      where: { id },
+      relations: ['user', 'items', 'items.product'],
+    });
+  }
+
+  /**
+   * Marks a live order paid, once. One conditional UPDATE, so it can't
+   * interleave with a cancellation or a release: whichever lands first wins,
+   * and a release (which only takes an order that isn't paid) or a cancel
+   * after this sees the paid order. False when the order is cancelled or
+   * already paid.
+   */
+  private async claimPaid(orderId: string): Promise<boolean> {
+    const result = await this.orderRepository
+      .createQueryBuilder()
+      .update(Order)
+      .set({ paymentStatus: PaymentStatus.PAID })
+      .where('id = :id AND status <> :cancelled AND payment_status <> :paid', {
+        id: orderId,
+        cancelled: OrderStatus.CANCELLED,
+        paid: PaymentStatus.PAID,
+      })
+      .execute();
+    return !!result.affected;
+  }
+
+  /** What follows an order becoming paid: the notifications and the invoice. */
+  private async onPaid(order: Order) {
+    this.notificationsService
+      .notifyUser(order.userId, NotificationType.PAYMENT_RECEIVED, 'Payment received — invoice ready', {
+        link: '/orders', orderId: order.id,
+      })
+      .catch((err) => console.error('Failed to notify customer of payment:', err));
+    this.notificationsService
+      .notifyAdmins(NotificationType.PAYMENT_RECEIVED, `Payment received for order #${order.orderNumber}`, {
+        link: '/admin/orders', orderId: order.id,
+      })
+      .catch((err) => console.error('Failed to notify admins of payment:', err));
+
+    try {
+      if (!(await this.invoicesService.findByOrderAndType(order.id, InvoiceType.CUSTOMER))) {
+        await this.invoicesService.createFromOrder({
+          orderId: order.id,
+          type: InvoiceType.CUSTOMER,
+          notes: 'Thank you for your purchase!',
+        });
+      }
+    } catch (error) {
+      // The payment stands either way; the invoice can be generated later.
+      console.error(`Failed to generate the invoice for order ${order.orderNumber}:`, error);
+    }
   }
 
   async cancel(id: string, userId: string, reason?: string) {
@@ -948,10 +1233,17 @@ export class OrdersService {
       );
     }
 
+    const cancellable = [OrderStatus.PENDING, OrderStatus.CONFIRMED, OrderStatus.PROCESSING];
+    if (!(await this.claimCancellation(order.id, cancellable))) {
+      throw new BadRequestException('This order has already been cancelled.');
+    }
+    // Read after the claim, as in `updateStatus`: a payment captured since the
+    // read above has made this a paid order.
+    await this.refreshPaymentState(order);
+
     await this.restock(order.items);
 
     order.status = OrderStatus.CANCELLED;
-    order.cancelledAt = new Date();
     if (reason) {
       order.customerNotes = (order.customerNotes || '') + `\nCancellation reason: ${reason}`;
       order.cancellationReason = reason;
@@ -960,25 +1252,26 @@ export class OrdersService {
     // A paid order that's cancelled owes the customer money. As with the
     // admin-cancel path in `updateStatus`, this is issued as store credit
     // immediately rather than queued behind a Razorpay refund webhook that
-    // isn't configured.
-    if (order.paymentStatus === PaymentStatus.PAID) {
-      const { balance } = await this.walletService.credit(
-        order.userId,
-        Number(order.total),
-        WalletLedgerType.CUSTOMER_CANCEL_CREDIT,
-        { orderId: order.id, description: `Order #${order.orderNumber} cancelled by customer after payment` },
-      );
-      order.paymentStatus = PaymentStatus.CREDITED;
+    // isn't configured, along with any store credit the order used.
+    const wasPaid = order.paymentStatus === PaymentStatus.PAID;
+    const returned = await this.returnOrderMoney(
+      order,
+      WalletLedgerType.CUSTOMER_CANCEL_CREDIT,
+      `Order #${order.orderNumber} cancelled by customer`,
+    );
+    if (returned) {
       order.customerNotes = (order.customerNotes || '') +
-        `\n₹${Number(order.total).toFixed(2)} issued as store credit (order cancelled) at ${new Date().toISOString()}. New wallet balance: ₹${balance.toFixed(2)}`;
-
+        `\n₹${returned.amount.toFixed(2)} issued as store credit (order cancelled) at ${new Date().toISOString()}. New wallet balance: ₹${returned.balance.toFixed(2)}`;
       this.notificationsService
-        .notifyUser(order.userId, NotificationType.ORDER_CANCELLED, `₹${Number(order.total).toFixed(2)} credited to your wallet`, {
-          body: `Order #${order.orderNumber} was cancelled — the amount you paid has been added to your store credit.`,
+        .notifyUser(order.userId, NotificationType.ORDER_CANCELLED, `₹${returned.amount.toFixed(2)} credited to your wallet`, {
+          body: `Order #${order.orderNumber} was cancelled — the amount has been added to your store credit.`,
           link: '/orders', orderId: order.id,
         })
         .catch((err) => console.error('Failed to notify customer of cancellation credit:', err));
+    }
 
+    if (wasPaid) {
+      order.paymentStatus = PaymentStatus.CREDITED;
       try {
         await this.invoicesService.createCreditNote(order.id, 'Order cancelled by customer');
       } catch (error) {
@@ -995,7 +1288,11 @@ export class OrdersService {
       })
       .catch((err) => console.error('Failed to notify admins of customer cancellation:', err));
 
-    return this.orderRepository.save(order);
+    await this.writeChanges(order, ['customerNotes', 'cancellationReason', 'paymentStatus']);
+    return this.orderRepository.findOne({
+      where: { id: order.id },
+      relations: ['items', 'items.product', 'user'],
+    });
   }
 
   /**
@@ -1027,6 +1324,11 @@ export class OrdersService {
     if (order.paymentStatus !== PaymentStatus.PENDING) {
       throw new BadRequestException('This order has already been marked paid — use the delivered/exchange flow instead.');
     }
+    // Claimed before anything is restocked or credited, so a second click
+    // can't do it all again.
+    if (!(await this.claimCancellation(order.id, [OrderStatus.SHIPPED]))) {
+      throw new BadRequestException('This order has already been dealt with.');
+    }
 
     if (decision === 'credit') {
       // Goods are undamaged and coming back to stock.
@@ -1050,10 +1352,13 @@ export class OrdersService {
     }
 
     order.status = OrderStatus.CANCELLED;
-    order.cancelledAt = new Date();
     order.cancellationReason = options.reason || (decision === 'credit' ? 'COD delivery refused' : 'COD delivery refused — goods returned unsellable');
 
-    const saved = await this.orderRepository.save(order);
+    await this.writeChanges(order, ['cancellationReason', 'adminNotes']);
+    const saved = (await this.orderRepository.findOne({
+      where: { id: order.id },
+      relations: ['items', 'items.product', 'user'],
+    })) ?? order;
     this.marketplaceGateway.emitOrderStatusUpdate(order.id, OrderStatus.CANCELLED, order.userId);
 
     this.notificationsService
@@ -1109,16 +1414,25 @@ export class OrdersService {
       throw new BadRequestException('Quantity must be a whole number of at least 1');
     }
 
+    // Claimed first, as in the refusal above: a second click must not restock
+    // again or place a second replacement order.
+    if (!(await this.claimCancellation(order.id, [OrderStatus.SHIPPED]))) {
+      throw new BadRequestException('This order has already been dealt with.');
+    }
+
     // Goods are undamaged and coming back to stock — a customer asking to
     // exchange rather than just refusing implies they still want to buy
     // something from the store, not that the parcel is unsellable.
     await this.restock(order.items);
 
     order.status = OrderStatus.CANCELLED;
-    order.cancelledAt = new Date();
     order.cancellationReason = reason || 'COD delivery refused — customer requested a different item';
     order.adminNotes = (order.adminNotes || '') + `\nReplaced with a new order after COD refusal at ${new Date().toISOString()}`;
-    const cancelledOrder = await this.orderRepository.save(order);
+    await this.writeChanges(order, ['cancellationReason', 'adminNotes']);
+    const cancelledOrder = (await this.orderRepository.findOne({
+      where: { id: order.id },
+      relations: ['items', 'items.product', 'user'],
+    })) ?? order;
     this.marketplaceGateway.emitOrderStatusUpdate(order.id, OrderStatus.CANCELLED, order.userId);
 
     const created = await this.create(order.userId, {
@@ -1177,9 +1491,9 @@ export class OrdersService {
     order.adminNotes = (order.adminNotes || '') +
       `\nRefund settled by payment gateway at ${new Date().toISOString()}`;
 
-    const saved = await this.orderRepository.save(order);
+    await this.writeChanges(order, ['paymentStatus', 'adminNotes']);
     this.marketplaceGateway.emitOrderStatusUpdate(order.id, order.status, order.userId);
-    return saved;
+    return order;
   }
 
   /**
@@ -1217,23 +1531,37 @@ export class OrdersService {
       return order;
     }
 
-    // Release the stock reserved when the order was placed.
+    if (!(await this.claimCancellation(order.id, [OrderStatus.PENDING], true))) {
+      return this.orderRepository.findOne({ where: { id: order.id } });
+    }
+
+    // Release the stock reserved when the order was placed, and the store
+    // credit it was going to use (the order is unpaid, so `returnOrderMoney`
+    // gives back the credit only). The credit used to stay spent.
     await this.restock(order.items);
+    const returned = await this.returnOrderMoney(
+      order,
+      WalletLedgerType.CHECKOUT_RETURN,
+      `Order #${order.orderNumber} was not paid`,
+    );
 
-    order.status = OrderStatus.CANCELLED;
-    order.paymentStatus = PaymentStatus.FAILED;
-    order.cancelledAt = new Date();
-    order.adminNotes = (order.adminNotes || '') +
-      `\nCancelled automatically — payment failed at ${new Date().toISOString()}` +
-      (reason ? `: ${reason}` : '');
-
-    const saved = await this.orderRepository.save(order);
+    // Only the notes: the claim above already set the status, and a payment
+    // that lands meanwhile may have reopened the order.
+    await this.orderRepository.update(order.id, {
+      adminNotes: (order.adminNotes || '') +
+        `\nCancelled automatically — payment failed at ${new Date().toISOString()}` +
+        (reason ? `: ${reason}` : '') +
+        (returned ? `. ₹${returned.amount.toFixed(2)} store credit returned.` : ''),
+    });
+    const saved = await this.orderRepository.findOne({ where: { id: order.id } });
     this.marketplaceGateway.emitOrderStatusUpdate(order.id, OrderStatus.CANCELLED, order.userId);
     console.log(`[markPaymentFailed] Cancelled ${order.orderNumber} and released its stock`);
 
     this.notificationsService
       .notifyUser(order.userId, NotificationType.PAYMENT_FAILED, `Payment failed for order #${order.orderNumber}`, {
-        body: 'The order was released.',
+        body: returned
+          ? `The order was released and ₹${returned.amount.toFixed(2)} store credit is back in your wallet.`
+          : 'The order was released.',
         link: '/orders', orderId: order.id,
       })
       .catch((err) => console.error('Failed to notify customer of payment failure:', err));

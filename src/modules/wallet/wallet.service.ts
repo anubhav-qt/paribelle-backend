@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import { WalletLedger, WalletLedgerType } from './wallet-ledger.entity';
 import { User } from '../users/user.entity';
 
@@ -38,30 +38,39 @@ export class WalletService {
     });
   }
 
-  /** Adds money to a user's wallet. Always succeeds if the user exists. */
+  /**
+   * Adds money to a user's wallet. Always succeeds if the user exists.
+   * Pass `manager` to make the credit part of the caller's transaction.
+   */
   async credit(
     userId: string,
     amount: number,
     type: WalletLedgerType,
     options: MoveOptions = {},
+    manager?: EntityManager,
   ): Promise<{ balance: number }> {
     if (!(amount > 0)) {
       throw new BadRequestException('Credit amount must be positive');
     }
-    return this.move(userId, Number(amount.toFixed(2)), type, options);
+    return this.move(userId, Number(amount.toFixed(2)), type, options, manager);
   }
 
-  /** Removes money from a user's wallet. Throws if the balance is insufficient. */
+  /**
+   * Removes money from a user's wallet. Throws if the balance is insufficient.
+   * Pass `manager` to make the debit part of the caller's transaction, so a
+   * shortfall rolls back everything else the caller did.
+   */
   async debit(
     userId: string,
     amount: number,
     type: WalletLedgerType,
     options: MoveOptions = {},
+    manager?: EntityManager,
   ): Promise<{ balance: number }> {
     if (!(amount > 0)) {
       throw new BadRequestException('Debit amount must be positive');
     }
-    return this.move(userId, -Number(amount.toFixed(2)), type, options);
+    return this.move(userId, -Number(amount.toFixed(2)), type, options, manager);
   }
 
   private async move(
@@ -69,37 +78,47 @@ export class WalletService {
     signedAmount: number,
     type: WalletLedgerType,
     options: MoveOptions,
+    outer?: EntityManager,
   ): Promise<{ balance: number }> {
-    return this.dataSource.transaction(async (manager) => {
-      const user = await manager
-        .createQueryBuilder(User, 'user')
-        .setLock('pessimistic_write')
-        .where('user.id = :userId', { userId })
-        .getOne();
-      if (!user) {
-        throw new BadRequestException('User not found');
-      }
+    if (outer) return this.moveWith(outer, userId, signedAmount, type, options);
+    return this.dataSource.transaction((manager) => this.moveWith(manager, userId, signedAmount, type, options));
+  }
 
-      const currentBalance = Number(user.walletBalance) || 0;
-      const newBalance = Number((currentBalance + signedAmount).toFixed(2));
-      if (newBalance < 0) {
-        throw new BadRequestException('Insufficient wallet balance');
-      }
+  private async moveWith(
+    manager: EntityManager,
+    userId: string,
+    signedAmount: number,
+    type: WalletLedgerType,
+    options: MoveOptions,
+  ): Promise<{ balance: number }> {
+    const user = await manager
+      .createQueryBuilder(User, 'user')
+      .setLock('pessimistic_write')
+      .where('user.id = :userId', { userId })
+      .getOne();
+    if (!user) {
+      throw new BadRequestException('User not found');
+    }
 
-      await manager.update(User, userId, { walletBalance: newBalance });
+    const currentBalance = Number(user.walletBalance) || 0;
+    const newBalance = Number((currentBalance + signedAmount).toFixed(2));
+    if (newBalance < 0) {
+      throw new BadRequestException('Insufficient wallet balance');
+    }
 
-      const ledgerRow = manager.create(WalletLedger, {
-        userId,
-        amount: signedAmount,
-        type,
-        orderId: options.orderId || null,
-        exchangeId: options.exchangeId || null,
-        description: options.description || null,
-        balanceAfter: newBalance,
-      });
-      await manager.save(WalletLedger, ledgerRow);
+    await manager.update(User, userId, { walletBalance: newBalance });
 
-      return { balance: newBalance };
+    const ledgerRow = manager.create(WalletLedger, {
+      userId,
+      amount: signedAmount,
+      type,
+      orderId: options.orderId || null,
+      exchangeId: options.exchangeId || null,
+      description: options.description || null,
+      balanceAfter: newBalance,
     });
+    await manager.save(WalletLedger, ledgerRow);
+
+    return { balance: newBalance };
   }
 }

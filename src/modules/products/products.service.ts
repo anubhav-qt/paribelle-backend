@@ -1004,10 +1004,15 @@ export class ProductsService {
   }
 
   /**
-   * Find and optionally delete orphan images from Cloudinary
-   * Orphan images are those that exist in Cloudinary but are not referenced by any product
-   * @param deleteOrphans - If true, delete orphan images; if false, just return them
-   * @returns Object with cleanup results
+   * Photos in Cloudinary's `marketplace/products` folder that nothing uses,
+   * found and, with `deleteOrphans`, deleted.
+   *
+   * Every upload lands in that folder: product photos, and also the logo,
+   * the hero, category and editor's-pick images, page sections and blog
+   * posts. An order keeps its item's photo URL after the product is gone. So
+   * "in use" means named anywhere in the database, not only by a product.
+   * This used to look at products alone, and the Settings page's delete would
+   * have taken the logo, the hero and every past order's pictures with it.
    */
   async cleanupOrphanImages(
     deleteOrphans: boolean = false,
@@ -1017,41 +1022,43 @@ export class ProductsService {
     deleted: number;
     errors: string[];
   }> {
-    const products = await this.productsRepository.find({ relations: ['productVariants'] });
+    const referenced = await this.referencedCloudinaryIds();
+    console.log(`Found ${referenced.size} Cloudinary photos referenced in the database`);
+    return this.cloudinaryService.cleanupOrphanImages('marketplace/products', referenced, deleteOrphans);
+  }
 
-    // Collect all image URLs from products and variants
-    const referencedUrls: string[] = [];
-
-    products.forEach(product => {
-      // Add product images
-      if (product.images && Array.isArray(product.images)) {
-        referencedUrls.push(...product.images.filter(url => url));
-      }
-      if (product.featuredImage) {
-        referencedUrls.push(product.featuredImage);
-      }
-
-      // Add variant images
-      if (product.productVariants && product.productVariants.length > 0) {
-        product.productVariants.forEach(variant => {
-          if (variant.images && Array.isArray(variant.images)) {
-            referencedUrls.push(...variant.images.filter(url => url));
-          }
-        });
-      }
-    });
-
-    // Filter to only Cloudinary URLs
-    const cloudinaryUrls = referencedUrls.filter(url =>
-      url.startsWith('https://res.cloudinary.com'),
+  /**
+   * The public id of every Cloudinary image any text, JSON or array column
+   * in the database mentions, read from the URLs themselves, so a URL with
+   * a transformation (`/upload/c_fill,w_600/v12/marketplace/...`) counts as
+   * the photo it shows.
+   */
+  private async referencedCloudinaryIds(): Promise<Set<string>> {
+    const manager = this.productsRepository.manager;
+    const columns: Array<{ table_name: string; column_name: string }> = await manager.query(
+      `SELECT c.table_name, c.column_name
+         FROM information_schema.columns c
+         JOIN information_schema.tables t
+           ON t.table_schema = c.table_schema AND t.table_name = c.table_name
+        WHERE c.table_schema = current_schema()
+          AND t.table_type = 'BASE TABLE'
+          AND c.data_type IN ('text', 'character varying', 'json', 'jsonb', 'ARRAY')`,
     );
 
-    console.log(`Found ${cloudinaryUrls.length} Cloudinary URLs referenced by ${products.length} products`);
-
-    return this.cloudinaryService.cleanupOrphanImages(
-      'marketplace/products',
-      cloudinaryUrls,
-      deleteOrphans,
-    );
+    const quote = (name: string) => `"${name.replace(/"/g, '""')}"`;
+    const ids = new Set<string>();
+    for (const { table_name, column_name } of columns) {
+      const column = quote(column_name);
+      const rows: Array<{ v: string | null }> = await manager.query(
+        `SELECT ${column}::text AS v FROM ${quote(table_name)} WHERE ${column}::text LIKE '%res.cloudinary.com%'`,
+      );
+      for (const { v } of rows) {
+        if (!v) continue;
+        for (const match of v.matchAll(/\/upload\/(?:[^\s"'<>]*?\/)?(marketplace\/[^\s"'<>?#,\\{}()]+)/g)) {
+          ids.add(match[1].replace(/\.[a-z0-9]{2,5}$/i, ''));
+        }
+      }
+    }
+    return ids;
   }
 }

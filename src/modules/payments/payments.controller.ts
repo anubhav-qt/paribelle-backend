@@ -1,7 +1,7 @@
 import { Controller, Post, Body, Get, Param, Headers, HttpCode, HttpStatus, UseGuards, Req, Request, RawBodyRequest, BadRequestException } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Request as ExpressRequest } from 'express';
-import { IsString, IsNotEmpty, IsOptional, IsNumber, Min } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsIn, IsNumber, Min } from 'class-validator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminOnly } from '../../common/decorators/admin-only.decorator';
 import { UserRole } from '../users/user.entity';
@@ -29,6 +29,15 @@ export class VerifyPaymentDto {
   @IsString()
   @IsNotEmpty()
   razorpaySignature: string;
+
+  /**
+   * Accepted and ignored. The storefront has always sent `status: "success"`,
+   * and the global pipe refuses fields a DTO doesn't declare: dropping this
+   * made every verify a 400 while the payment itself had gone through.
+   */
+  @IsOptional()
+  @IsIn(['success', 'failed'])
+  status?: string;
 }
 
 export class RefundPaymentDto {

@@ -1,11 +1,15 @@
-import { Controller, Get, Post, Body, Param, Patch, UseGuards, Request, Query, Res, Headers, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Patch, UseGuards, Request, Query, Res, Headers, BadRequestException, Inject, forwardRef, ParseUUIDPipe } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminOnly } from '../../common/decorators/admin-only.decorator';
 import { OrderStatus } from './order.entity';
 import { ReviewsService } from '../reviews/reviews.service';
+import { PaymentsService } from '../payments/payments.service';
 import { Response } from 'express';
 import { codEnabled } from '../../common/features';
+
+/** A malformed order id is a 400, not a Postgres error surfacing as a 500. */
+const OrderId = new ParseUUIDPipe();
 
 @Controller('orders')
 @UseGuards(JwtAuthGuard)
@@ -13,6 +17,8 @@ export class OrdersController {
   constructor(
     private readonly ordersService: OrdersService,
     private readonly reviewsService: ReviewsService,
+    @Inject(forwardRef(() => PaymentsService))
+    private readonly paymentsService: PaymentsService,
   ) {}
 
   @Post()
@@ -31,6 +37,9 @@ export class OrdersController {
   @Get()
   findAll(@Request() req, @Query('status') status?: string) {
     if (status) {
+      if (!Object.values(OrderStatus).includes(status as OrderStatus)) {
+        throw new BadRequestException('Unknown order status.');
+      }
       return this.ordersService.findByUserAndStatus(req.user.id, status as OrderStatus);
     }
     return this.ordersService.findAll(req.user.id);
@@ -55,7 +64,7 @@ export class OrdersController {
   }
 
   @Patch(':id/cancel')
-  cancel(@Param('id') id: string, @Request() req, @Body() body: { reason?: string }) {
+  cancel(@Param('id', OrderId) id: string, @Request() req, @Body() body: { reason?: string }) {
     return this.ordersService.cancel(id, req.user.id, body.reason);
   }
 
@@ -93,15 +102,18 @@ export class OrdersController {
   }
 
   /**
-   * The customer's payment attempt failed or they dismissed the gateway. Lets
-   * the checkout page release the order immediately rather than waiting on a
-   * webhook that never arrives when the modal is simply closed.
+   * The customer closed the payment sheet without paying, or the payment
+   * could not start. Lets the checkout page release the order immediately
+   * rather than waiting on a webhook that never arrives when the sheet is
+   * simply closed, once Razorpay confirms nothing was paid (see
+   * `PaymentsService.releaseUnpaidOrder`). The answer says what happened:
+   * `paid` when a payment went through after all, `processing` when one is
+   * moments from capture.
    */
   @Patch(':id/payment-failed')
-  async paymentFailed(@Param('id') id: string, @Request() req, @Body() body: { reason?: string }) {
-    const order = await this.ordersService.findOne(id, req.user.id);
-    if (!order) throw new NotFoundException('Order not found');
-    return this.ordersService.markPaymentFailed(id, body?.reason || 'Payment not completed');
+  paymentFailed(@Param('id', OrderId) id: string, @Request() req, @Body() body: { reason?: string }) {
+    const reason = typeof body?.reason === 'string' ? body.reason.slice(0, 300) : '';
+    return this.paymentsService.releaseUnpaidOrder(id, req.user.id, reason || 'Payment not completed');
   }
 
   @Patch(':id/status')
@@ -123,7 +135,7 @@ export class OrdersController {
   }
 
   @Get(':id/review')
-  async getOrderReviews(@Param('id') id: string, @Request() req) {
+  async getOrderReviews(@Param('id', OrderId) id: string, @Request() req) {
     return { items: await this.reviewsService.getOrderItemsWithReviews(id, req.user.id) };
   }
 
@@ -137,7 +149,7 @@ export class OrdersController {
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string, @Request() req) {
+  findOne(@Param('id', OrderId) id: string, @Request() req) {
     return this.ordersService.findOne(id, req.user.id);
   }
 }

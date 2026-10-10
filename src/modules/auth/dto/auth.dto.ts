@@ -2,9 +2,11 @@ import { IsEmail, IsNotEmpty, IsOptional, IsString, MaxLength, MinLength } from 
 import { Transform } from 'class-transformer';
 
 const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value);
+/** Stored lowercase; lookups ignore case (UsersService.findByEmail). */
+const email = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim().toLowerCase() : value);
 
 export class RegisterDto {
-  @Transform(trim)
+  @Transform(email)
   @IsEmail({}, { message: 'Please enter a valid email address.' })
   @MaxLength(254)
   email: string;

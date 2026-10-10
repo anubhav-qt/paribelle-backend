@@ -4,6 +4,8 @@ process.stdout.write('🟢 main.ts file loading...\n');
 import { HttpAdapterHost, NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { JwtService } from '@nestjs/jwt';
+import type { NextFunction, Request, Response } from 'express';
 import helmet from 'helmet';
 import compression from 'compression';
 import { AppModule } from './app.module';
@@ -13,6 +15,7 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { QueryFailedFilter } from './common/filters/query-failed.filter';
 import { MonitoringService } from './modules/monitoring/monitoring.service';
 import { corsOrigin } from './common/cors';
+import { UserRole } from './modules/users/user.entity';
 
 // Force output immediately
 process.stdout.write('🟢 All imports loaded successfully\n');
@@ -116,7 +119,23 @@ async function bootstrap() {
   // API prefix
   app.setGlobalPrefix('api/v1');
 
-  // Swagger documentation
+  // Swagger documentation: the route list the OMS assistant reads. In
+  // production only a store admin's bearer token gets it; it used to list
+  // every route, the admin ones included, to anyone.
+  if (process.env.NODE_ENV === 'production') {
+    const jwt = app.get(JwtService, { strict: false });
+    app.use(['/api/docs', '/api/docs-json'], (req: Request, res: Response, next: NextFunction) => {
+      const [scheme, token] = String(req.headers.authorization || '').split(' ');
+      try {
+        const payload = scheme === 'Bearer' && token ? jwt.verify(token) : null;
+        if (payload && (payload.role === UserRole.SUPER_ADMIN || payload.role === UserRole.VENDOR_ADMIN)) return next();
+      } catch {
+        // Expired or forged: refused below.
+      }
+      res.status(404).json({ statusCode: 404, message: 'Not Found' });
+    });
+  }
+
   const config = new DocumentBuilder()
     .setTitle('PariBelle API')
     .setDescription('The paribelle.in store API')

@@ -3,10 +3,13 @@ import { ConfigService } from '@nestjs/config';
 import Razorpay from 'razorpay';
 import * as crypto from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Payment, PaymentStatus, PaymentMethod } from './payment.entity';
 import { OrdersService } from '../orders/orders.service';
 import { UserRole } from '../users/user.entity';
+
+/** A payment that can still be captured: not yet, or only a failed attempt so far. */
+const OPEN_STATUSES = [PaymentStatus.PENDING, PaymentStatus.AUTHORIZED, PaymentStatus.FAILED];
 
 @Injectable()
 export class PaymentsService {
@@ -141,9 +144,11 @@ export class PaymentsService {
    * The shopper's browser reporting a successful Razorpay payment. Only ever
    * moves a payment forward: a bad signature is refused without touching the
    * row, and a failed attempt is not reported here at all — Razorpay keeps
-   * the sheet open for a retry, and its `payment.failed` webhook is the
-   * authority on failure. This used to accept `status: "failed"` and mark
-   * the payment and order failed, for any order, from any signed-in user.
+   * the sheet open for a retry. This used to accept `status: "failed"` and
+   * mark the payment and order failed, for any order, from any signed-in user.
+   *
+   * `orderPaid` tells the checkout whether the order kept the payment; false
+   * means it had been released meanwhile and the money is being refunded.
    */
   async confirmPayment(
     userId: string,
@@ -159,23 +164,116 @@ export class PaymentsService {
       throw new NotFoundException('Payment not found');
     }
 
-    if (payment.status === PaymentStatus.CAPTURED) {
-      return payment;
+    if (OPEN_STATUSES.includes(payment.status)) {
+      const isValid = await this.verifyPayment(razorpayOrderId, razorpayPaymentId, razorpaySignature);
+      if (!isValid) {
+        throw new BadRequestException('Payment signature verification failed');
+      }
+      if (await this.claimCapture(payment, razorpayPaymentId, razorpaySignature)) {
+        await this.settleCapture(payment);
+      }
     }
 
-    const isValid = await this.verifyPayment(razorpayOrderId, razorpayPaymentId, razorpaySignature);
-    if (!isValid) {
-      throw new BadRequestException('Payment signature verification failed');
-    }
+    const latest = await this.paymentRepository.findOneOrFail({ where: { id: payment.id } });
+    return { ...latest, orderPaid: await this.ordersService.isPaid(payment.orderId) };
+  }
+
+  /**
+   * Marks a payment captured, once: a single conditional UPDATE, so of the
+   * browser's /verify and Razorpay's webhook only the first gets true and
+   * settles the order. A payment already refunded is never put back to
+   * captured. Updates `payment` in place on success.
+   */
+  private async claimCapture(payment: Payment, gatewayPaymentId: string, signature?: string): Promise<boolean> {
+    const capturedAt = new Date();
+    const result = await this.paymentRepository
+      .createQueryBuilder()
+      .update(Payment)
+      .set({
+        status: PaymentStatus.CAPTURED,
+        gatewayPaymentId,
+        capturedAt,
+        ...(signature ? { gatewaySignature: signature } : {}),
+      })
+      .where('id = :id AND status IN (:...open)', { id: payment.id, open: OPEN_STATUSES })
+      .execute();
+    if (!result.affected) return false;
 
     payment.status = PaymentStatus.CAPTURED;
-    payment.gatewayPaymentId = razorpayPaymentId;
-    payment.gatewaySignature = razorpaySignature;
-    payment.capturedAt = new Date();
-    await this.paymentRepository.save(payment);
+    payment.gatewayPaymentId = gatewayPaymentId;
+    payment.capturedAt = capturedAt;
+    return true;
+  }
 
-    await this.ordersService.updatePaymentStatus(payment.orderId, 'paid');
-    return payment;
+  /**
+   * Settles the order for a payment just captured, or sends the money back
+   * when the order can't take it: a second payment on an order already paid
+   * (two tabs, or a retry from the orders page), or an order that was
+   * cancelled and could not be reopened. Both used to keep the money: the
+   * second payment silently, the cancelled order marked paid but never sent.
+   */
+  private async settleCapture(payment: Payment): Promise<void> {
+    const paidEarlier = await this.paymentRepository
+      .createQueryBuilder('p')
+      .where('p.orderId = :orderId AND p.id <> :id AND p.status = :captured', {
+        orderId: payment.orderId,
+        id: payment.id,
+        captured: PaymentStatus.CAPTURED,
+      })
+      .andWhere('(p.capturedAt < :at OR (p.capturedAt = :at AND p.id < :id))', { at: payment.capturedAt })
+      .getCount();
+
+    const duplicate = paidEarlier > 0;
+    if (!duplicate && (await this.ordersService.acceptCapturedPayment(payment.orderId))) return;
+
+    let refundStarted = false;
+    try {
+      await this.initiateRefund(payment.id, undefined, duplicate ? 'duplicate' : 'released');
+      refundStarted = true;
+    } catch (error) {
+      console.error(`[payments] Could not refund payment ${payment.id}: ${error?.message || error}`);
+    }
+    await this.ordersService.recordReturnedPayment(payment.orderId, Number(payment.amount), refundStarted, duplicate);
+  }
+
+  /**
+   * The shopper closed the payment sheet without the page seeing a success.
+   * Before the order is released, ask Razorpay whether a payment went through
+   * anyway: a UPI approval can land just as the sheet closes. A captured
+   * payment settles the order; an authorized one is moments from capture, so
+   * the order is left for the webhook. Otherwise the order is released.
+   */
+  async releaseUnpaidOrder(orderId: string, userId: string, reason: string) {
+    if (!(await this.ordersService.isOwnedBy(orderId, userId))) {
+      throw new NotFoundException('Order not found');
+    }
+
+    if (this.razorpay) {
+      const open = await this.paymentRepository.find({ where: { orderId, status: In(OPEN_STATUSES) } });
+      for (const payment of open) {
+        if (!payment.gatewayOrderId) continue;
+        let attempts: Array<{ id: string; status: string }> = [];
+        try {
+          const response: any = await this.razorpay.orders.fetchPayments(payment.gatewayOrderId);
+          attempts = response?.items ?? [];
+        } catch (error) {
+          console.warn(`[payments] Could not check ${payment.gatewayOrderId} with Razorpay: ${error?.message || error}`);
+          continue;
+        }
+
+        const captured = attempts.find((a) => a.status === 'captured');
+        if (captured) {
+          if (await this.claimCapture(payment, captured.id)) await this.settleCapture(payment);
+          return { released: false, paid: await this.ordersService.isPaid(orderId), processing: false };
+        }
+        if (attempts.some((a) => a.status === 'authorized')) {
+          return { released: false, paid: false, processing: true };
+        }
+      }
+    }
+
+    await this.ordersService.markPaymentFailed(orderId, reason);
+    return { released: true, paid: false, processing: false };
   }
 
   /** The latest payment on an order. Admins see any; a customer only their own. */
@@ -190,7 +288,12 @@ export class PaymentsService {
     });
   }
 
-  async initiateRefund(paymentId: string, amount?: number) {
+  /**
+   * `autoRefund` marks a refund the API made itself (see `settleCapture`):
+   * a 'duplicate' one must not mark the order refunded when it settles,
+   * since the order stays paid by its first payment.
+   */
+  async initiateRefund(paymentId: string, amount?: number, autoRefund?: 'duplicate' | 'released') {
     if (!this.razorpay) {
       throw new BadRequestException('Razorpay is not configured');
     }
@@ -208,16 +311,20 @@ export class PaymentsService {
     }
 
     try {
-      const refundAmount = amount || payment.amount;
+      // Decimal columns arrive as strings: `refundedAmount + refundAmount`
+      // concatenated them, and the >= below compared text.
+      const total = Number(payment.amount);
+      const refundAmount = Number(amount || total);
       const refund = await this.razorpay.payments.refund(payment.gatewayPaymentId, {
         amount: Math.round(refundAmount * 100),
       });
 
-      payment.refundedAmount = (payment.refundedAmount || 0) + refundAmount;
+      payment.refundedAmount = Number(((Number(payment.refundedAmount) || 0) + refundAmount).toFixed(2));
       payment.refundTransactionId = refund.id;
       payment.refundedAt = new Date();
-      
-      if (payment.refundedAmount >= payment.amount) {
+      if (autoRefund) payment.metadata = { ...(payment.metadata || {}), autoRefund };
+
+      if (payment.refundedAmount >= total) {
         payment.status = PaymentStatus.REFUNDED;
       } else {
         payment.status = PaymentStatus.PARTIALLY_REFUNDED;
@@ -290,49 +397,43 @@ export class PaymentsService {
     return { received: true };
   }
 
+  /**
+   * The webhook is the only confirmation when the shopper paid but never made
+   * it back to the site (closed the tab, UPI app switch killed the page), so
+   * it settles the order too, not just the payment row. A redelivery, or a
+   * /verify that got there first, finds the payment already claimed. It used
+   * to set the row back to captured each time, even after a refund.
+   */
   private async handlePaymentCaptured(paymentData: any) {
+    if (!paymentData?.order_id) return;
     const payment = await this.paymentRepository.findOne({
       where: { gatewayOrderId: paymentData.order_id },
     });
 
-    if (payment) {
-      payment.status = PaymentStatus.CAPTURED;
-      payment.gatewayPaymentId = paymentData.id;
-      payment.capturedAt = payment.capturedAt ?? new Date();
-      await this.paymentRepository.save(payment);
-
-      // The webhook is the only confirmation when the shopper paid but never
-      // made it back to the site (closed the tab, UPI app switch killed the
-      // page), so it must settle the order too — not just the payment row.
-      // `updatePaymentStatus` only generates invoices on the first transition
-      // to paid, so a redelivery or a prior /verify is harmless.
-      if (payment.orderId) {
-        await this.ordersService.updatePaymentStatus(payment.orderId, 'paid');
-      }
+    if (payment?.orderId && (await this.claimCapture(payment, paymentData.id))) {
+      await this.settleCapture(payment);
     }
   }
 
+  /**
+   * Records a failed attempt on the payment row only. Razorpay keeps the sheet
+   * open after a failure so the shopper can retry with another card or UPI
+   * app, so this must not release the order: it used to, and a successful
+   * retry then paid for an order already cancelled with its stock back on
+   * sale. Closing the sheet releases the order (`releaseUnpaidOrder`).
+   */
   private async handlePaymentFailed(paymentData: any) {
+    if (!paymentData?.order_id) return;
     const payment = await this.paymentRepository.findOne({
       where: { gatewayOrderId: paymentData.order_id },
     });
 
-    // One Razorpay order can carry a failed attempt and then a successful
-    // retry, and the webhooks can arrive in either order. A late
-    // `payment.failed` must not overwrite a capture — that row is what
+    // A late `payment.failed` must not overwrite a capture — that row is what
     // refunds are issued against.
-    if (payment && payment.status !== PaymentStatus.CAPTURED) {
+    if (payment && (payment.status === PaymentStatus.PENDING || payment.status === PaymentStatus.AUTHORIZED)) {
       payment.status = PaymentStatus.FAILED;
       payment.failureReason = paymentData.error_description || 'Payment failed';
       await this.paymentRepository.save(payment);
-
-      // Don't strand the order in `pending` holding stock nobody can buy.
-      if (payment.orderId) {
-        await this.ordersService.markPaymentFailed(
-          payment.orderId,
-          payment.failureReason,
-        );
-      }
     }
   }
 
@@ -344,13 +445,15 @@ export class PaymentsService {
   private async handleRefundCreated(refundData: any) {
     const payment = await this.findPaymentForRefund(refundData);
     if (!payment) return;
+    // A refund this API started is already recorded by `initiateRefund`.
+    if (payment.refundTransactionId === refundData.id) return;
 
     const refundAmount = (refundData.amount ?? 0) / 100;
-    payment.refundedAmount = (payment.refundedAmount || 0) + refundAmount;
+    payment.refundedAmount = Number(((Number(payment.refundedAmount) || 0) + refundAmount).toFixed(2));
     payment.refundTransactionId = refundData.id;
     payment.refundedAt = new Date();
     payment.status =
-      payment.refundedAmount >= payment.amount
+      payment.refundedAmount >= Number(payment.amount)
         ? PaymentStatus.REFUNDED
         : PaymentStatus.PARTIALLY_REFUNDED;
 
@@ -369,17 +472,18 @@ export class PaymentsService {
     // `refund.created` may or may not have arrived first, and either event can
     // be redelivered — take the gateway's total rather than adding to ours.
     const refundAmount = (refundData.amount ?? 0) / 100;
-    payment.refundedAmount = Math.max(payment.refundedAmount || 0, refundAmount);
+    payment.refundedAmount = Math.max(Number(payment.refundedAmount) || 0, refundAmount);
     payment.refundTransactionId = refundData.id;
     payment.refundedAt = new Date();
     payment.status =
-      payment.refundedAmount >= payment.amount
+      payment.refundedAmount >= Number(payment.amount)
         ? PaymentStatus.REFUNDED
         : PaymentStatus.PARTIALLY_REFUNDED;
 
     await this.paymentRepository.save(payment);
 
-    if (payment.status === PaymentStatus.REFUNDED && payment.orderId) {
+    // A refunded second payment leaves the order paid by its first.
+    if (payment.status === PaymentStatus.REFUNDED && payment.orderId && payment.metadata?.autoRefund !== 'duplicate') {
       await this.ordersService.markRefundSettled(payment.orderId);
     }
     console.log(`[webhook] refund.processed for payment ${payment.id} (${refundAmount})`);

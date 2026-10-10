@@ -338,20 +338,20 @@ export class CloudinaryService {
   }
 
   /**
-   * Find and optionally delete orphan images not referenced in the provided URLs
-   * @param folder - Cloudinary folder to check
-   * @param referencedUrls - Array of URLs that are currently in use
-   * @param deleteOrphans - If true, delete orphan images; if false, just return them
-   * @returns Object with orphan image details and deletion results
+   * Find and optionally delete the images in `folder` whose public id isn't in
+   * `referencedPublicIds`. An image uploaded in the last day is never an
+   * orphan: a product being written has its photos uploaded before it is
+   * saved. With nothing referenced at all, nothing is deleted, since that
+   * means the lookup failed rather than that every photo is unused.
    */
   async cleanupOrphanImages(
-    folder: string = 'marketplace/products',
-    referencedUrls: string[],
+    folder: string,
+    referencedPublicIds: Set<string>,
     deleteOrphans: boolean = false,
-  ): Promise<{ 
-    total: number; 
-    orphans: string[]; 
-    deleted: number; 
+  ): Promise<{
+    total: number;
+    orphans: string[];
+    deleted: number;
     errors: string[];
   }> {
     if (!this.isConfigured) {
@@ -360,19 +360,18 @@ export class CloudinaryService {
 
     try {
       // Get all images in the folder
-      const allImages = await this.listImages(folder);
-      
-      // Extract public_ids from referenced URLs
-      const referencedPublicIds = new Set(
-        referencedUrls
-          .map(url => this.extractPublicId(url))
-          .filter(id => id !== null)
+      const allImages = await this.listImages(folder, 10_000);
+
+      const recent = Date.now() - 24 * 60 * 60 * 1000;
+      const orphanImages = allImages.filter(
+        (image) =>
+          !referencedPublicIds.has(image.public_id) &&
+          !(Date.parse(image.created_at) > recent),
       );
 
-      // Find orphans - images in Cloudinary not in referenced set
-      const orphanImages = allImages.filter(
-        image => !referencedPublicIds.has(image.public_id)
-      );
+      if (deleteOrphans && referencedPublicIds.size === 0 && orphanImages.length > 0) {
+        throw new Error('No photo is referenced anywhere, which means the check went wrong. Nothing was deleted.');
+      }
 
       const orphanPublicIds = orphanImages.map(img => img.public_id);
       

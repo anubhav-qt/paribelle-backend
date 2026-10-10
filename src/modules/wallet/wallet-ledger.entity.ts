@@ -24,6 +24,8 @@ export enum WalletLedgerType {
   CUSTOMER_CANCEL_CREDIT = 'customer_cancel_credit',
   EXCHANGE_COURIER_CHARGE = 'exchange_courier_charge',
   CHECKOUT_SPEND = 'checkout_spend',
+  /** Store credit applied to an order that was then cancelled before it was paid. */
+  CHECKOUT_RETURN = 'checkout_return',
   ADMIN_ADJUSTMENT = 'admin_adjustment',
 }
 

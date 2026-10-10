@@ -710,9 +710,11 @@ export class ExchangesService {
       shippingCost,
       // The only thing that can still be owing is the courier charge, so the
       // payment method is the customer's answer to "how are you paying
-      // that?" — 'online' leaves it as a Razorpay balance they settle from
-      // their orders page, anything else as COD at the door.
-      paymentMethod: row.courierChargePaymentMethod === 'online' ? 'razorpay' : 'cod',
+      // that?" — 'cod' is collected at the door, anything else is left as a
+      // Razorpay balance they settle from their orders page. While COD is
+      // archived, a wallet that has since run short leaves a payable online
+      // balance, not a COD order nobody can collect.
+      paymentMethod: row.courierChargePaymentMethod === 'cod' && codEnabled() ? 'cod' : 'razorpay',
       // Capping the drawdown at the value of the goods is what leaves exactly
       // the courier fee behind to be collected. Not for a 'wallet' charge,
       // where the whole point is that the credit covers it.
