@@ -22,134 +22,55 @@ export class CategoriesService {
 
   async findAll(): Promise<Category[]> {
     return this.categoriesRepository.find({
-      where: { isActive: true, vendorId: IsNull() }, // Only global categories
+      where: { isActive: true },
       order: { sortOrder: 'ASC' },
     });
   }
 
   /**
-   * Loads root categories for a given owner, with their descendants attached.
+   * Root categories, each with its descendants attached.
    *
    * TypeORM's `findTrees({ where })` silently ignores the `where` clause, so
-   * every caller that relied on it was getting the whole category table back —
-   * which is why vendor stores and the root site both showed each other's
-   * categories. Scoping the roots by hand and hydrating each subtree separately
-   * is the only way to filter a closure-table tree reliably.
+   * the roots are loaded by hand and each subtree hydrated separately.
    */
-  private async loadScopedTrees(vendorId?: string): Promise<Category[]> {
+  private async loadTrees(): Promise<Category[]> {
     const treeRepository = this.categoriesRepository.manager.getTreeRepository(Category);
 
     const roots = await this.categoriesRepository.find({
-      where: { parent: IsNull(), vendorId: vendorId ?? IsNull() },
+      where: { parent: IsNull() },
       order: { sortOrder: 'ASC', name: 'ASC' },
     });
 
     return Promise.all(roots.map((root) => treeRepository.findDescendantsTree(root)));
   }
 
-  async findRootCategories(vendorId?: string, withProductCounts = false): Promise<Category[]> {
-    const trees = await this.loadScopedTrees(vendorId);
-
-    // Filter to only include active categories and their active children
-    const activeCategories = this.filterActiveCategories(trees);
-    
-    // If product counts requested, enrich categories
-    if (withProductCounts) {
-      return await this.enrichWithProductCounts(activeCategories, vendorId);
-    }
-    
-    return activeCategories;
+  async findRootCategories(withProductCounts = false): Promise<Category[]> {
+    const activeCategories = this.filterActiveCategories(await this.loadTrees());
+    return withProductCounts ? this.enrichWithProductCounts(activeCategories) : activeCategories;
   }
 
-  private async enrichWithProductCounts(categories: Category[], vendorId?: string): Promise<Category[]> {
+  private async enrichWithProductCounts(categories: Category[]): Promise<Category[]> {
     const enrichCategory = async (category: Category): Promise<Category> => {
-      // Count products in this category
-      const queryBuilder = this.productsRepository
+      const productCount = await this.productsRepository
         .createQueryBuilder('product')
         .innerJoin('product.categories', 'category')
         .where('category.id = :categoryId', { categoryId: category.id })
-        .andWhere('product.status = :status', { status: 'active' });
-      
-      if (vendorId) {
-        queryBuilder.andWhere('product.vendorId = :vendorId', { vendorId });
-      }
-      
-      const productCount = await queryBuilder.getCount();
-      
-      console.log(`Category "${category.name}" (${category.id}): ${productCount} products${vendorId ? ` for vendor ${vendorId}` : ''}`);
-      
-      // Recursively enrich children
-      let enrichedChildren: Category[] = [];
-      if (category.children && category.children.length > 0) {
-        enrichedChildren = await Promise.all(
-          category.children.map(child => enrichCategory(child))
-        );
-      }
-      
-      return {
-        ...category,
-        productCount,
-        children: enrichedChildren,
-      } as Category;
+        .andWhere('product.status = :status', { status: 'active' })
+        .getCount();
+
+      const children = category.children?.length
+        ? await Promise.all(category.children.map((child) => enrichCategory(child)))
+        : [];
+
+      return { ...category, productCount, children } as Category;
     };
-    
-    const enrichedCategories = await Promise.all(categories.map(cat => enrichCategory(cat)));
-    console.log('Enriched categories:', enrichedCategories.map(c => ({ name: c.name, count: c.productCount })));
-    return enrichedCategories;
+
+    return Promise.all(categories.map((cat) => enrichCategory(cat)));
   }
 
-  async findAllRootCategories(vendorId?: string): Promise<Category[]> {
-    const globalTrees = await this.loadScopedTrees();
-
-    if (vendorId) {
-      // A vendor store sees the platform's global categories plus its own.
-      const vendorTrees = await this.loadScopedTrees(vendorId);
-      return [...globalTrees, ...vendorTrees];
-    }
-
-    return globalTrees;
-  }
-
-  async findVendorCategories(vendorId: string, withProductCounts = false): Promise<Category[]> {
-    // Get both global categories and vendor-specific categories
-    const globalTrees = await this.loadScopedTrees();
-    const vendorTrees = await this.loadScopedTrees(vendorId);
-
-    // Deduplicate categories by ID while preserving tree structure
-    const seenIds = new Set<string>();
-    
-    const deduplicateTree = (categories: Category[]): Category[] => {
-      const result: Category[] = [];
-      
-      for (const cat of categories) {
-        if (!seenIds.has(cat.id)) {
-          seenIds.add(cat.id);
-          
-          // Recursively deduplicate children
-          if (cat.children && cat.children.length > 0) {
-            cat.children = deduplicateTree(cat.children);
-          }
-          
-          result.push(cat);
-        }
-      }
-      
-      return result;
-    };
-    
-    // Combine trees: global first, then vendor-specific
-    const allTrees = [...globalTrees, ...vendorTrees];
-    const deduplicated = deduplicateTree(allTrees);
-    
-    // Filter active categories
-    const activeCategories = this.filterActiveCategories(deduplicated);
-    
-    // If product counts requested, enrich categories with vendor filter
-    if (withProductCounts) {
-      return await this.enrichWithProductCounts(activeCategories, vendorId);
-    }
-    
-    return activeCategories;
+  /** Every category, inactive ones included, for the admin. */
+  async findAllRootCategories(): Promise<Category[]> {
+    return this.loadTrees();
   }
 
   private filterActiveCategories(categories: Category[]): Category[] {

@@ -14,7 +14,7 @@ import { ReviewsModule } from '../reviews/reviews.module';
 import { StockModule } from '../stock/stock.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { InvoicesModule } from '../invoices/invoices.module';
-import { PlatformModule } from '../platform/platform.module';
+import { StoreModule } from '../store/store.module';
 import { AdminModule } from '../admin/admin.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { WalletModule } from '../wallet/wallet.module';
@@ -24,7 +24,7 @@ import { WalletModule } from '../wallet/wallet.module';
     TypeOrmModule.forFeature([Order, OrderItem, Return, Product, ProductVariant, User]),
     ReviewsModule,
     StockModule,
-    PlatformModule,
+    StoreModule,
     AdminModule,
     NotificationsModule,
     WalletModule,

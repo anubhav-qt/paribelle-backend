@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Patch, Delete, Param, Query, Body, UseGuards, UseInterceptors, UploadedFile, Res, Request, HttpStatus, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Query, Body, UseGuards, UseInterceptors, UploadedFile, Res, Request, BadRequestException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiQuery, ApiConsumes, ApiBearerAuth } from '@nestjs/swagger';
 import { Response } from 'express';
@@ -42,10 +42,7 @@ export class ProductsController {
   @ApiQuery({ name: 'limit', required: false })
   @ApiQuery({ name: 'status', required: false })
   @ApiQuery({ name: 'search', required: false })
-  @ApiQuery({ name: 'vendorId', required: false })
   @ApiQuery({ name: 'uncategorized', required: false })
-  @ApiQuery({ name: 'cityId', required: false })
-  @ApiQuery({ name: 'subLocationId', required: false })
   @ApiQuery({ name: 'productType', required: false })
   @ApiQuery({ name: 'stock', required: false, description: 'Filter by stock level: low | out (admin panel)' })
   async findAll(
@@ -56,10 +53,7 @@ export class ProductsController {
     @Query('limit') limit?: string,
     @Query('status') status?: string,
     @Query('search') search?: string,
-    @Query('vendorId') vendorId?: string,
     @Query('uncategorized') uncategorized?: string,
-    @Query('cityId') cityId?: string,
-    @Query('subLocationId') subLocationId?: string,
     @Query('productType') productType?: string,
     @Query('stock') stock?: string,
   ) {
@@ -74,13 +68,7 @@ export class ProductsController {
       } catch {
         throw new BadRequestException('filters must be JSON');
       }
-      // Add location filters to the filters object
-      if (cityId) parsedFilters.cityId = cityId;
-      if (subLocationId) parsedFilters.subLocationId = subLocationId;
-      // Add productType filter to the filters object
       if (productType) parsedFilters.productType = productType;
-      // Add vendorId filter to the filters object
-      if (vendorId) parsedFilters.vendorId = vendorId;
       return this.productsService.findByCategory(categoryId, parsedFilters);
     }
     
@@ -89,7 +77,7 @@ export class ProductsController {
     const isUncategorized = uncategorized === 'true';
     
     const stockFilter = stock === 'low' || stock === 'out' ? stock : undefined;
-    return this.productsService.findAll(pageNum, limitNum, status, search, vendorId, isUncategorized, cityId, subLocationId, productType, false, stockFilter);
+    return this.productsService.findAll(pageNum, limitNum, status, search, isUncategorized, productType, stockFilter);
   }
 
   @Get('template-simple/download')
@@ -102,24 +90,19 @@ export class ProductsController {
     res.send(buffer);
   }
 
-  @Get('export-simple/:vendorId')
+  @Get(['export-simple', 'export-simple/:scope'])
   @AdminOnly()
   @ApiOperation({ summary: 'Export physical products as simple ZIP. Pass ?ids=id1,id2 to export selected products.' })
   @ApiQuery({ name: 'ids', required: false, description: 'Comma-separated product IDs to export (optional)' })
-  async exportSimplePhysical(
-    @Param('vendorId') vendorId: string,
-    @Query('ids') ids: string,
-    @Res() res: Response,
-  ) {
-    const targetVendorId = vendorId === 'all' ? null : vendorId;
+  async exportSimplePhysical(@Query('ids') ids: string, @Res() res: Response) {
     const productIds = ids ? ids.split(',').map(id => id.trim()).filter(Boolean) : undefined;
-    const buffer = await this.productsExcelService.exportSimplePhysicalZip(targetVendorId, productIds);
+    const buffer = await this.productsExcelService.exportSimplePhysicalZip(productIds);
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename=products-physical-${Date.now()}.zip`);
     res.send(buffer);
   }
 
-  @Post('import-simple/:vendorId')
+  @Post(['import-simple', 'import-simple/:scope'])
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
   @ApiBearerAuth()
@@ -127,18 +110,15 @@ export class ProductsController {
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(FileInterceptor('file'))
   async importSimplePhysical(
-    @Param('vendorId') vendorId: string,
     @UploadedFile() file: MulterFile,
     @Query('dryRun') dryRun?: string,
   ) {
     if (!file) throw new BadRequestException('No ZIP file uploaded');
-    const actualVendorId = vendorId === 'all' ? null : vendorId;
     // `?dryRun=true` validates the whole workbook and reports every row error
     // without writing anything.
     const isDryRun = dryRun === 'true' || dryRun === '1';
     try {
       const result = await this.productsExcelService.importSimplePhysicalZip(
-        actualVendorId,
         file.buffer,
         { dryRun: isDryRun },
       );
@@ -243,14 +223,10 @@ export class ProductsController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Find and optionally delete orphan images from Cloudinary (Admin only)' })
   @ApiQuery({ name: 'delete', required: false, description: 'Set to "true" to actually delete orphans' })
-  @ApiQuery({ name: 'vendorId', required: false, description: 'Filter by vendor ID (optional)' })
-  async cleanupOrphanImages(
-    @Query('delete') shouldDelete?: string,
-    @Query('vendorId') vendorId?: string,
-  ) {
+  async cleanupOrphanImages(@Query('delete') shouldDelete?: string) {
     try {
       const deleteOrphans = shouldDelete === 'true';
-      const result = await this.productsService.cleanupOrphanImages(vendorId, deleteOrphans);
+      const result = await this.productsService.cleanupOrphanImages(deleteOrphans);
       
       return {
         success: true,

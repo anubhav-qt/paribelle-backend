@@ -34,13 +34,6 @@ interface MulterFile {
 @Controller('upload')
 export class UploadController {
   private readonly MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
-  private readonly ALLOWED_KYC_MIMETYPES = [
-    'application/pdf',
-    'image/jpeg',
-    'image/jpg',
-    'image/png',
-  ];
-
   private readonly ALLOWED_IMAGE_MIMETYPES = [
     'image/jpeg',
     'image/jpg',
@@ -269,70 +262,11 @@ export class UploadController {
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, name), file.buffer);
     return {
-      url: `${req.protocol}://${req.get('host')}/uploads/videos/${name}`,
+      // Behind the edge proxy req.protocol is http; the visitor's scheme is forwarded.
+      url: `${req.get('x-forwarded-proto')?.split(',')[0].trim() || req.protocol}://${req.get('host')}/uploads/videos/${name}`,
       originalName: file.originalname,
       size: file.size,
       mimetype: file.mimetype,
-    };
-  }
-
-  /**
-   * Upload KYC documents (PDF, JPG, PNG only, max 5MB)
-   * POST /api/v1/upload/kyc-documents
-   */
-  @Post('kyc-documents')
-  @UseGuards(JwtAuthGuard)
-  @UseInterceptors(FileInterceptor('file'))
-  async uploadKYCDocument(@UploadedFile() file: MulterFile) {
-    if (!file) {
-      throw new BadRequestException('No file uploaded');
-    }
-
-    // Validate file size
-    if (file.size > this.MAX_FILE_SIZE) {
-      throw new BadRequestException(
-        `File size exceeds maximum limit of ${this.MAX_FILE_SIZE / (1024 * 1024)}MB`
-      );
-    }
-
-    // Validate file type
-    if (!this.ALLOWED_KYC_MIMETYPES.includes(file.mimetype)) {
-      throw new BadRequestException(
-        'Invalid file type. Only PDF, JPG, and PNG files are allowed for KYC documents'
-      );
-    }
-
-    // If Cloudinary is configured, upload there
-    if (this.cloudinaryService.isEnabled() && file.mimetype.startsWith('image/')) {
-      const result = await this.cloudinaryService.uploadImage(
-        file.buffer,
-        'marketplace/kyc',
-        { maxWidth: 2048, quality: 90, format: 'jpeg' }
-      );
-
-      return {
-        success: true,
-        url: result.secure_url,
-        publicId: result.public_id,
-        filename: file.originalname,
-        originalName: file.originalname,
-        size: result.bytes,
-        mimetype: file.mimetype,
-        uploadedAt: new Date().toISOString(),
-      };
-    }
-
-    // Fallback to local storage for PDFs or when Cloudinary is not configured
-    const fileUrl = `/uploads/kyc/${file.filename}`;
-    
-    return {
-      success: true,
-      url: fileUrl,
-      filename: file.filename,
-      originalName: file.originalname,
-      size: file.size,
-      mimetype: file.mimetype,
-      uploadedAt: new Date().toISOString(),
     };
   }
 }

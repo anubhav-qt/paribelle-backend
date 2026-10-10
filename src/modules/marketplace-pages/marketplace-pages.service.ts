@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { MarketplacePage, PageStatus } from './entities/marketplace-page.entity';
+import { MarketplacePage, PageStatus, PageType } from './entities/marketplace-page.entity';
 import { CreateMarketplacePageDto } from './dto/create-marketplace-page.dto';
 import { UpdateMarketplacePageDto } from './dto/update-marketplace-page.dto';
 import { FileCleanupService } from '../../common/services/file-cleanup.service';
@@ -18,17 +18,15 @@ export class MarketplacePagesService {
     private fileCleanupService: FileCleanupService,
   ) {}
 
-  async findAll(includeUnpublished = false): Promise<MarketplacePage[]> {
-    const query =
-      this.marketplacePageRepository.createQueryBuilder('page');
-
+  async findAll({ includeUnpublished = false, pageType }: { includeUnpublished?: boolean; pageType?: PageType } = {}): Promise<MarketplacePage[]> {
+    const query = this.marketplacePageRepository.createQueryBuilder('page');
     if (!includeUnpublished) {
-      query.where('page.status = :status', { status: PageStatus.PUBLISHED });
+      query.andWhere('page.status = :status', { status: PageStatus.PUBLISHED });
     }
-
-    query.orderBy('page.updatedAt', 'DESC');
-
-    return query.getMany();
+    if (pageType) {
+      query.andWhere('page.pageType = :pageType', { pageType });
+    }
+    return query.orderBy('page.updatedAt', 'DESC').getMany();
   }
 
   async findOne(id: string): Promise<MarketplacePage> {

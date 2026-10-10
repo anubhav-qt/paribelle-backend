@@ -4,11 +4,10 @@ import { Repository, In } from 'typeorm';
 import { Product, ProductStatus } from './product.entity';
 import { ProductVariant } from './product-variant.entity';
 import { Category } from '../categories/category.entity';
-import { Vendor } from '../vendors/vendor.entity';
+import { STORE_ID } from '../store/store.constants';
 import { CategoriesService } from '../categories/categories.service';
 import { FileCleanupService } from '../../common/services/file-cleanup.service';
 import { CloudinaryService } from '../../common/services/cloudinary.service';
-import { MarketplaceGateway } from '../stock/stock.gateway';
 import { ConfigService } from '@nestjs/config';
 import { gstRateFor, gstSlugFrom } from './gst-rates';
 
@@ -21,12 +20,9 @@ export class ProductsService {
     private productVariantsRepository: Repository<ProductVariant>,
     @InjectRepository(Category)
     private categoriesRepository: Repository<Category>,
-    @InjectRepository(Vendor)
-    private vendorsRepository: Repository<Vendor>,
     private categoriesService: CategoriesService,
     private fileCleanupService: FileCleanupService,
     private cloudinaryService: CloudinaryService,
-    private marketplaceGateway: MarketplaceGateway,
     private configService: ConfigService,
   ) {}
 
@@ -125,41 +121,13 @@ export class ProductsService {
     limit: number = 20,
     status?: string,
     search?: string,
-    vendorId?: string,
     uncategorized?: boolean,
-    cityId?: string,
-    subLocationId?: string,
     productType?: string,
-    includeUnverifiedVendors: boolean = false, // Only show KYC approved vendors by default
     stock?: 'low' | 'out', // Mirrors the low/out-of-stock definition used by getAdminStats
   ): Promise<{ products: Product[]; total: number; page: number; limit: number }> {
     const queryBuilder = this.productsRepository
       .createQueryBuilder('product')
-      .leftJoinAndSelect('product.vendor', 'vendor')
-      .leftJoinAndSelect('vendor.locationCity', 'city')
-      .leftJoinAndSelect('vendor.locationSubLocation', 'subLocation')
-      .leftJoinAndSelect('product.productVariants', 'productVariants')
-      .select([
-        'product',
-        'vendor.id',
-        'vendor.storeName',
-        'vendor.businessName',
-        'vendor.subdomain',
-        'vendor.kycStatus',
-        'city.id',
-        'city.name',
-        'subLocation.id',
-        'subLocation.name',
-        'productVariants',
-      ]);
-
-    // CRITICAL: Filter out products from unverified vendors for public listings
-    // When vendorId is provided (vendor viewing their own products), skip KYC check
-    // When includeUnverifiedVendors=true (admin panel), skip KYC check
-    // Otherwise, only show KYC approved vendors
-    if (!includeUnverifiedVendors && !vendorId) {
-      queryBuilder.andWhere('vendor.kycStatus = :kycStatus', { kycStatus: 'approved' });
-    }
+      .leftJoinAndSelect('product.productVariants', 'productVariants');
 
     // Filter for uncategorized products (products with no categories)
     if (uncategorized) {
@@ -171,27 +139,6 @@ export class ProductsService {
       queryBuilder
         .leftJoinAndSelect('product.categories', 'category')
         .addSelect(['category.id', 'category.name', 'category.slug']);
-    }
-
-    // Apply vendor filter
-    if (vendorId) {
-      queryBuilder.andWhere('product.vendorId = :vendorId', { vendorId });
-    }
-
-    // Apply city filter (include products without location)
-    if (cityId) {
-      queryBuilder.andWhere(
-        '(vendor.cityId = :cityId OR vendor.cityId IS NULL)',
-        { cityId }
-      );
-    }
-
-    // Apply sub-location filter (include products without location)
-    if (subLocationId) {
-      queryBuilder.andWhere(
-        '(vendor.subLocationId = :subLocationId OR vendor.subLocationId IS NULL)',
-        { subLocationId }
-      );
     }
 
     // Apply status filter (only if not already filtered by uncategorized)
@@ -248,52 +195,10 @@ export class ProductsService {
     const queryBuilder = this.productsRepository
       .createQueryBuilder('product')
       .leftJoinAndSelect('product.categories', 'category')
-      .leftJoinAndSelect('product.vendor', 'vendor')
-      .leftJoinAndSelect('vendor.locationCity', 'city')
-      .leftJoinAndSelect('vendor.locationSubLocation', 'subLocation')
       .leftJoinAndSelect('product.productVariants', 'productVariants')
-      .select([
-        'product',
-        'category.id',
-        'category.name',
-        'category.slug',
-        'vendor.id',
-        'vendor.storeName',
-        'vendor.businessName',
-        'vendor.subdomain',
-        'vendor.kycStatus',
-        'city.id',
-        'city.name',
-        'subLocation.id',
-        'subLocation.name',
-        'productVariants',
-      ])
+      .select(['product', 'category.id', 'category.name', 'category.slug', 'productVariants'])
       .where('category.id IN (:...categoryIds)', { categoryIds })
       .andWhere('product.status = :status', { status: ProductStatus.ACTIVE });
-
-    // CRITICAL: Only show products from KYC approved vendors (unless explicitly filtering for a specific vendor)
-    if (!filters?.vendorId) {
-      queryBuilder.andWhere('vendor.kycStatus = :kycStatus', { kycStatus: 'approved' });
-    }
-
-    // Apply vendor filter if provided
-    if (filters?.vendorId) {
-      queryBuilder.andWhere('product.vendorId = :filterVendorId', { filterVendorId: filters.vendorId });
-    }
-
-    // Apply location filters if provided (include products without location)
-    if (filters?.cityId) {
-      queryBuilder.andWhere(
-        '(vendor.cityId = :cityId OR vendor.cityId IS NULL)',
-        { cityId: filters.cityId }
-      );
-    }
-    if (filters?.subLocationId) {
-      queryBuilder.andWhere(
-        '(vendor.subLocationId = :subLocationId OR vendor.subLocationId IS NULL)',
-        { subLocationId: filters.subLocationId }
-      );
-    }
 
     // Attribute filters. A product matches when at least one of its variants
     // carries the value, because that is where attributes live — the shopper
@@ -303,7 +208,7 @@ export class ProductsService {
       let clauseIndex = 0;
 
       Object.entries(filters).forEach(([key, value]) => {
-        // Skip filters that are already handled above
+        // Marketplace-era keys an old link may still carry.
         if (key === 'cityId' || key === 'subLocationId' || key === 'vendorId') {
           return;
         }
@@ -407,26 +312,14 @@ export class ProductsService {
     const product = await this.productsRepository
       .createQueryBuilder('product')
       .leftJoinAndSelect('product.categories', 'category')
-      .leftJoinAndSelect('product.vendor', 'vendor')
       .leftJoinAndSelect('product.reviews', 'review')
       .leftJoinAndSelect('product.variations', 'variations')
       .leftJoinAndSelect('product.parentProduct', 'parentProduct')
-      .leftJoinAndSelect('vendor.locationCity', 'city')
-      .leftJoinAndSelect('vendor.locationSubLocation', 'subLocation')
       .select([
         'product',
         'category.id',
         'category.name',
         'category.slug',
-        'vendor.id',
-        'vendor.storeName',
-        'vendor.businessName',
-        'vendor.subdomain',
-        'vendor.kycStatus',
-        'city.id',
-        'city.name',
-        'subLocation.id',
-        'subLocation.name',
         'review.id',
         'review.rating',
         'review.comment',
@@ -437,7 +330,6 @@ export class ProductsService {
         'parentProduct.slug',
       ])
       .where('product.id = :id', { id })
-      .andWhere('vendor.kycStatus = :kycStatus', { kycStatus: 'approved' }) // Only show products from verified vendors
       .getOne();
     
     // Variants are always needed here: they hold the product's attributes, so
@@ -496,10 +388,8 @@ export class ProductsService {
   async findVariations(parentProductId: string): Promise<Product[]> {
     return this.productsRepository
       .createQueryBuilder('product')
-      .leftJoinAndSelect('product.vendor', 'vendor')
       .leftJoinAndSelect('product.categories', 'categories')
       .where('product.parentProductId = :parentProductId', { parentProductId })
-      .andWhere('vendor.kycStatus = :kycStatus', { kycStatus: 'approved' }) // Only show variations from verified vendors
       .orderBy('product.createdAt', 'ASC')
       .getMany();
   }
@@ -527,27 +417,15 @@ export class ProductsService {
     const product = await this.productsRepository
       .createQueryBuilder('product')
       .leftJoinAndSelect('product.categories', 'category')
-      .leftJoinAndSelect('product.vendor', 'vendor')
       .leftJoinAndSelect('product.reviews', 'review')
       .leftJoinAndSelect('product.variations', 'variations')
       .leftJoinAndSelect('product.parentProduct', 'parentProduct')
       .leftJoinAndSelect('product.productVariants', 'productVariants')
-      .leftJoinAndSelect('vendor.locationCity', 'city')
-      .leftJoinAndSelect('vendor.locationSubLocation', 'subLocation')
       .select([
         'product',
         'category.id',
         'category.name',
         'category.slug',
-        'vendor.id',
-        'vendor.storeName',
-        'vendor.businessName',
-        'vendor.subdomain',
-        'vendor.kycStatus',
-        'city.id',
-        'city.name',
-        'subLocation.id',
-        'subLocation.name',
         'review.id',
         'review.rating',
         'review.comment',
@@ -559,7 +437,6 @@ export class ProductsService {
         'productVariants',
       ])
       .where('product.slug = :slug', { slug })
-      .andWhere('vendor.kycStatus = :kycStatus', { kycStatus: 'approved' }) // Only show products from verified vendors
       .getOne();
     
     if (product) {
@@ -632,22 +509,9 @@ export class ProductsService {
   async create(productData: any): Promise<Product> {
     const { categoryIds, newFilterOptions, categoryId, variations, variants, variantOptions, attributes, ...data } = productData;
 
-    // Platform vendor ID for products created by super admin
-    const PLATFORM_VENDOR_ID = '00000000-0000-0000-0000-000000000001';
-    
-    // The store sells for itself, so there is no seller KYC to wait on; the
-    // vendor row only has to exist. (Invoices read the business details from
-    // it, which the admin fills in under Settings > Business details.)
-    if (data.vendorId && data.vendorId !== PLATFORM_VENDOR_ID) {
-      const vendor = await this.vendorsRepository.findOne({
-        where: { id: data.vendorId },
-      });
+    // Every product is the store's, whatever a client sends.
+    data.vendorId = STORE_ID;
 
-      if (!vendor) {
-        throw new BadRequestException('Vendor not found');
-      }
-    }
-    
     // Ensure GST fields have default values if not provided
     if (!data.priceType) {
       data.priceType = 'mrp_with_gst'; // Default to tax-inclusive pricing
@@ -920,7 +784,8 @@ export class ProductsService {
       newFilterOptions,
       categoryId: filterCategoryId,
       variations, 
-      vendor, 
+      vendor,
+      vendorId,
       reviews, 
       parentProduct,
       productVariants,
@@ -1141,12 +1006,10 @@ export class ProductsService {
   /**
    * Find and optionally delete orphan images from Cloudinary
    * Orphan images are those that exist in Cloudinary but are not referenced by any product
-   * @param vendorId - Optional vendor ID to filter products
    * @param deleteOrphans - If true, delete orphan images; if false, just return them
    * @returns Object with cleanup results
    */
   async cleanupOrphanImages(
-    vendorId?: string,
     deleteOrphans: boolean = false,
   ): Promise<{
     total: number;
@@ -1154,12 +1017,7 @@ export class ProductsService {
     deleted: number;
     errors: string[];
   }> {
-    // Get all products (optionally filtered by vendor)
-    const whereCondition = vendorId ? { vendorId } : {};
-    const products = await this.productsRepository.find({
-      where: whereCondition,
-      relations: ['productVariants'],
-    });
+    const products = await this.productsRepository.find({ relations: ['productVariants'] });
 
     // Collect all image URLs from products and variants
     const referencedUrls: string[] = [];
@@ -1190,14 +1048,8 @@ export class ProductsService {
 
     console.log(`Found ${cloudinaryUrls.length} Cloudinary URLs referenced by ${products.length} products`);
 
-    // Determine which folder to check based on vendor filter
-    const folder = vendorId
-      ? `marketplace/products/${vendorId}`
-      : 'marketplace/products';
-
-    // Use CloudinaryService to find and optionally delete orphans
     return this.cloudinaryService.cleanupOrphanImages(
-      folder,
+      'marketplace/products',
       cloudinaryUrls,
       deleteOrphans,
     );

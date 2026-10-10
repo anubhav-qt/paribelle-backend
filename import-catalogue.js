@@ -43,7 +43,7 @@ async function main() {
   const svc = app.get(ProductsExcelService);
 
   const started = Date.now();
-  const result = await svc.importSimplePhysicalZip(null, buffer, { dryRun });
+  const result = await svc.importSimplePhysicalZip(buffer, { dryRun });
   const secs = ((Date.now() - started) / 1000).toFixed(1);
 
   console.log('─'.repeat(60));

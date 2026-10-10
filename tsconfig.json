@@ -24,5 +24,6 @@
       "@/config/*": ["src/config/*"],
       "@/database/*": ["src/database/*"]
     }
-  }
+  },
+  "exclude": ["node_modules", "dist", "archive"]
 }

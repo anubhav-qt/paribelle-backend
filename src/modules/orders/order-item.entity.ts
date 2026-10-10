@@ -47,16 +47,6 @@ export class OrderItem {
   @Column({ type: 'json', nullable: true, name: 'variant_details' })
   variantDetails: any;
 
-  // Booking details (for booking type products)
-  @Column({ type: 'json', nullable: true, name: 'booking_details' })
-  bookingDetails: {
-    bookingDate?: string;
-    startTime?: string;
-    endTime?: string;
-    numberOfGuests?: number;
-    specialRequests?: string;
-  };
-
   // Relations
   @ManyToOne(() => Order, (order) => order.items, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'order_id' })

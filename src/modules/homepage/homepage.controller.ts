@@ -1,4 +1,4 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get } from '@nestjs/common';
 import { HomepageService } from './homepage.service';
 
 @Controller('homepage')
@@ -6,11 +6,7 @@ export class HomepageController {
   constructor(private readonly homepageService: HomepageService) {}
 
   @Get('data')
-  async getHomepageData(
-    @Query('cityId') cityId?: string,
-    @Query('subLocationId') subLocationId?: string,
-    @Query('vendorSlug') vendorSlug?: string,
-  ) {
-    return this.homepageService.getHomepageData(cityId, subLocationId, vendorSlug);
+  async getHomepageData() {
+    return this.homepageService.getHomepageData();
   }
 }

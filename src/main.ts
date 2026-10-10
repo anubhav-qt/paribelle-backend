@@ -12,6 +12,7 @@ import { join } from 'path';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { QueryFailedFilter } from './common/filters/query-failed.filter';
 import { MonitoringService } from './modules/monitoring/monitoring.service';
+import { corsOrigin } from './common/cors';
 
 // Force output immediately
 process.stdout.write('🟢 All imports loaded successfully\n');
@@ -75,60 +76,10 @@ async function bootstrap() {
     app.use(helmet({
       crossOriginResourcePolicy: { policy: 'cross-origin' },
     }));
-    // CORS is a mechanism that allows or restricts resources to be requested from another domain. This is important when your frontend and backend are on different domains or ports.
-    // Allow both main domain and vendor subdomains
+    // The storefront calls the API from the browser, so its origins are
+    // listed in ALLOWED_ORIGINS. Auth is a bearer token, not a cookie.
     app.enableCors({
-        origin: (origin, callback) => {
-            const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || [];
-            
-            // Debug logging
-            console.log('CORS Request from origin:', origin);
-            console.log('Allowed origins:', allowedOrigins);
-            
-            // Allow requests with no origin (like mobile apps or curl requests)
-            if (!origin) {
-                console.log('✓ Allowing request with no origin');
-                return callback(null, true);
-            }
-            
-            // Check if origin matches any allowed origin exactly
-            if (allowedOrigins.includes(origin)) {
-                console.log('✓ Origin matches allowed list');
-                return callback(null, true);
-            }
-            
-            // Check if origin matches subdomain pattern (*.localhost:3000)
-            const subdomainPattern = /^http:\/\/[\w-]+\.localhost:3000$/;
-            if (subdomainPattern.test(origin)) {
-                console.log('✓ Origin matches subdomain pattern');
-                return callback(null, true);
-            }
-            
-            // Check for production subdomain pattern if needed
-            const prodPattern = process.env.PRODUCTION_DOMAIN 
-                ? new RegExp(`^https?://[\\w-]+\\.${process.env.PRODUCTION_DOMAIN.replace('.', '\\.')}$`)
-                : null;
-            if (prodPattern && prodPattern.test(origin)) {
-                console.log('✓ Origin matches production pattern');
-                return callback(null, true);
-            }
-            
-            // Allow all Vercel preview and production deployments
-            const vercelPattern = /^https:\/\/[\w-]+\.vercel\.app$/;
-            if (vercelPattern.test(origin)) {
-                console.log('✓ Origin matches Vercel pattern');
-                return callback(null, true);
-            }
-            
-            // If ALLOWED_ORIGINS is not set, allow all
-            if (allowedOrigins.length === 0) {
-                console.log('✓ No allowed origins set, allowing all');
-                return callback(null, true);
-            }
-            
-            console.log('✗ Origin not allowed by CORS');
-            callback(new Error('Not allowed by CORS'));
-        },
+        origin: corsOrigin,
         credentials: true,
         methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
         // Every header the browser is allowed to send. A header missing from
@@ -167,13 +118,13 @@ async function bootstrap() {
 
   // Swagger documentation
   const config = new DocumentBuilder()
-    .setTitle('GaliCart API')
-    .setDescription('API documentation for the marketplace platform')
+    .setTitle('PariBelle API')
+    .setDescription('The paribelle.in store API')
     .setVersion('1.0')
     .addBearerAuth()
     .addTag('auth', 'Authentication endpoints')
     .addTag('users', 'User management')
-    .addTag('vendors', 'Vendor management')
+    .addTag('store', 'Business details and policies')
     .addTag('products', 'Product catalog')
     .addTag('orders', 'Order management')
     .addTag('payments', 'Payment processing')

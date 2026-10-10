@@ -4,11 +4,10 @@ import { SearchController } from './search.controller';
 import { SearchService } from './search.service';
 import { Product } from '../products/product.entity';
 import { Category } from '../categories/category.entity';
-import { Vendor } from '../vendors/vendor.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Product, Category, Vendor]),
+    TypeOrmModule.forFeature([Product, Category]),
   ],
   controllers: [SearchController],
   providers: [SearchService],

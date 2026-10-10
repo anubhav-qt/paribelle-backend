@@ -49,7 +49,7 @@ export class InvoicesController {
    * Create invoice from order (Admin only)
    */
   @Post()
-  @Roles(UserRole.SUPER_ADMIN)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
   create(@Body() createInvoiceDto: CreateInvoiceDto) {
     return this.invoicesService.createFromOrder(createInvoiceDto);
   }
@@ -58,11 +58,9 @@ export class InvoicesController {
    * Get all invoices with filters
    */
   @Get()
-  @Roles(UserRole.SUPER_ADMIN)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
   findAll(
-    @Query('type') type?: InvoiceType,
     @Query('status') status?: string,
-    @Query('vendorId') vendorId?: string,
     @Query('customerId') customerId?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
@@ -70,9 +68,7 @@ export class InvoicesController {
     @Query('limit') limit?: string,
   ) {
     return this.invoicesService.findAll({
-      type,
       status: status as any,
-      vendorId,
       customerId,
       startDate,
       endDate,
@@ -82,27 +78,10 @@ export class InvoicesController {
   }
 
   /**
-   * Get vendor invoices (for vendor dashboard)
-   */
-  @Get('vendor/:vendorId')
-  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
-  findVendorInvoices(
-    @Param('vendorId') vendorId: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-  ) {
-    return this.invoicesService.findAll({
-      vendorId,
-      page: page ? parseInt(page) : undefined,
-      limit: limit ? parseInt(limit) : undefined,
-    });
-  }
-
-  /**
    * Get customer invoices (for customer dashboard)
    */
   @Get('customer/:customerId')
-  @Roles(UserRole.SUPER_ADMIN, UserRole.CUSTOMER)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN, UserRole.CUSTOMER)
   findCustomerInvoices(
     @Request() req,
     @Param('customerId') customerId: string,
@@ -114,7 +93,6 @@ export class InvoicesController {
     }
     return this.invoicesService.findAll({
       customerId,
-      type: InvoiceType.CUSTOMER,
       page: page ? parseInt(page) : undefined,
       limit: limit ? parseInt(limit) : undefined,
     });
@@ -149,7 +127,7 @@ export class InvoicesController {
    * Send invoice via email
    */
   @Post(':id/send')
-  @Roles(UserRole.SUPER_ADMIN)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
   sendInvoice(@Param('id') id: string, @Body() sendInvoiceDto?: SendInvoiceDto) {
     return this.invoicesService.sendInvoice(id, sendInvoiceDto);
   }
@@ -158,7 +136,7 @@ export class InvoicesController {
    * Mark invoice as paid
    */
   @Patch(':id/mark-paid')
-  @Roles(UserRole.SUPER_ADMIN)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
   markAsPaid(@Param('id') id: string) {
     return this.invoicesService.markAsPaid(id);
   }
@@ -167,7 +145,7 @@ export class InvoicesController {
    * Update invoice
    */
   @Patch(':id')
-  @Roles(UserRole.SUPER_ADMIN)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
   update(@Param('id') id: string, @Body() updateInvoiceDto: UpdateInvoiceDto) {
     return this.invoicesService.update(id, updateInvoiceDto);
   }
@@ -185,7 +163,7 @@ export class InvoicesController {
    * Auto-generate invoices for completed orders (Admin only)
    */
   @Post('auto-generate')
-  @Roles(UserRole.SUPER_ADMIN)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
   autoGenerate() {
     return this.invoicesService.autoGenerateInvoices();
   }

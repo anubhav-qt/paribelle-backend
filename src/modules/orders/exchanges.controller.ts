@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, UseGuards, Request, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, UseGuards, Request, NotFoundException } from '@nestjs/common';
 import { ExchangesService } from './exchanges.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminOnly } from '../../common/decorators/admin-only.decorator';

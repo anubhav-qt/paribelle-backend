@@ -9,7 +9,6 @@ import {
   OneToMany,
 } from 'typeorm';
 import { User } from '../users/user.entity';
-import { Vendor } from '../vendors/vendor.entity';
 import { OrderItem } from './order-item.entity';
 import { Payment } from '../payments/payment.entity';
 import { Invoice } from '../invoices/invoice.entity';
@@ -84,17 +83,6 @@ export class Order {
 
   @Column({ type: 'decimal', precision: 10, scale: 2 })
   total: number;
-
-  // Commission for marketplace
-  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0, name: 'commission_amount' })
-  commissionAmount: number;
-
-  @Column({ type: 'decimal', precision: 5, scale: 2, default: 0, name: 'commission_rate' })
-  commissionRate: number;
-
-  // Vendor payout
-  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0, name: 'vendor_payout' })
-  vendorPayout: number;
 
   @Column({
     type: 'enum',
@@ -231,14 +219,12 @@ export class Order {
   @Column({ name: 'user_id' })
   userId: string;
 
-  @ManyToOne(() => Vendor, (vendor) => vendor.orders)
-  @JoinColumn({ name: 'vendor_id' })
-  vendor: Vendor;
-
+  /** Always the store (STORE_ID). */
   @Column({ name: 'vendor_id' })
   vendorId: string;
 
-  // Vendor snapshot at time of order (for invoices and historical accuracy)
+  // The seller's details as they stood when the order was placed, for its
+  // invoice. Named for the marketplace's vendors; the seller is the store.
   @Column({ name: 'vendor_business_name', nullable: true })
   vendorBusinessName: string;
 

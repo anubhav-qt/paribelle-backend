@@ -11,7 +11,7 @@ import { EdgeThrottlerGuard } from './common/guards/edge-throttler.guard';
 // Modules
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
-import { VendorsModule } from './modules/vendors/vendors.module';
+import { StoreModule } from './modules/store/store.module';
 import { ProductsModule } from './modules/products/products.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { PaymentsModule } from './modules/payments/payments.module';
@@ -23,8 +23,6 @@ import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { WalletModule } from './modules/wallet/wallet.module';
 import { UploadModule } from './modules/upload/upload.module';
-import { BookingsModule } from './modules/bookings/bookings.module';
-import { LocationsModule } from './modules/locations/locations.module';
 import { HomepageModule } from './modules/homepage/homepage.module';
 import { MonitoringModule } from './modules/monitoring/monitoring.module';
 import { SimpleEmailModule } from './modules/simple-email/simple-email.module';
@@ -33,11 +31,9 @@ import { SearchModule } from './modules/search/search.module';
 import { CacheModule } from './modules/cache/cache.module';
 import { MarketplacePagesModule } from './modules/marketplace-pages/marketplace-pages.module';
 import { FooterSettingsModule } from './modules/footer-settings/footer-settings.module';
-import { PlatformModule } from './modules/platform/platform.module';
 import { HsnCodesModule } from './modules/hsn-codes/hsn-codes.module';
 import { InvoicesModule } from './modules/invoices/invoices.module';
 import { StockModule } from './modules/stock/stock.module';
-import { ReferralsModule } from './modules/referrals/referrals.module';
 import { HealthModule } from './modules/health/health.module';
 
 @Module({
@@ -114,7 +110,7 @@ import { HealthModule } from './modules/health/health.module';
     SimpleEmailModule,
     AuthModule,
     UsersModule,
-    VendorsModule,
+    StoreModule,
     ProductsModule,
     OrdersModule,
     PaymentsModule,
@@ -126,19 +122,15 @@ import { HealthModule } from './modules/health/health.module';
     NotificationsModule,
     WalletModule,
     UploadModule,
-    BookingsModule,
-    LocationsModule,
     HomepageModule,
     MonitoringModule,
     AddressesModule,
     SearchModule,
     MarketplacePagesModule,
     FooterSettingsModule,
-    PlatformModule,
     HsnCodesModule,
     InvoicesModule,
     StockModule,
-    ReferralsModule,
     HealthModule,
   ],
   providers: [

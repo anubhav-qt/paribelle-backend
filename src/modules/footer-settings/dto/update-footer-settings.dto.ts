@@ -1,11 +1,16 @@
-import { IsString, IsBoolean, IsArray, IsOptional, IsInt, Min, Max, ValidateNested } from 'class-validator';
+import { IsString, IsBoolean, IsArray, IsOptional, IsInt, Matches, MaxLength, Min, Max, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
+
+/** Site paths, anchors, web, mail and phone links only (no javascript: or data: URLs). */
+const SAFE_LINK = /^(\/(?!\/)|#|https?:\/\/|mailto:|tel:)/i;
 
 class SocialLinkDto {
   @IsString()
   platform: 'facebook' | 'twitter' | 'instagram' | 'linkedin' | 'youtube' | 'tiktok';
 
   @IsString()
+  @MaxLength(500)
+  @Matches(/^https?:\/\//i, { message: 'Social links must start with https://' })
   url: string;
 
   @IsBoolean()
@@ -14,9 +19,12 @@ class SocialLinkDto {
 
 class FooterLinkDto {
   @IsString()
+  @MaxLength(100)
   label: string;
 
   @IsString()
+  @MaxLength(500)
+  @Matches(SAFE_LINK, { message: 'Links must be a site path (/...), https://, mailto: or tel:' })
   url: string;
 }
 

@@ -114,7 +114,7 @@ export class ExchangesService {
 
     const order = await this.orderRepository.findOne({
       where: { id: orderId, userId },
-      relations: ['items', 'items.product', 'vendor'],
+      relations: ['items', 'items.product'],
     });
     if (!order) throw new NotFoundException('Order not found');
 

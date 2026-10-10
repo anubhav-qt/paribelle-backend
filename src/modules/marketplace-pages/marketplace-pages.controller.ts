@@ -6,13 +6,17 @@ import {
   Delete,
   Body,
   Param,
-  UseGuards,
+  ParseUUIDPipe,
   Query,
+  Request,
+  UseGuards,
 } from '@nestjs/common';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
+import { AdminOnly, isStoreAdmin } from '../../common/decorators/admin-only.decorator';
 import { MarketplacePagesService } from './marketplace-pages.service';
 import { CreateMarketplacePageDto } from './dto/create-marketplace-page.dto';
 import { UpdateMarketplacePageDto } from './dto/update-marketplace-page.dto';
+import { PageType } from './entities/marketplace-page.entity';
 
 @Controller('marketplace/pages')
 export class MarketplacePagesController {
@@ -20,41 +24,50 @@ export class MarketplacePagesController {
     private readonly marketplacePagesService: MarketplacePagesService,
   ) {}
 
+  /** Published pages; admins may add `includeUnpublished=true` for drafts. */
   @Get()
-  async findAll(@Query('includeUnpublished') includeUnpublished?: string) {
-    return this.marketplacePagesService.findAll(
-      includeUnpublished === 'true',
-    );
-  }
-
-  @Get(':id')
-  async findOne(@Param('id') id: string) {
-    return this.marketplacePagesService.findOne(id);
+  @UseGuards(OptionalJwtAuthGuard)
+  findAll(
+    @Request() req,
+    @Query('includeUnpublished') includeUnpublished?: string,
+    @Query('pageType') pageType?: string,
+  ) {
+    return this.marketplacePagesService.findAll({
+      includeUnpublished: includeUnpublished === 'true' && isStoreAdmin(req.user),
+      pageType: Object.values(PageType).includes(pageType as PageType) ? (pageType as PageType) : undefined,
+    });
   }
 
   @Get('slug/:slug')
-  async findBySlug(@Param('slug') slug: string) {
+  findBySlug(@Param('slug') slug: string) {
     return this.marketplacePagesService.findBySlug(slug);
   }
 
+  /** Any page by id, drafts included: the admin editor. */
+  @Get(':id')
+  @AdminOnly()
+  findOne(@Param('id', ParseUUIDPipe) id: string) {
+    return this.marketplacePagesService.findOne(id);
+  }
+
   @Post()
-  @UseGuards(JwtAuthGuard)
-  async create(@Body() createDto: CreateMarketplacePageDto) {
+  @AdminOnly()
+  create(@Body() createDto: CreateMarketplacePageDto) {
     return this.marketplacePagesService.create(createDto);
   }
 
   @Put(':id')
-  @UseGuards(JwtAuthGuard)
-  async update(
-    @Param('id') id: string,
+  @AdminOnly()
+  update(
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() updateDto: UpdateMarketplacePageDto,
   ) {
     return this.marketplacePagesService.update(id, updateDto);
   }
 
   @Delete(':id')
-  @UseGuards(JwtAuthGuard)
-  async remove(@Param('id') id: string) {
+  @AdminOnly()
+  async remove(@Param('id', ParseUUIDPipe) id: string) {
     await this.marketplacePagesService.remove(id);
     return { message: 'Page deleted successfully' };
   }

@@ -61,7 +61,7 @@ export class FileCleanupService {
    * Should NOT be deleted as they're not owned by us
    * 
    * NOTE: These services should ONLY be used for testing/demo purposes!
-   * In production, vendors must upload their own product images.
+   * In production, product images must be our own uploads.
    * Using stock photos for real products may violate licenses and mislead customers.
    */
   private isExternalUrl(url: string): boolean {

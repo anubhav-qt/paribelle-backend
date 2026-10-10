@@ -14,15 +14,6 @@ export const CACHE_KEYS = {
   CATEGORIES_LIST: () => 'categories:list',
   CATEGORIES_TREE: () => 'categories:tree',
   
-  // Vendors
-  VENDOR_BY_ID: (id: string) => `vendor:${id}`,
-  VENDOR_BY_SLUG: (slug: string) => `vendor:slug:${slug}`,
-  VENDOR_PRODUCTS: (vendorId: string, page: number) => 
-    `vendor:${vendorId}:products:${page}`,
-  VENDOR_REVIEWS: (vendorId: string, page: number) => 
-    `vendor:${vendorId}:reviews:${page}`,
-  VENDOR_STATS: (vendorId: string) => `vendor:${vendorId}:stats`,
-  
   // Search
   SEARCH_SUGGESTIONS: (query: string) => `search:suggestions:${query.toLowerCase()}`,
   SEARCH_RESULTS: (query: string, type: string, page: number) => 

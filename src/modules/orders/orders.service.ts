@@ -6,15 +6,18 @@ import { OrderItem } from './order-item.entity';
 import { Product, ProductStatus } from '../products/product.entity';
 import { ProductVariant } from '../products/product-variant.entity';
 import { User, UserRole } from '../users/user.entity';
+import { isStoreAdmin } from '../../common/decorators/admin-only.decorator';
 import { MarketplaceGateway } from '../stock/stock.gateway';
 import { InvoicesService } from '../invoices/invoices.service';
 import { InvoicePdfService } from '../invoices/invoice-pdf.service';
-import { PlatformSettingsService } from '../platform/platform-settings.service';
+import { InvoiceType } from '../invoices/invoice.entity';
 import { SettingsService } from '../admin/settings.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/notification.entity';
 import { WalletService } from '../wallet/wallet.service';
 import { WalletLedgerType } from '../wallet/wallet-ledger.entity';
+import { StoreService } from '../store/store.service';
+import { STORE_ID } from '../store/store.constants';
 import { Response } from 'express';
 
 /**
@@ -43,7 +46,7 @@ export class OrdersService {
     private invoicesService: InvoicesService,
     @Inject(forwardRef(() => InvoicePdfService))
     private invoicePdfService: InvoicePdfService,
-    private platformSettingsService: PlatformSettingsService,
+    private storeService: StoreService,
     private settingsService: SettingsService,
     private notificationsService: NotificationsService,
     private walletService: WalletService,
@@ -166,16 +169,17 @@ export class OrdersService {
     }
 
     const productIds = Array.from(new Set<string>(items.map((item: any) => String(item.productId))));
-    const products = await this.productRepository.find({
-      where: { id: In(productIds) },
-      relations: ['vendor'],
-    });
+    const products = await this.productRepository.find({ where: { id: In(productIds) } });
     // Compare against distinct ids: two sizes of the same kurti are two cart
     // lines but one product row.
     if (products.length !== productIds.length) {
       throw new NotFoundException('One or more items in your bag are no longer available.');
     }
     const productById = new Map(products.map((p) => [p.id, p]));
+
+    // The seller details printed on the invoice, frozen as they are today.
+    // Read before any stock is held, so a failure here leaves nothing to undo.
+    const seller = await this.storeService.sellerSnapshot();
 
     // Every variant of every ordered product, loaded once: for pricing, and
     // so each line can snapshot the photo of the colour that was bought
@@ -334,8 +338,6 @@ export class OrdersService {
       }
     }
 
-    // The seller details printed on the invoice, frozen as they are today.
-    const store = products[0].vendor;
     const oneLine = (a: any) => `${a.addressLine1}${a.addressLine2 ? ', ' + a.addressLine2 : ''}`;
     const billing = billingAddress && requiredAddressFields.every((f) => String(billingAddress[f] ?? '').trim())
       ? billingAddress
@@ -345,17 +347,8 @@ export class OrdersService {
       orderNumber: this.generateOrderNumber(),
       idempotencyKey: normalizedKey || null,
       userId,
-      vendorId: products[0].vendorId,
-      vendorBusinessName: store?.businessName,
-      vendorStoreName: store?.storeName,
-      vendorGstNumber: store?.gstNumber,
-      vendorAddress: store?.address,
-      vendorCity: store?.city,
-      vendorState: store?.state,
-      vendorPostalCode: store?.postalCode,
-      vendorCountry: store?.country,
-      vendorContactEmail: store?.contactEmail,
-      vendorContactPhone: store?.contactPhone,
+      vendorId: STORE_ID,
+      ...seller,
       subtotal,
       tax,
       shippingCost,
@@ -438,11 +431,11 @@ export class OrdersService {
     // get theirs when the payment is captured.
     if (paidByWallet) {
       try {
-        const existing = await this.invoicesService.findByOrderAndType(savedOrder.id, 'customer');
+        const existing = await this.invoicesService.findByOrderAndType(savedOrder.id, InvoiceType.CUSTOMER);
         if (!existing) {
           await this.invoicesService.createFromOrder({
             orderId: savedOrder.id,
-            type: 'customer' as any,
+            type: InvoiceType.CUSTOMER,
             notes: 'Thank you for your purchase!',
           });
         }
@@ -457,30 +450,23 @@ export class OrdersService {
   async findAll(userId: string) {
     const orders = await this.orderRepository.find({
       where: { userId },
-      relations: ['items', 'items.product', 'items.product.vendor', 'vendor', 'invoices'],
+      relations: ['items', 'items.product', 'invoices'],
       order: { createdAt: 'DESC' },
     });
     const exchangeWindowDays = await this.getExchangeWindowDays();
 
-    // Fetch returns for all order items
+    // Exchange requests (the `returns` table) on these orders' items
     const orderIds = orders.map(o => o.id);
-    let returnsData: any[] = [];
-    
-    if (orderIds.length > 0) {
-      try {
-        const returnsQuery = `
-          SELECT r.*, oi.order_id 
-          FROM returns r
-          INNER JOIN order_items oi ON r.order_item_id = oi.id
-          WHERE oi.order_id = ANY($1)
-          ORDER BY r.created_at DESC
-        `;
-        returnsData = await this.dataSource.query(returnsQuery, [orderIds]);
-      } catch (error) {
-        // Returns table doesn't exist yet - skip returns data
-        console.log('Returns table not found, skipping returns data');
-      }
-    }
+    const returnsData: any[] = orderIds.length
+      ? await this.dataSource.query(
+          `SELECT r.*, oi.order_id
+             FROM returns r
+             JOIN order_items oi ON r.order_item_id = oi.id
+            WHERE oi.order_id = ANY($1)
+            ORDER BY r.created_at DESC`,
+          [orderIds],
+        )
+      : [];
 
     // Group returns by order_id
     const returnsByOrder: Record<string, any[]> = returnsData.reduce((acc: Record<string, any[]>, ret: any) => {
@@ -508,7 +494,6 @@ export class OrdersService {
         rejectionReason: ret.rejection_reason,
         customerNotes: ret.customer_notes,
         adminNotes: ret.admin_notes,
-        vendorNotes: ret.vendor_notes,
         trackingNumber: ret.tracking_number,
         carrier: ret.carrier,
         images: ret.images,
@@ -537,103 +522,12 @@ export class OrdersService {
   async findByUserAndStatus(userId: string, status: OrderStatus) {
     const orders = await this.orderRepository.find({
       where: { userId, status },
-      relations: ['items', 'items.product', 'items.product.vendor', 'vendor'],
+      relations: ['items', 'items.product'],
       order: { createdAt: 'DESC' },
     });
     const exchangeWindowDays = await this.getExchangeWindowDays();
 
     return orders.map(order => this.transformOrder(order, exchangeWindowDays));
-  }
-
-  async findByVendorId(vendorId: string) {
-    // Find all order items where the product belongs to this vendor
-    const orderItems = await this.orderItemRepository
-      .createQueryBuilder('orderItem')
-      .leftJoinAndSelect('orderItem.order', 'order')
-      .leftJoinAndSelect('order.items', 'items')
-      .leftJoinAndSelect('order.user', 'user')
-      .leftJoinAndSelect('orderItem.product', 'product')
-      .leftJoinAndSelect('product.vendor', 'vendor')
-      .where('product.vendorId = :vendorId', { vendorId })
-      .orderBy('orderItem.createdAt', 'DESC')
-      .getMany();
-
-    // Extract unique orders
-    const ordersMap = new Map();
-    for (const item of orderItems) {
-      if (item.order && !ordersMap.has(item.order.id)) {
-        ordersMap.set(item.order.id, item.order);
-      }
-    }
-
-    const orders = Array.from(ordersMap.values());
-    const exchangeWindowDays = await this.getExchangeWindowDays();
-
-    // Fetch returns data for all orders
-    const orderIds = orders.map(o => o.id);
-    let returnsData: any[] = [];
-    if (orderIds.length > 0) {
-      try {
-        returnsData = await this.dataSource.query(
-          `SELECT * FROM returns WHERE order_id = ANY($1) ORDER BY requested_at DESC`,
-          [orderIds]
-        );
-      } catch (error) {
-        // Returns table doesn't exist yet - skip returns data
-        console.log('Returns table not found, skipping returns data');
-      }
-    }
-
-    // Group returns by order ID
-    const returnsByOrder = returnsData.reduce((acc: any, ret: any) => {
-      if (!acc[ret.order_id]) {
-        acc[ret.order_id] = [];
-      }
-      acc[ret.order_id].push({
-        id: ret.id,
-        returnNumber: ret.return_number,
-        orderItemId: ret.order_item_id,
-        productName: ret.product_name,
-        product_sku: ret.product_sku,
-        quantity: ret.quantity,
-        originalQuantity: ret.original_quantity,
-        refundAmount: parseFloat(ret.refund_amount),
-        refundTotal: parseFloat(ret.refund_total),
-        reason: ret.reason,
-        status: ret.status,
-        requestedAt: ret.requested_at,
-        approvedAt: ret.approved_at,
-        rejectedAt: ret.rejected_at,
-        receivedAt: ret.received_at,
-        refundedAt: ret.refunded_at,
-        cancelledAt: ret.cancelled_at,
-        rejectionReason: ret.rejection_reason,
-        customerNotes: ret.customer_notes,
-        adminNotes: ret.admin_notes,
-        vendorNotes: ret.vendor_notes,
-        trackingNumber: ret.tracking_number,
-        carrier: ret.carrier,
-        images: ret.images,
-        videoUrl: ret.video_url,
-        // The order pages colour-code each item by the state of its exchange
-        // and hide the button on an item that's already been settled against
-        // (see `isItemExchangeBlocked`) — all of which needs these.
-        inspectionResult: ret.inspection_result,
-        exchangeVariantId: ret.exchange_variant_id,
-        courierCharge: ret.courier_charge != null ? parseFloat(ret.courier_charge) : 0,
-        courierChargePaymentMethod: ret.courier_charge_payment_method || null,
-      });
-      return acc;
-    }, {});
-
-    // Transform orders to include returns
-    return orders.map(order => {
-      const transformed = this.transformOrder(order, exchangeWindowDays);
-      return {
-        ...transformed,
-        returns: returnsByOrder[order.id] || []
-      };
-    });
   }
 
   /**
@@ -659,25 +553,19 @@ export class OrdersService {
     const orders = await this.orderRepository.find({
       // productVariants lets the admin screen show the photo of the colour
       // that was bought on orders placed before that photo was snapshotted.
-      relations: ['items', 'items.product', 'items.product.productVariants', 'vendor', 'user', 'invoices'],
+      relations: ['items', 'items.product', 'items.product.productVariants', 'user', 'invoices'],
       order: { createdAt: 'DESC' },
     });
     const exchangeWindowDays = await this.getExchangeWindowDays();
 
-    // Fetch returns data for all orders
+    // Exchange requests (the `returns` table) on these orders
     const orderIds = orders.map(o => o.id);
-    let returnsData: any[] = [];
-    if (orderIds.length > 0) {
-      try {
-        returnsData = await this.dataSource.query(
+    const returnsData: any[] = orderIds.length
+      ? await this.dataSource.query(
           `SELECT * FROM returns WHERE order_id = ANY($1) ORDER BY requested_at DESC`,
-          [orderIds]
-        );
-      } catch (error) {
-        // Returns table doesn't exist yet - skip returns data
-        console.log('Returns table not found, skipping returns data');
-      }
-    }
+          [orderIds],
+        )
+      : [];
 
     // Group returns by order ID
     const returnsByOrder = returnsData.reduce((acc: any, ret: any) => {
@@ -705,7 +593,6 @@ export class OrdersService {
         rejectionReason: ret.rejection_reason,
         customerNotes: ret.customer_notes,
         adminNotes: ret.admin_notes,
-        vendorNotes: ret.vendor_notes,
         trackingNumber: ret.tracking_number,
         carrier: ret.carrier,
         images: ret.images,
@@ -772,7 +659,7 @@ export class OrdersService {
   async findOne(id: string, userId: string) {
     const order = await this.orderRepository.findOne({
       where: { id, userId },
-      relations: ['items', 'items.product', 'items.product.vendor', 'vendor', 'payments', 'invoices'],
+      relations: ['items', 'items.product', 'payments', 'invoices'],
     });
 
     if (!order) {
@@ -781,6 +668,26 @@ export class OrdersService {
 
     const exchangeWindowDays = await this.getExchangeWindowDays();
     return this.transformOrder(order, exchangeWindowDays);
+  }
+
+  /** Puts cancelled or refused items back on the shelf and undoes their sales credit. */
+  private async restock(items: OrderItem[]) {
+    for (const item of items) {
+      if (item.variantId) {
+        await this.productVariantsRepository.increment({ id: item.variantId }, 'stockQuantity', item.quantity);
+        const variants = await this.productVariantsRepository.find({ where: { productId: item.productId } });
+        const total = variants.reduce((sum, v) => sum + (v.stockQuantity || 0), 0);
+        await this.productRepository.update(item.productId, { stockQuantity: total });
+      } else {
+        await this.productRepository.increment({ id: item.productId }, 'stockQuantity', item.quantity);
+      }
+      // A cancelled sale never happened: undo the popularity credit given when the
+      // order was placed, or cancellations would promote products no one kept.
+      await this.productRepository.decrement({ id: item.productId }, 'salesCount', item.quantity);
+
+      const product = await this.productRepository.findOne({ where: { id: item.productId } });
+      if (product) this.marketplaceGateway.emitStockUpdate(product.id, product.stockQuantity);
+    }
   }
 
   /**
@@ -796,12 +703,7 @@ export class OrdersService {
 
   private transformOrder(order: Order, exchangeWindowDays: number) {
     // Find customer invoice if available
-    const customerInvoice = order.invoices?.find(inv => inv.type === 'customer');
-
-    // Get return policy from the first product's vendor (assuming single-vendor orders)
-    const vendor = order.items?.[0]?.product?.vendor;
-    const returnPolicyDays = vendor?.returnPolicyDays ?? 7;
-    const allowReturns = vendor?.allowReturns ?? true;
+    const customerInvoice = order.invoices?.find((inv) => inv.type === InvoiceType.CUSTOMER);
 
     // Computed server-side so the client never re-implements the cancellation
     // and exchange policy — a rule duplicated in two places drifts. See Task 8.
@@ -856,12 +758,6 @@ export class OrdersService {
         downloadUrl: `/api/v1/orders/${order.id}/invoice/download`,
         viewUrl: `/api/v1/invoices/${customerInvoice.id}/pdf`,
       } : null,
-      // Add return policy information
-      returnPolicy: {
-        allowReturns,
-        returnPolicyDays,
-        vendorName: vendor?.storeName || vendor?.businessName,
-      },
       canCancel,
       canExchange,
       canPayOnline,
@@ -875,8 +771,6 @@ export class OrdersService {
     reason?: string,
     shipment?: { trackingNumber?: string; carrier?: string },
   ) {
-    const startTime = Date.now();
-    console.log(`[updateStatus] Starting status update for order ${id} to ${status}`);
     
     const order = await this.orderRepository.findOne({ 
       where: { id },
@@ -936,29 +830,6 @@ export class OrdersService {
           link: '/orders', orderId: order.id,
         })
         .catch((err) => console.error('Failed to notify customer of delivery:', err));
-
-      // Auto-generate vendor invoice when order is delivered
-      if (order.paymentStatus === PaymentStatus.PAID) {
-        try {
-          console.log(`Order delivered: ${order.orderNumber}. Generating vendor invoice...`);
-          
-          // Check if vendor invoice already exists
-          const existingVendorInvoice = await this.invoicesService.findByOrderAndType(order.id, 'vendor');
-          if (!existingVendorInvoice) {
-            await this.invoicesService.createFromOrder({
-              orderId: order.id,
-              type: 'vendor' as any,
-              notes: `Vendor payout for delivered order ${order.orderNumber}`,
-            });
-            console.log(`Vendor invoice generated for order ${order.orderNumber}`);
-          } else {
-            console.log(`Vendor invoice already exists for order ${order.orderNumber}`);
-          }
-        } catch (error) {
-          console.error(`Failed to generate vendor invoice for order ${order.orderNumber}:`, error);
-          // Don't throw - status update should succeed even if invoice generation fails
-        }
-      }
     } else if (status === OrderStatus.CANCELLED) {
       order.cancelledAt = new Date();
       if (reason) {
@@ -966,32 +837,7 @@ export class OrdersService {
         order.adminNotes = (order.adminNotes || '') + `\nCancellation reason: ${reason}`;
       }
 
-      // Restore stock quantities for cancelled order
-      if (order.items && order.items.length > 0) {
-        console.log(`[updateStatus] Restoring stock for cancelled order ${order.orderNumber}`);
-        for (const item of order.items) {
-          if (item.variantId) {
-            await this.productVariantsRepository.increment({ id: item.variantId }, 'stockQuantity', item.quantity);
-            const variants = await this.productVariantsRepository.find({ where: { productId: item.productId } });
-            const newTotal = variants.reduce((s, v) => s + (v.stockQuantity || 0), 0);
-            await this.productRepository.update(item.productId, { stockQuantity: newTotal });
-            console.log(`[updateStatus] Restored ${item.quantity} units to variant ${item.variantId}. New product total: ${newTotal}`);
-          } else {
-            await this.productRepository.increment({ id: item.productId }, 'stockQuantity', item.quantity);
-          }
-          // A cancelled sale never happened — undo the popularity credit given
-          // when the order was placed, or a wave of cancellations would
-          // permanently promote a product that no one actually kept.
-          await this.productRepository.decrement({ id: item.productId }, 'salesCount', item.quantity);
-
-          // Broadcast updated product stock via WebSocket
-          const product = await this.productRepository.findOne({ where: { id: item.productId } });
-          if (product) {
-            this.marketplaceGateway.emitStockUpdate(product.id, product.stockQuantity);
-            console.log(`[updateStatus] Restored ${item.quantity} units to product ${product.id}. New stock: ${product.stockQuantity}`);
-          }
-        }
-      }
+      await this.restock(order.items ?? []);
 
       this.notificationsService
         .notifyUser(order.userId, NotificationType.ORDER_REJECTED, `Order #${order.orderNumber} could not be accepted`, {
@@ -1022,7 +868,6 @@ export class OrdersService {
           .catch((err) => console.error('Failed to notify customer of cancellation credit:', err));
 
         try {
-          console.log(`[updateStatus] Creating credit note for cancelled order ${order.orderNumber}`);
           await this.invoicesService.createCreditNote(order.id, 'Order cancelled');
         } catch (error) {
           console.error('Failed to create credit note for cancelled order:', error);
@@ -1035,8 +880,6 @@ export class OrdersService {
     // Emit order status update via WebSocket
     this.marketplaceGateway.emitOrderStatusUpdate(order.id, status, order.userId);
     
-    const duration = Date.now() - startTime;
-    console.log(`[updateStatus] Completed status update for order ${id} in ${duration}ms`);
     
     return savedOrder;
   }
@@ -1069,51 +912,16 @@ export class OrdersService {
         .catch((err) => console.error('Failed to notify admins of payment:', err));
 
       try {
-        console.log(`Payment completed for order ${order.orderNumber}. Generating invoices...`);
-        
-        // Check if customer invoice already exists
-        const existingCustomerInvoice = await this.invoicesService.findByOrderAndType(order.id, 'customer');
-        if (!existingCustomerInvoice) {
+        if (!(await this.invoicesService.findByOrderAndType(order.id, InvoiceType.CUSTOMER))) {
           await this.invoicesService.createFromOrder({
             orderId: order.id,
-            type: 'customer' as any,
+            type: InvoiceType.CUSTOMER,
             notes: 'Thank you for your purchase!',
           });
-          console.log(`Customer invoice generated for order ${order.orderNumber}`);
-        } else {
-          console.log(`Customer invoice already exists for order ${order.orderNumber}`);
-        }
-        
-        // Check if vendor invoice already exists
-        const existingVendorInvoice = await this.invoicesService.findByOrderAndType(order.id, 'vendor');
-        if (!existingVendorInvoice) {
-          await this.invoicesService.createFromOrder({
-            orderId: order.id,
-            type: 'vendor' as any,
-            notes: `Vendor payout for order ${order.orderNumber}`,
-          });
-          console.log(`Vendor invoice generated for order ${order.orderNumber}`);
-        } else {
-          console.log(`Vendor invoice already exists for order ${order.orderNumber}`);
-        }
-        
-        // A commission-free order has nothing for a platform invoice to state.
-        if (Number(order.commissionAmount) > 0) {
-          const existingPlatformInvoice = await this.invoicesService.findByOrderAndType(order.id, 'platform');
-          if (!existingPlatformInvoice) {
-            await this.invoicesService.createFromOrder({
-              orderId: order.id,
-              type: 'platform' as any,
-              notes: `Platform commission for order ${order.orderNumber}`,
-            });
-            console.log(`Platform invoice generated for order ${order.orderNumber}`);
-          } else {
-            console.log(`Platform invoice already exists for order ${order.orderNumber}`);
-          }
         }
       } catch (error) {
-        console.error(`Failed to generate invoices for order ${order.orderNumber}:`, error);
-        // Don't throw - payment status update should succeed even if invoice generation fails
+        // The payment stands either way; the invoice can be generated later.
+        console.error(`Failed to generate the invoice for order ${order.orderNumber}:`, error);
       }
     }
     
@@ -1140,28 +948,7 @@ export class OrdersService {
       );
     }
 
-    // Restore stock quantities
-    console.log(`[cancel] Restoring stock for cancelled order ${order.orderNumber}`);
-    for (const item of order.items) {
-      if (item.variantId) {
-        await this.productVariantsRepository.increment({ id: item.variantId }, 'stockQuantity', item.quantity);
-        const variants = await this.productVariantsRepository.find({ where: { productId: item.productId } });
-        const newTotal = variants.reduce((s, v) => s + (v.stockQuantity || 0), 0);
-        await this.productRepository.update(item.productId, { stockQuantity: newTotal });
-        console.log(`[cancel] Restored ${item.quantity} units to variant ${item.variantId}. New product total: ${newTotal}`);
-      } else {
-        await this.productRepository.increment({ id: item.productId }, 'stockQuantity', item.quantity);
-      }
-      // See Task 4: a cancelled sale should not keep counting toward popularity.
-      await this.productRepository.decrement({ id: item.productId }, 'salesCount', item.quantity);
-
-      // Broadcast updated product stock via WebSocket
-      const product = await this.productRepository.findOne({ where: { id: item.productId } });
-      if (product) {
-        this.marketplaceGateway.emitStockUpdate(product.id, product.stockQuantity);
-        console.log(`[cancel] Restored ${item.quantity} units to product ${product.id}. New stock: ${product.stockQuantity}`);
-      }
-    }
+    await this.restock(order.items);
 
     order.status = OrderStatus.CANCELLED;
     order.cancelledAt = new Date();
@@ -1243,19 +1030,7 @@ export class OrdersService {
 
     if (decision === 'credit') {
       // Goods are undamaged and coming back to stock.
-      for (const item of order.items) {
-        if (item.variantId) {
-          await this.productVariantsRepository.increment({ id: item.variantId }, 'stockQuantity', item.quantity);
-          const variants = await this.productVariantsRepository.find({ where: { productId: item.productId } });
-          const newTotal = variants.reduce((s, v) => s + (v.stockQuantity || 0), 0);
-          await this.productRepository.update(item.productId, { stockQuantity: newTotal });
-        } else {
-          await this.productRepository.increment({ id: item.productId }, 'stockQuantity', item.quantity);
-        }
-        await this.productRepository.decrement({ id: item.productId }, 'salesCount', item.quantity);
-        const product = await this.productRepository.findOne({ where: { id: item.productId } });
-        if (product) this.marketplaceGateway.emitStockUpdate(product.id, product.stockQuantity);
-      }
+      await this.restock(order.items);
 
       const creditAmount = Number(options.creditAmount ?? 0);
       if (creditAmount > 0) {
@@ -1337,19 +1112,7 @@ export class OrdersService {
     // Goods are undamaged and coming back to stock — a customer asking to
     // exchange rather than just refusing implies they still want to buy
     // something from the store, not that the parcel is unsellable.
-    for (const item of order.items) {
-      if (item.variantId) {
-        await this.productVariantsRepository.increment({ id: item.variantId }, 'stockQuantity', item.quantity);
-        const variants = await this.productVariantsRepository.find({ where: { productId: item.productId } });
-        const newTotal = variants.reduce((s, v) => s + (v.stockQuantity || 0), 0);
-        await this.productRepository.update(item.productId, { stockQuantity: newTotal });
-      } else {
-        await this.productRepository.increment({ id: item.productId }, 'stockQuantity', item.quantity);
-      }
-      await this.productRepository.decrement({ id: item.productId }, 'salesCount', item.quantity);
-      const restockedProduct = await this.productRepository.findOne({ where: { id: item.productId } });
-      if (restockedProduct) this.marketplaceGateway.emitStockUpdate(restockedProduct.id, restockedProduct.stockQuantity);
-    }
+    await this.restock(order.items);
 
     order.status = OrderStatus.CANCELLED;
     order.cancelledAt = new Date();
@@ -1455,23 +1218,7 @@ export class OrdersService {
     }
 
     // Release the stock reserved when the order was placed.
-    for (const item of order.items) {
-      if (item.variantId) {
-        await this.productVariantsRepository.increment({ id: item.variantId }, 'stockQuantity', item.quantity);
-        const variants = await this.productVariantsRepository.find({ where: { productId: item.productId } });
-        const newTotal = variants.reduce((s, v) => s + (v.stockQuantity || 0), 0);
-        await this.productRepository.update(item.productId, { stockQuantity: newTotal });
-      } else {
-        await this.productRepository.increment({ id: item.productId }, 'stockQuantity', item.quantity);
-      }
-      // See Task 4: a payment that never completed should not count as a sale.
-      await this.productRepository.decrement({ id: item.productId }, 'salesCount', item.quantity);
-
-      const product = await this.productRepository.findOne({ where: { id: item.productId } });
-      if (product) {
-        this.marketplaceGateway.emitStockUpdate(product.id, product.stockQuantity);
-      }
-    }
+    await this.restock(order.items);
 
     order.status = OrderStatus.CANCELLED;
     order.paymentStatus = PaymentStatus.FAILED;
@@ -1492,1005 +1239,6 @@ export class OrdersService {
       .catch((err) => console.error('Failed to notify customer of payment failure:', err));
 
     return saved;
-  }
-
-  async requestRefund(id: string, userId: string, reason: string) {
-    const order = await this.orderRepository.findOne({
-      where: { id, userId },
-      relations: ['payments'],
-    });
-
-    if (!order) {
-      throw new NotFoundException('Order not found');
-    }
-
-    if (order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.DELIVERED) {
-      throw new BadRequestException('Refund can only be requested for cancelled or delivered orders');
-    }
-
-    // Check if this is a COD order by looking at payment method
-    const isCOD = order.payments?.some(payment => payment.method === 'cod') || false;
-    
-    // For COD orders, allow refund after delivery regardless of payment status
-    // For online payments, check if order was paid
-    if (!isCOD && order.paymentStatus !== PaymentStatus.PAID) {
-      throw new BadRequestException('Only paid orders can be refunded');
-    }
-
-    if (isCOD) {
-      // For COD, just mark as cancelled/returned, no payment refund needed
-      order.adminNotes = (order.adminNotes || '') + `\nCOD order cancelled/returned: ${reason} at ${new Date().toISOString()}`;
-    } else {
-      // Requested, not settled — the webhook moves this to REFUNDED.
-      order.paymentStatus = PaymentStatus.REFUND_PENDING;
-      order.adminNotes = (order.adminNotes || '') + `\nRefund requested: ${reason} at ${new Date().toISOString()}`;
-    }
-
-    return this.orderRepository.save(order);
-  }
-
-  async requestReturn(id: string, userId: string, reason: string, itemIds?: string[]) {
-    const order = await this.orderRepository.findOne({
-      where: { id, userId },
-      relations: ['items', 'items.product', 'items.product.vendor', 'user'],
-    });
-
-    if (!order) {
-      throw new NotFoundException('Order not found');
-    }
-
-    if (order.status !== OrderStatus.DELIVERED) {
-      throw new BadRequestException('Only delivered orders can be returned');
-    }
-
-    // Get return policy from first product's vendor (assuming single-vendor orders)
-    const vendor = order.items[0]?.product?.vendor;
-    let returnPolicyDays = 7; // Default fallback
-    let allowReturns = true;
-
-    if (vendor) {
-      returnPolicyDays = vendor.returnPolicyDays ?? 7;
-      allowReturns = vendor.allowReturns ?? true;
-
-      if (!allowReturns) {
-        throw new BadRequestException('This vendor does not accept returns');
-      }
-
-      if (returnPolicyDays === 0) {
-        throw new BadRequestException('Returns are not allowed for this vendor');
-      }
-    }
-
-    // Check if return window is still open based on vendor's policy
-    const deliveredDate = order.deliveredAt;
-    if (deliveredDate) {
-      const daysSinceDelivery = Math.floor((Date.now() - deliveredDate.getTime()) / (1000 * 60 * 60 * 24));
-      if (daysSinceDelivery > returnPolicyDays) {
-        throw new BadRequestException(
-          `Return window has expired (${returnPolicyDays} days from delivery). Order was delivered ${daysSinceDelivery} days ago.`
-        );
-      }
-    }
-
-    // Restore stock quantities for returned items
-    console.log(`[requestReturn] Restoring stock for returned order ${order.orderNumber}`);
-    const itemsToReturn = itemIds && itemIds.length > 0 
-      ? order.items.filter(item => itemIds.includes(item.id))
-      : order.items;
-    
-    // Note: Inventory is NOT restored at request time
-    // It will be restored when admin approves the return
-
-    const itemList = itemIds && itemIds.length > 0 
-      ? `Items: ${itemIds.join(', ')}` 
-      : 'All items';
-    
-    order.customerNotes = (order.customerNotes || '') + 
-      `\nReturn requested: ${reason}\n${itemList}\nRequested at: ${new Date().toISOString()}`;
-    order.status = OrderStatus.RETURN_REQUESTED;
-    order.returnReason = reason;
-
-    // Note: Return is only requested, not approved yet
-    // Payment status and inventory remain unchanged until admin approves
-    // Admin can approve the return using approveReturn() method
-
-    // Emit order status update via WebSocket
-    this.marketplaceGateway.emitOrderStatusUpdate(order.id, OrderStatus.RETURN_REQUESTED, order.userId);
-
-    const savedOrder = await this.orderRepository.save(order);
-    
-    return savedOrder;
-  }
-
-  async requestItemReturn(
-    orderId: string,
-    orderItemId: string,
-    userId: string,
-    quantity: number,
-    reason: string,
-    customerNotes?: string,
-    images?: string[]
-  ) {
-    // Find the order and order item
-    const order = await this.orderRepository.findOne({
-      where: { id: orderId, userId },
-      relations: ['items', 'items.product', 'items.product.vendor', 'user'],
-    });
-
-    if (!order) {
-      throw new NotFoundException('Order not found');
-    }
-
-    if (order.status !== OrderStatus.DELIVERED) {
-      throw new BadRequestException('Only delivered orders can be returned');
-    }
-
-    const orderItem = order.items.find(item => item.id === orderItemId);
-    if (!orderItem) {
-      throw new NotFoundException('Order item not found');
-    }
-
-    // Check vendor return policy
-    const vendor = orderItem.product?.vendor;
-    let returnPolicyDays = 7;
-    let allowReturns = true;
-
-    if (vendor) {
-      returnPolicyDays = vendor.returnPolicyDays ?? 7;
-      allowReturns = vendor.allowReturns ?? true;
-
-      if (!allowReturns) {
-        throw new BadRequestException('This vendor does not accept returns');
-      }
-
-      if (returnPolicyDays === 0) {
-        throw new BadRequestException('Returns are not allowed for this vendor');
-      }
-    }
-
-    // Check return window
-    const deliveredDate = order.deliveredAt;
-    if (deliveredDate) {
-      const daysSinceDelivery = Math.floor((Date.now() - deliveredDate.getTime()) / (1000 * 60 * 60 * 24));
-      if (daysSinceDelivery > returnPolicyDays) {
-        throw new BadRequestException(
-          `Return window has expired (${returnPolicyDays} days from delivery). Order was delivered ${daysSinceDelivery} days ago.`
-        );
-      }
-    }
-
-    // Check if quantity is valid
-    if (quantity <= 0 || quantity > orderItem.quantity) {
-      throw new BadRequestException('Invalid return quantity');
-    }
-
-    // Generate return number
-    const date = new Date();
-    const dateStr = date.toISOString().split('T')[0].replace(/-/g, '');
-    const randomNum = Math.floor(1000 + Math.random() * 9000);
-    const returnNumber = `RET-${dateStr}-${randomNum}`;
-
-    // Calculate refund amounts
-    // Note: orderItem.price is the price per unit that customer paid
-    // We should refund exactly what they paid, not add tax on top
-    const itemPrice = parseFloat(orderItem.price.toString());
-    const refundTotal = itemPrice * quantity;
-    
-    // Split the refund into base amount and tax (assuming 18% GST is included in price)
-    // If price includes tax: base = total / 1.18, tax = total - base
-    const refundAmount = refundTotal / 1.18;
-    const refundTax = refundTotal - refundAmount;
-
-    // Get vendor ID from the order
-    const vendorId = order.vendorId || orderItem.product?.vendorId;
-    if (!vendorId) {
-      throw new BadRequestException('Vendor information not found for this order');
-    }
-
-    // Insert return record directly
-    const insertQuery = `
-      INSERT INTO returns (
-        return_number, order_id, order_item_id, user_id, vendor_id,
-        product_name, quantity, original_quantity, original_price,
-        refund_amount, refund_tax, refund_total,
-        reason, customer_notes, images, status,
-        requested_at, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
-      RETURNING *
-    `;
-
-    const returnRecord = await this.dataSource.query(insertQuery, [
-      returnNumber,
-      orderId,
-      orderItemId,
-      userId,
-      vendorId,
-      orderItem.productName,
-      quantity,
-      orderItem.quantity,
-      itemPrice,
-      refundAmount,
-      refundTax,
-      refundTotal,
-      reason,
-      customerNotes || null,
-      images ? JSON.stringify(images) : null,
-      'requested',
-      new Date(),
-      new Date(),
-      new Date()
-    ]);
-
-    // Update order status to RETURN_REQUESTED
-    order.status = OrderStatus.RETURN_REQUESTED;
-    await this.orderRepository.save(order);
-
-    // Emit event
-    this.marketplaceGateway.emitOrderStatusUpdate(order.id, OrderStatus.RETURN_REQUESTED, order.userId);
-
-    return {
-      success: true,
-      message: 'Return request submitted successfully',
-      data: returnRecord[0]
-    };
-  }
-
-  /**
-   * Request returns for multiple items in a single transaction
-   */
-  async requestBulkReturns(
-    orderId: string,
-    userId: string,
-    items: Array<{
-      orderItemId: string;
-      quantity: number;
-      reason: string;
-      customerNotes?: string;
-      images?: string[];
-    }>
-  ) {
-    try {
-      console.log('[requestBulkReturns] Starting bulk return request', { orderId, userId, itemsCount: items.length });
-      
-      // Validate request
-      if (!items || items.length === 0) {
-        throw new BadRequestException('No items provided for return');
-      }
-
-    // Fetch order once
-    const order = await this.orderRepository.findOne({
-      where: { id: orderId, userId },
-      relations: ['items', 'items.product', 'items.product.vendor', 'user'],
-    });
-
-    if (!order) {
-      throw new NotFoundException('Order not found');
-    }
-
-    if (order.status !== OrderStatus.DELIVERED) {
-      throw new BadRequestException('Only delivered orders can be returned');
-    }
-
-    // Check vendor return policy (from first item)
-    const vendor = order.items[0]?.product?.vendor;
-    let returnPolicyDays = 7;
-    let allowReturns = true;
-
-    if (vendor) {
-      returnPolicyDays = vendor.returnPolicyDays ?? 7;
-      allowReturns = vendor.allowReturns ?? true;
-
-      if (!allowReturns) {
-        throw new BadRequestException('This vendor does not accept returns');
-      }
-
-      if (returnPolicyDays === 0) {
-        throw new BadRequestException('Returns are not allowed for this vendor');
-      }
-    }
-
-    // Check return window
-    const deliveredDate = order.deliveredAt;
-    if (deliveredDate) {
-      const daysSinceDelivery = Math.floor((Date.now() - deliveredDate.getTime()) / (1000 * 60 * 60 * 24));
-      if (daysSinceDelivery > returnPolicyDays) {
-        throw new BadRequestException(
-          `Return window has expired (${returnPolicyDays} days from delivery). Order was delivered ${daysSinceDelivery} days ago.`
-        );
-      }
-    }
-
-    // Get vendor ID
-    const vendorId = order.vendorId || order.items[0]?.product?.vendorId;
-    if (!vendorId) {
-      throw new BadRequestException('Vendor information not found for this order');
-    }
-
-    // Process all return requests
-    const returnRecords: any[] = [];
-    const date = new Date();
-    const dateStr = date.toISOString().split('T')[0].replace(/-/g, '');
-
-    for (const item of items) {
-      // Find the order item
-      const orderItem = order.items.find(oi => oi.id === item.orderItemId);
-      if (!orderItem) {
-        throw new NotFoundException(`Order item ${item.orderItemId} not found`);
-      }
-
-      // Validate quantity
-      if (item.quantity <= 0 || item.quantity > orderItem.quantity) {
-        throw new BadRequestException(`Invalid return quantity for item ${orderItem.productName}`);
-      }
-
-      // Generate unique return number
-      const randomNum = Math.floor(1000 + Math.random() * 9000);
-      const returnNumber = `RET-${dateStr}-${randomNum}`;
-
-      // Calculate refund amounts based on product's actual GST rate and price type
-      const itemPrice = parseFloat(orderItem.price.toString());
-      const product = orderItem.product;
-      const gstRate = product?.gstRate || 18; // Default to 18% if not found
-      const priceType = product?.priceType || 'mrp_with_gst';
-
-      let refundAmount: number;
-      let refundTax: number;
-      let refundTotal: number;
-
-      if (priceType === 'mrp_with_gst') {
-        // Price is tax-inclusive
-        refundTotal = itemPrice * item.quantity;
-        refundAmount = refundTotal / (1 + gstRate / 100);
-        refundTax = refundTotal - refundAmount;
-      } else {
-        // Price is tax-exclusive
-        refundAmount = itemPrice * item.quantity;
-        refundTax = refundAmount * (gstRate / 100);
-        refundTotal = refundAmount + refundTax;
-      }
-
-      // Insert return record
-      const insertQuery = `
-        INSERT INTO returns (
-          return_number, order_id, order_item_id, user_id, vendor_id,
-          product_name, quantity, original_quantity, original_price,
-          refund_amount, refund_tax, refund_total,
-          reason, customer_notes, images, status,
-          requested_at, created_at, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
-        RETURNING *
-      `;
-
-      const returnRecord = await this.dataSource.query(insertQuery, [
-        returnNumber,
-        orderId,
-        orderItem.id,
-        userId,
-        vendorId,
-        orderItem.productName,
-        item.quantity,
-        orderItem.quantity,
-        itemPrice,
-        refundAmount.toFixed(2),
-        refundTax.toFixed(2),
-        refundTotal.toFixed(2),
-        item.reason,
-        item.customerNotes || null,
-        item.images ? JSON.stringify(item.images) : null,
-        'requested',
-        new Date(),
-        new Date(),
-        new Date()
-      ]);
-
-      returnRecords.push(returnRecord[0]);
-    }
-
-    // Update order status to RETURN_REQUESTED
-    order.status = OrderStatus.RETURN_REQUESTED;
-    await this.orderRepository.save(order);
-
-    // Emit event
-    this.marketplaceGateway.emitOrderStatusUpdate(order.id, OrderStatus.RETURN_REQUESTED, order.userId);
-
-    return {
-      success: true,
-      message: `${returnRecords.length} return request(s) submitted successfully`,
-      data: returnRecords
-    };
-    } catch (error) {
-      console.error('[requestBulkReturns] Error:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Approve all return requests for an order
-   */
-  async approveAllReturns(orderId: string) {
-    // Get all requested returns for this order
-    const returns = await this.dataSource.query(
-      `SELECT * FROM returns WHERE order_id = $1 AND status = 'requested'`,
-      [orderId]
-    );
-
-    if (!returns || returns.length === 0) {
-      throw new NotFoundException('No pending return requests found for this order');
-    }
-
-    // Approve all returns
-    await this.dataSource.query(
-      `UPDATE returns 
-       SET status = 'approved', approved_at = $1, updated_at = $2 
-       WHERE order_id = $3 AND status = 'requested'`,
-      [new Date(), new Date(), orderId]
-    );
-
-    // Update order status to RETURN_APPROVED
-    await this.orderRepository.update(
-      { id: orderId },
-      { status: OrderStatus.RETURN_APPROVED }
-    );
-
-    // Emit WebSocket event
-    const order = await this.orderRepository.findOne({ where: { id: orderId } });
-    if (order) {
-      this.marketplaceGateway.emitOrderStatusUpdate(
-        orderId,
-        OrderStatus.RETURN_APPROVED,
-        order.userId
-      );
-    }
-
-    return {
-      success: true,
-      message: `${returns.length} return request(s) approved. Customer can now ship items back.`,
-      approvedCount: returns.length
-    };
-  }
-
-  /**
-   * Reject all return requests for an order
-   */
-  async rejectAllReturns(orderId: string, reason: string) {
-    // Get all requested returns for this order
-    const returns = await this.dataSource.query(
-      `SELECT * FROM returns WHERE order_id = $1 AND status = 'requested'`,
-      [orderId]
-    );
-
-    if (!returns || returns.length === 0) {
-      throw new NotFoundException('No pending return requests found for this order');
-    }
-
-    // Reject all returns
-    await this.dataSource.query(
-      `UPDATE returns 
-       SET status = 'rejected', rejected_at = $1, rejection_reason = $2, updated_at = $3 
-       WHERE order_id = $4 AND status = 'requested'`,
-      [new Date(), reason, new Date(), orderId]
-    );
-
-    // Update order status back to DELIVERED
-    await this.orderRepository.update(
-      { id: orderId },
-      { status: OrderStatus.DELIVERED }
-    );
-
-    // Emit WebSocket event
-    const order = await this.orderRepository.findOne({ where: { id: orderId } });
-    if (order) {
-      this.marketplaceGateway.emitOrderStatusUpdate(
-        orderId,
-        OrderStatus.DELIVERED,
-        order.userId
-      );
-    }
-
-    return {
-      success: true,
-      message: `${returns.length} return request(s) rejected.`,
-      rejectedCount: returns.length
-    };
-  }
-
-  /**
-   * Confirm all approved returns - restore stock and create single credit note
-   */
-  async confirmAllReturns(orderId: string) {
-    // Get all approved returns for this order with order item details
-    const returns = await this.dataSource.query(
-      `SELECT r.*, oi.product_id, oi.variant_id 
-       FROM returns r 
-       JOIN order_items oi ON r.order_item_id = oi.id
-       WHERE r.order_id = $1 AND r.status = 'approved'`,
-      [orderId]
-    );
-
-    if (!returns || returns.length === 0) {
-      throw new NotFoundException('No approved returns found for this order');
-    }
-
-    // Get order details
-    const order = await this.orderRepository.findOne({
-      where: { id: orderId },
-      relations: ['items', 'user', 'vendor'],
-    });
-
-    if (!order) {
-      throw new NotFoundException('Order not found');
-    }
-
-    // Restore stock for each return item
-    for (const returnItem of returns) {
-      console.log(`[confirmAllReturns] Processing return item:`, {
-        id: returnItem.id,
-        product_id: returnItem.product_id,
-        variant_id: returnItem.variant_id,
-        quantity: returnItem.quantity
-      });
-
-      // Check if it's a variant or regular product
-      if (returnItem.variant_id) {
-        const result = await this.dataSource.query(
-          `UPDATE product_variants SET stock_quantity = stock_quantity + $1 WHERE id = $2 RETURNING stock_quantity`,
-          [returnItem.quantity, returnItem.variant_id]
-        );
-        console.log(`[confirmAllReturns] Restored ${returnItem.quantity} units to variant ${returnItem.variant_id}. New stock: ${result[0]?.stock_quantity}`);
-        
-        // Emit WebSocket for variant's product
-        if (returnItem.product_id) {
-          const product = await this.productRepository.findOne({
-            where: { id: returnItem.product_id }
-          });
-          if (product) {
-            this.marketplaceGateway.emitStockUpdate(
-              product.id,
-              product.stockQuantity
-            );
-          }
-        }
-      } else if (returnItem.product_id) {
-        await this.productRepository.increment(
-          { id: returnItem.product_id },
-          'stockQuantity',
-          returnItem.quantity
-        );
-        
-        // Get updated product stock and broadcast via WebSocket
-        const product = await this.productRepository.findOne({
-          where: { id: returnItem.product_id }
-        });
-        if (product) {
-          this.marketplaceGateway.emitStockUpdate(
-            product.id,
-            product.stockQuantity
-          );
-          console.log(`[confirmAllReturns] Restored ${returnItem.quantity} units to product ${returnItem.product_id}. New stock: ${product.stockQuantity}`);
-        }
-      }
-
-      // Update return status to received
-      await this.dataSource.query(
-        `UPDATE returns 
-         SET status = 'received', received_at = $1, updated_at = $2 
-         WHERE id = $3`,
-        [new Date(), new Date(), returnItem.id]
-      );
-    }
-
-    // Update order status to RETURNED
-    await this.orderRepository.update(
-      { id: orderId },
-      { 
-        status: OrderStatus.RETURNED,
-        returnedAt: new Date()
-      }
-    );
-
-    // Create a single consolidated credit note for all returns
-    try {
-      // Calculate totals from all returns
-      const totalRefundAmount = returns.reduce((sum, r) => sum + parseFloat(r.refund_amount || 0), 0);
-      const totalRefundTax = returns.reduce((sum, r) => sum + parseFloat(r.refund_tax || 0), 0);
-      
-      // Calculate commission on returned amount (assuming commission rate from order)
-      const commissionRate = order.commissionRate || 0;
-      const returnedCommission = totalRefundAmount * (commissionRate / 100);
-
-      await this.invoicesService.createPartialCreditNote(
-        orderId,
-        totalRefundAmount,
-        totalRefundTax,
-        returnedCommission,
-        `Return of ${returns.length} item(s)`,
-        returns  // Pass the actual returned items
-      );
-      console.log(`[confirmAllReturns] Created consolidated credit note for order ${orderId}`);
-    } catch (error) {
-      console.error('Failed to create consolidated credit note:', error);
-    }
-
-    // Emit WebSocket event
-    this.marketplaceGateway.emitOrderStatusUpdate(
-      orderId,
-      OrderStatus.RETURNED,
-      order.userId
-    );
-
-    return {
-      success: true,
-      message: `${returns.length} return(s) confirmed. Stock restored and credit note created.`,
-      confirmedCount: returns.length
-    };
-  }
-
-  /**
-   * Approve a return request (Admin only)
-   * This allows customer to ship the item back but does NOT process refund yet
-   */
-  async approveReturnRequest(orderId: string): Promise<Order> {
-    const order = await this.orderRepository.findOne({
-      where: { id: orderId },
-      relations: ['items', 'user', 'vendor'],
-    });
-
-    if (!order) {
-      throw new NotFoundException('Order not found');
-    }
-
-    if (order.status !== OrderStatus.RETURN_REQUESTED) {
-      throw new BadRequestException('Order does not have a pending return request');
-    }
-
-    // Update order status to approved - customer can now ship back
-    order.status = OrderStatus.RETURN_APPROVED;
-    order.returnApprovedAt = new Date();
-    order.adminNotes = (order.adminNotes || '') + 
-      `\nReturn request approved at: ${new Date().toISOString()}\nWaiting for customer to ship item back.`;
-
-    // Note: Payment status remains PAID, inventory unchanged
-    // Refund will be processed only after receiving and verifying the item
-
-    // Emit order status update via WebSocket
-    this.marketplaceGateway.emitOrderStatusUpdate(order.id, OrderStatus.RETURN_APPROVED, order.userId);
-
-    // The customer is told in-app (bell notification + the return-shipping
-    // instructions on their order page) — no email is sent for any order
-    // event; see the note on this service's constructor.
-    return this.orderRepository.save(order);
-  }
-
-  /**
-   * Confirm item received and process refund (Admin only)
-   * This restocks inventory and processes the refund
-   */
-  async confirmItemReceived(orderId: string, itemIds?: string[]): Promise<Order> {
-    const order = await this.orderRepository.findOne({
-      where: { id: orderId },
-      relations: ['items', 'items.product', 'user', 'vendor'],
-    });
-
-    if (!order) {
-      throw new NotFoundException('Order not found');
-    }
-
-    if (order.status !== OrderStatus.RETURN_APPROVED) {
-      throw new BadRequestException('Return must be approved first');
-    }
-
-    // Restore inventory for returned items
-    const itemsToReturn = itemIds && itemIds.length > 0 
-      ? order.items.filter(item => itemIds.includes(item.id))
-      : order.items;
-    
-    for (const item of itemsToReturn) {
-      if (item.productId) {
-        await this.productRepository.increment(
-          { id: item.productId },
-          'stockQuantity',
-          item.quantity
-        );
-        
-        // Get updated product stock and broadcast via WebSocket
-        const product = await this.productRepository.findOne({ 
-          where: { id: item.productId } 
-        });
-        if (product) {
-          this.marketplaceGateway.emitStockUpdate(
-            product.id,
-            product.stockQuantity
-          );
-          console.log(`[confirmItemReceived] Restored ${item.quantity} units to product ${product.id}. New stock: ${product.stockQuantity}`);
-        }
-      }
-    }
-
-    // Update order status
-    order.status = OrderStatus.RETURNED;
-    order.returnedAt = new Date();
-    order.adminNotes = (order.adminNotes || '') +
-      `\nItem received and verified at: ${new Date().toISOString()}\nRefund owed.`;
-
-    // Refund is owed; the `refund.processed` webhook marks it settled.
-    if (order.paymentStatus === PaymentStatus.PAID) {
-      order.paymentStatus = PaymentStatus.REFUND_PENDING;
-
-      try {
-        console.log(`[confirmItemReceived] Creating credit note for returned order ${order.orderNumber}`);
-        await this.invoicesService.createCreditNote(
-          order.id, 
-          order.returnReason || 'Order returned by customer'
-        );
-      } catch (error) {
-        console.error('Failed to create credit note for returned order:', error);
-      }
-    }
-
-    // Emit order status update via WebSocket
-    this.marketplaceGateway.emitOrderStatusUpdate(order.id, OrderStatus.RETURNED, order.userId);
-
-    const savedOrder = await this.orderRepository.save(order);
-    
-    return savedOrder;
-  }
-
-  /**
-   * Approve an individual item return request
-   */
-  async approveItemReturn(returnId: string) {
-    const result = await this.dataSource.query(
-      `SELECT * FROM returns WHERE id = $1`,
-      [returnId]
-    );
-
-    if (!result || result.length === 0) {
-      throw new NotFoundException('Return request not found');
-    }
-
-    const returnItem = result[0];
-
-    if (returnItem.status !== 'requested') {
-      throw new BadRequestException('Return request has already been processed');
-    }
-
-    // Update return status to approved
-    await this.dataSource.query(
-      `UPDATE returns 
-       SET status = $1, approved_at = $2, updated_at = $3 
-       WHERE id = $4`,
-      ['approved', new Date(), new Date(), returnId]
-    );
-
-    // Emit WebSocket event to notify customer
-    this.marketplaceGateway.emitOrderStatusUpdate(
-      returnItem.order_id, 
-      'return_item_approved', 
-      returnItem.user_id
-    );
-
-    return {
-      success: true,
-      message: 'Item return approved. Customer can now ship the item back.',
-    };
-  }
-
-  /**
-   * Reject an individual item return request
-   */
-  async rejectItemReturn(returnId: string, reason: string) {
-    const result = await this.dataSource.query(
-      `SELECT * FROM returns WHERE id = $1`,
-      [returnId]
-    );
-
-    if (!result || result.length === 0) {
-      throw new NotFoundException('Return request not found');
-    }
-
-    const returnItem = result[0];
-
-    if (returnItem.status !== 'requested') {
-      throw new BadRequestException('Return request has already been processed');
-    }
-
-    if (!reason || !reason.trim()) {
-      throw new BadRequestException('Rejection reason is required');
-    }
-
-    // Update return status to rejected
-    await this.dataSource.query(
-      `UPDATE returns 
-       SET status = $1, rejected_at = $2, rejection_reason = $3, updated_at = $4 
-       WHERE id = $5`,
-      ['rejected', new Date(), reason, new Date(), returnId]
-    );
-
-    // Emit WebSocket event to notify customer
-    this.marketplaceGateway.emitOrderStatusUpdate(
-      returnItem.order_id, 
-      'return_item_rejected', 
-      returnItem.user_id
-    );
-
-    return {
-      success: true,
-      message: 'Item return request rejected.',
-    };
-  }
-
-  /**
-   * Confirm individual item return received and process refund
-   */
-  async confirmItemReturnReceived(returnId: string, refundNow: boolean = true) {
-    const result = await this.dataSource.query(
-      `SELECT r.*, oi.product_id, oi.variant_id, oi.quantity as item_quantity 
-       FROM returns r
-       LEFT JOIN order_items oi ON r.order_item_id = oi.id
-       WHERE r.id = $1`,
-      [returnId]
-    );
-
-    if (!result || result.length === 0) {
-      throw new NotFoundException('Return request not found');
-    }
-
-    const returnItem = result[0];
-
-    if (returnItem.status !== 'approved') {
-      throw new BadRequestException('Return must be approved before confirming receipt');
-    }
-
-    // Restore inventory for the returned items (only the quantity being returned, not all items)
-    if (returnItem.quantity > 0) {
-      // Check if this is a variant or a simple product
-      if (returnItem.variant_id) {
-        // Update variant stock
-        await this.dataSource.query(
-          `UPDATE product_variants 
-           SET stock_quantity = COALESCE(stock_quantity, 0) + $1 
-           WHERE id = $2`,
-          [returnItem.quantity, returnItem.variant_id]
-        );
-        
-        // Get updated variant stock and broadcast via WebSocket
-        const variantResult = await this.dataSource.query(
-          `SELECT pv.*, p.id as product_id 
-           FROM product_variants pv
-           JOIN products p ON pv.product_id = p.id
-           WHERE pv.id = $1`,
-          [returnItem.variant_id]
-        );
-        if (variantResult && variantResult.length > 0) {
-          const variant = variantResult[0];
-          this.marketplaceGateway.emitStockUpdate(
-            variant.product_id,
-            variant.stock_quantity
-          );
-          console.log(`[confirmItemReturnReceived] Restored ${returnItem.quantity} units to variant ${returnItem.variant_id}. New stock: ${variant.stock_quantity}`);
-        }
-      } else if (returnItem.product_id) {
-        // Update product stock
-        await this.productRepository.increment(
-          { id: returnItem.product_id },
-          'stockQuantity',
-          returnItem.quantity
-        );
-        
-        // Get updated product stock and broadcast via WebSocket
-        const product = await this.productRepository.findOne({ 
-          where: { id: returnItem.product_id } 
-        });
-        if (product) {
-          this.marketplaceGateway.emitStockUpdate(
-            product.id,
-            product.stockQuantity
-          );
-          console.log(`[confirmItemReturnReceived] Restored ${returnItem.quantity} units to product ${product.id}. New stock: ${product.stockQuantity}`);
-        }
-      }
-    }
-
-    // Update return status
-    const newStatus = refundNow ? 'refunded' : 'received';
-    const updateFields: any = {
-      status: newStatus,
-      received_at: new Date(),
-      updated_at: new Date(),
-    };
-
-    if (refundNow) {
-      updateFields.refunded_at = new Date();
-    }
-
-    await this.dataSource.query(
-      `UPDATE returns 
-       SET status = $1, received_at = $2, refunded_at = $3, updated_at = $4 
-       WHERE id = $5`,
-      [newStatus, updateFields.received_at, updateFields.refunded_at || null, updateFields.updated_at, returnId]
-    );
-
-    if (refundNow) {
-      // Create partial credit note for the specific returned items
-      try {
-        console.log(`[confirmItemReturnReceived] Creating partial credit note for return ${returnItem.return_number}`);
-        
-        // Get order to calculate commission
-        const order = await this.orderRepository.findOne({
-          where: { id: returnItem.order_id },
-          relations: ['vendor'],
-        });
-        
-        // The order's own stored rate is authoritative — it is what commission
-        // was actually calculated at when the order was placed. Falls back to
-        // 0, not the old hardcoded 10, so a historic order missing the column
-        // is treated as commission-free rather than silently charged the old
-        // platform default.
-        const commissionRate = order?.commissionRate || order?.vendor?.commissionRate || 0;
-        const returnedAmount = Number(returnItem.refund_amount) || 0;
-        const returnedTax = Number(returnItem.refund_tax) || 0;
-        const returnedCommission = (returnedAmount + returnedTax) * (commissionRate / 100);
-        
-        await this.invoicesService.createPartialCreditNote(
-          returnItem.order_id,
-          returnedAmount,
-          returnedTax,
-          returnedCommission,
-          `Item return: ${returnItem.product_name} (Qty: ${returnItem.quantity}) - ${returnItem.reason}`
-        );
-        console.log(`[confirmItemReturnReceived] Partial credit note created for returned items`);
-      } catch (error) {
-        console.error('Failed to create partial credit note for item return:', error);
-        // Don't fail the entire operation if credit note fails
-      }
-
-      // TODO: Process actual refund through payment gateway
-      console.log(`[confirmItemReturnReceived] Processing refund of $${returnItem.refund_total} for return ${returnItem.return_number}`);
-    }
-
-    // Emit WebSocket event to notify customer
-    this.marketplaceGateway.emitOrderStatusUpdate(
-      returnItem.order_id, 
-      refundNow ? 'return_item_refunded' : 'return_item_received', 
-      returnItem.user_id
-    );
-
-    return {
-      success: true,
-      message: refundNow ? 'Item return received and refund processed.' : 'Item return received.',
-    };
-  }
-
-  /**
-   * Reject a return request (Admin only)
-   */
-  async rejectReturn(orderId: string, reason: string): Promise<Order> {
-    const order = await this.orderRepository.findOne({
-      where: { id: orderId },
-      relations: ['items', 'user', 'vendor'],
-    });
-
-    if (!order) {
-      throw new NotFoundException('Order not found');
-    }
-
-    if (order.status !== OrderStatus.RETURN_REQUESTED) {
-      throw new BadRequestException('Order does not have a pending return request');
-    }
-
-    // Revert to delivered status
-    order.status = OrderStatus.DELIVERED;
-    order.returnRejectedAt = new Date();
-    order.returnRejectionReason = reason;
-    order.adminNotes = (order.adminNotes || '') + 
-      `\nReturn rejected at: ${new Date().toISOString()}\nReason: ${reason}`;
-
-    // Emit order status update via WebSocket
-    this.marketplaceGateway.emitOrderStatusUpdate(order.id, OrderStatus.DELIVERED, order.userId);
-
-    const savedOrder = await this.orderRepository.save(order);
-    
-    return savedOrder;
   }
 
   private generateOrderNumber(): string {
@@ -2519,46 +1267,30 @@ export class OrdersService {
    * Download invoice for a customer's order
    * Only shows customer invoice (not vendor invoice)
    */
-  async downloadOrderInvoice(orderId: string, userId: string, res: Response) {
-    // First try to find order belonging to user (for customers)
-    let order = await this.orderRepository.findOne({
-      where: { id: orderId, userId },
+  async downloadOrderInvoice(orderId: string, user: { id: string; role?: UserRole }, res: Response) {
+    // Customers get their own orders; admins any.
+    const order = await this.orderRepository.findOne({
+      where: isStoreAdmin(user) ? { id: orderId } : { id: orderId, userId: user.id },
       relations: ['invoices', 'user'],
     });
-
-    // If not found, check if user is admin and allow access to any order
-    if (!order) {
-      const user = await this.dataSource.getRepository('User').findOne({ 
-        where: { id: userId } 
-      });
-      
-      if (user && (user.role === 'super_admin' || user.role === 'admin')) {
-        // Admin can access any order
-        order = await this.orderRepository.findOne({
-          where: { id: orderId },
-          relations: ['invoices', 'user'],
-        });
-      }
-    }
-
     if (!order) {
       throw new NotFoundException('Order not found');
     }
 
     // Find customer invoice
-    let customerInvoice = order.invoices?.find(inv => inv.type === 'customer');
+    let customerInvoice = order.invoices?.find(
+      (inv) => inv.type === InvoiceType.CUSTOMER && !inv.invoiceNumber?.startsWith('CN-'),
+    );
 
     // If invoice doesn't exist but order is paid, generate it now
     if (!customerInvoice && order.paymentStatus === PaymentStatus.PAID) {
-      console.log(`Invoice not found for paid order ${order.orderNumber}. Generating now...`);
       try {
         const createdInvoice = await this.invoicesService.createFromOrder({
           orderId: order.id,
-          type: 'customer' as any,
+          type: InvoiceType.CUSTOMER,
           notes: 'Thank you for your purchase!',
         });
         customerInvoice = createdInvoice as any;
-        console.log(`Invoice generated for order ${order.orderNumber}`);
       } catch (error) {
         console.error(`Failed to generate invoice for order ${order.orderNumber}:`, error);
         throw new NotFoundException('Failed to generate invoice. Please contact support.');
@@ -2580,99 +1312,5 @@ export class OrdersService {
     });
 
     res.send(pdfBuffer);
-  }
-
-  async getReturnDetails(orderId: string, requester?: { id: string; role: UserRole }) {
-    try {
-      const order = await this.orderRepository.findOne({
-        where: { id: orderId },
-        relations: ['items', 'items.product', 'user', 'vendor'],
-      });
-
-      if (!order) {
-        throw new NotFoundException('Order not found');
-      }
-
-      // A customer may read only their own order's return details. Reported as
-      // "not found" rather than "forbidden" so the endpoint cannot be used to
-      // confirm which order ids exist.
-      if (requester) {
-        const isAdmin =
-          requester.role === UserRole.SUPER_ADMIN || requester.role === UserRole.VENDOR_ADMIN;
-        if (!isAdmin && order.userId !== requester.id) {
-          throw new NotFoundException('Order not found');
-        }
-      }
-
-      // Only show return details for return_approved or returned status
-      if (order.status !== OrderStatus.RETURN_APPROVED && order.status !== OrderStatus.RETURNED) {
-        return null;
-      }
-
-      if (!order.vendor) {
-        throw new Error('Order vendor not found');
-      }
-
-      // Get vendor's address for return shipping
-      const vendor = order.vendor;
-      const returnAddress = {
-        name: vendor.businessName || vendor.storeName,
-        addressLine1: vendor.address || '',
-        city: vendor.city || '',
-        state: vendor.state || '',
-        postalCode: vendor.postalCode || vendor.pincode || '',
-        country: vendor.country || 'India',
-        phone: vendor.contactPhone || '',
-      };
-
-      // Generate comprehensive QR code data for shipping carriers (Amazon-style)
-      const QRCode = require('qrcode');
-    
-    // Create a return authorization number
-    const returnAuthNumber = `RMA-${order.orderNumber}-${Date.now().toString().slice(-6)}`;
-    
-    // Comprehensive QR data for carrier scanning
-    const qrData = JSON.stringify({
-      rma: returnAuthNumber,
-      order: order.orderNumber,
-      returnTo: {
-        name: returnAddress.name,
-        address: returnAddress.addressLine1,
-        city: returnAddress.city,
-        state: returnAddress.state,
-        zip: returnAddress.postalCode,
-        country: returnAddress.country,
-        phone: returnAddress.phone,
-      },
-      shipmentType: 'RETURN',
-      service: 'GROUND',
-      timestamp: new Date().toISOString(),
-      trackingUrl: `${process.env.APP_URL || 'http://localhost:3000'}/orders/return/${returnAuthNumber}`
-    });
-    
-    const qrCodeDataUrl = await QRCode.toDataURL(qrData, { 
-      width: 300, 
-      margin: 2,
-      errorCorrectionLevel: 'H' // High error correction for better scanning
-    });
-
-    return {
-      orderNumber: order.orderNumber,
-      returnAuthNumber,
-      returnReason: order.returnReason,
-      qrCodeDataUrl,
-      returnAddress,
-      instructions: [
-        'No Printer Needed: Show this QR code at any UPS, FedEx, or postal location',
-        'The carrier will scan the QR code to generate your shipping label',
-        'Pack the item securely in its original packaging',
-        'Hand over the package - shipping is prepaid',
-        'Keep your receipt for tracking'
-      ]
-    };
-    } catch (error) {
-      console.error(`Error generating return details for order ${orderId}:`, error);
-      throw error;
-    }
   }
 }

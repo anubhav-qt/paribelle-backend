@@ -47,25 +47,4 @@ export class SettingsService {
   async deleteSetting(key: string): Promise<void> {
     await this.settingsRepository.delete({ key });
   }
-
-  // Helper method to get location filter enabled status
-  async isLocationFilterEnabled(): Promise<boolean> {
-    const value = await this.getSetting('location_filter_enabled');
-    return value !== false; // Default to true if not set
-  }
-
-  // Helper method to get admin notification email for KYC and other admin alerts
-  async getAdminNotificationEmail(): Promise<string | null> {
-    const value = await this.getSetting('admin_notification_email');
-    return value || null; // Returns email string or null if not set
-  }
-
-  // Helper method to update admin notification email
-  async setAdminNotificationEmail(email: string): Promise<SiteSetting> {
-    return this.updateSetting(
-      'admin_notification_email',
-      email,
-      'Email address for receiving admin notifications (KYC submissions, order alerts, etc.)'
-    );
-  }
 }

@@ -9,21 +9,21 @@ import {
   OneToMany,
 } from 'typeorm';
 import { Order } from '../orders/order.entity';
-import { Vendor } from '../vendors/vendor.entity';
 import { User } from '../users/user.entity';
 import { InvoiceItem } from './invoice-item.entity';
 
+/**
+ * Only customer invoices (and their credit notes) are made now. The column
+ * also allows the marketplace's vendor, platform, registration and referral
+ * types, which may still be on old rows; nothing lists or creates them.
+ */
 export enum InvoiceType {
-  CUSTOMER = 'customer', // Invoice sent to customer
-  VENDOR = 'vendor', // Invoice/payout statement for vendor
-  PLATFORM = 'platform', // Commission invoice for platform
-  REGISTRATION = 'registration', // Vendor registration fee invoice
-  REFERRAL_CREDIT = 'referral_credit', // Referral credit invoice
+  CUSTOMER = 'customer',
 }
 
 export enum InvoiceStatus {
   DRAFT = 'draft',
-  PENDING = 'pending', // Waiting for action (e.g., vendor payout pending)
+  PENDING = 'pending',
   SENT = 'sent',
   PAID = 'paid',
   CANCELLED = 'cancelled',
@@ -74,16 +74,6 @@ export class Invoice {
 
   @Column({ type: 'decimal', precision: 10, scale: 2 })
   total: number;
-
-  // For vendor invoices - commission details
-  @Column({ name: 'commission_amount', type: 'decimal', precision: 10, scale: 2, nullable: true })
-  commissionAmount: number;
-
-  @Column({ name: 'commission_rate', type: 'decimal', precision: 5, scale: 2, nullable: true })
-  commissionRate: number;
-
-  @Column({ name: 'payout_amount', type: 'decimal', precision: 10, scale: 2, nullable: true })
-  payoutAmount: number;
 
   // Payment tracking
   @Column({ name: 'paid_amount', type: 'decimal', precision: 10, scale: 2, nullable: true })
@@ -174,13 +164,6 @@ export class Invoice {
 
   @Column({ name: 'order_id' })
   orderId: string;
-
-  @ManyToOne(() => Vendor, { nullable: true })
-  @JoinColumn({ name: 'vendor_id' })
-  vendor: Vendor;
-
-  @Column({ name: 'vendor_id', nullable: true })
-  vendorId: string;
 
   @ManyToOne(() => User, { nullable: true })
   @JoinColumn({ name: 'user_id' })

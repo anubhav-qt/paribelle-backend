@@ -30,39 +30,21 @@ export class CategoriesController {
 
   @Get('root')
   @ApiOperation({ summary: 'Get root categories with children' })
-  @ApiQuery({ name: 'vendorId', required: false })
-  async findRoot(@Query('vendorId') vendorId?: string) {
-    return this.categoriesService.findRootCategories(vendorId);
+  async findRoot() {
+    return this.categoriesService.findRootCategories();
   }
 
   @Get('tree')
   @ApiOperation({ summary: 'Get category tree with hierarchy' })
-  @ApiQuery({ name: 'vendorId', required: false })
   @ApiQuery({ name: 'withProductCounts', required: false })
-  async findTree(
-    @Query('vendorId') vendorId?: string,
-    @Query('withProductCounts') withProductCounts?: string,
-  ) {
-    const includeProductCounts = withProductCounts === 'true';
-    return this.categoriesService.findRootCategories(vendorId, includeProductCounts);
+  async findTree(@Query('withProductCounts') withProductCounts?: string) {
+    return this.categoriesService.findRootCategories(withProductCounts === 'true');
   }
 
   @Get('tree/all')
-  @ApiOperation({ summary: 'Get all categories tree (including inactive) - Admin only' })
-  @ApiQuery({ name: 'vendorId', required: false })
-  async findAllTree(@Query('vendorId') vendorId?: string) {
-    return this.categoriesService.findAllRootCategories(vendorId);
-  }
-
-  @Get('vendor/:vendorId')
-  @ApiOperation({ summary: 'Get vendor-specific categories' })
-  @ApiQuery({ name: 'withProductCounts', required: false })
-  async findVendorCategories(
-    @Param('vendorId') vendorId: string,
-    @Query('withProductCounts') withProductCounts?: string,
-  ) {
-    const includeProductCounts = withProductCounts === 'true';
-    return this.categoriesService.findVendorCategories(vendorId, includeProductCounts);
+  @ApiOperation({ summary: 'Get all categories tree (including inactive)' })
+  async findAllTree() {
+    return this.categoriesService.findAllRootCategories();
   }
 
   @Get(':id')

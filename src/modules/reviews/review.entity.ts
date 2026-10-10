@@ -31,13 +31,6 @@ export class Review {
   @Column('simple-array', { nullable: true })
   images: string[];
 
-  // Vendor response
-  @Column({ type: 'text', nullable: true, name: 'vendor_response' })
-  vendorResponse: string;
-
-  @Column({ type: 'timestamp', nullable: true, name: 'vendor_response_date' })
-  vendorResponseDate: Date;
-
   // Relations
   @ManyToOne(() => User, (user) => user.reviews)
   @JoinColumn({ name: 'user_id' })

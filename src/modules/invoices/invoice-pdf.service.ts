@@ -2,8 +2,8 @@ import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Invoice } from './invoice.entity';
-import { ConfigService } from '@nestjs/config';
 import { SettingsService } from '../admin/settings.service';
+import { StoreService } from '../store/store.service';
 
 const PDFDocument = require('pdfkit');
 
@@ -14,8 +14,8 @@ export class InvoicePdfService {
   constructor(
     @InjectRepository(Invoice)
     private invoiceRepository: Repository<Invoice>,
-    private configService: ConfigService,
     private settingsService: SettingsService,
+    private storeService: StoreService,
   ) {}
 
   /**
@@ -25,7 +25,7 @@ export class InvoicePdfService {
     // Load invoice with order and order items, AND invoice items
     const invoice = await this.invoiceRepository.findOne({
       where: { id: invoiceId },
-      relations: ['order', 'order.items', 'order.items.product', 'vendor', 'customer', 'items'],
+      relations: ['order', 'order.items', 'order.items.product', 'customer', 'items'],
     });
 
     if (!invoice) {
@@ -67,7 +67,7 @@ export class InvoicePdfService {
 
         // Add content in Amazon/Flipkart style
         await this.addModernHeader(doc, invoice);
-        await this.addAddressSection(doc, invoice);
+        await this.addAddressSection(doc, invoice, await this.sellerFor(invoice));
         this.addModernItemsTable(doc, items, invoice);
         this.addModernTotals(doc, invoice);
         this.addModernFooter(doc, invoice);
@@ -85,10 +85,7 @@ export class InvoicePdfService {
   private async addModernHeader(doc: any, invoice: Invoice): Promise<void> {
     const appName = await this.settingsService.getSetting('marketplace_name') || 'PariBelle';
     
-    // Top border - different color for vendor invoices
-    const headerColor = invoice.type === 'vendor' ? '#e0f2fe' : '#f8f9fa';
-    const borderColor = invoice.type === 'vendor' ? '#0284c7' : '#dee2e6';
-    doc.rect(40, 40, 515, 80).fillAndStroke(headerColor, borderColor);
+    doc.rect(40, 40, 515, 80).fillAndStroke('#f8f9fa', '#dee2e6');
     
     // Company name - left side
     doc
@@ -97,10 +94,7 @@ export class InvoicePdfService {
       .font('Helvetica-Bold')
       .text(appName, 55, 55);
 
-    // Invoice title - right side (different for vendor invoices)
-    const invoiceTitle = invoice.type === 'vendor' ? 'Vendor Payout Statement' 
-                       : invoice.type === 'platform' ? 'Commission Invoice'
-                       : 'Tax Invoice';
+    const invoiceTitle = this.isCreditNote(invoice) ? 'Credit Note' : 'Tax Invoice';
     
     doc
       .fontSize(20)
@@ -129,153 +123,61 @@ export class InvoicePdfService {
   }
 
   /**
-   * Add address section (sold by, billing and shipping in three columns)
+   * Who sold it: each detail as the order froze it when placed, or the
+   * store's current one where the order has none (orders placed before the
+   * business details were filled in).
    */
-  private async addAddressSection(doc: any, invoice: Invoice): Promise<void> {
+  private async sellerFor(invoice: Invoice): Promise<{ name: string; address: string; cityState: string; gstin: string }> {
+    const order: any = invoice.order ?? {};
+    const store = await this.storeService.get().catch(() => null);
+    const name = order.vendorBusinessName || order.vendorStoreName || store?.businessName || store?.storeName || 'PariBelle';
+    const city = order.vendorCity || store?.city || '';
+    const state = order.vendorState || store?.state || '';
+    const postalCode = order.vendorPostalCode || store?.postalCode || '';
+    return {
+      name,
+      address: order.vendorAddress || store?.address || '',
+      cityState: [[city, state].filter(Boolean).join(', '), postalCode].filter(Boolean).join(' '),
+      gstin: order.vendorGstNumber || store?.gstNumber || '',
+    };
+  }
+
+  /**
+   * Three columns: Sold By, Billing, Shipping.
+   */
+  private async addAddressSection(
+    doc: any,
+    invoice: Invoice,
+    seller: { name: string; address: string; cityState: string; gstin: string },
+  ): Promise<void> {
     const startY = doc.y;
-
-    // For vendor invoices: two columns (Platform | Vendor)
-    // For customer invoices: three sections (Sold By | Billing | Shipping)
-    if (invoice.type === 'vendor') {
-      await this.addVendorAddressSection(doc, invoice, startY);
-    } else {
-      this.addCustomerAddressSection(doc, invoice, startY);
-    }
-  }
-
-  /**
-   * Add vendor invoice address section (two columns)
-   */
-  private async addVendorAddressSection(doc: any, invoice: Invoice, startY: number): Promise<void> {
-    const leftX = 40;
-    const rightX = 305;
-
-    const leftLabel = 'Platform Details:';
-    const rightLabel = 'Vendor/Payee Details:';
-
-    // Left section - Platform Details
-    doc
-      .fontSize(9)
-      .font('Helvetica-Bold')
-      .fillColor('#000000')
-      .text(leftLabel, leftX, startY);
-
-    const appName = await this.settingsService.getSetting('marketplace_name') || 'PariBelle';
-    const appAddress = this.configService.get('APP_ADDRESS') || '';
-    const appPhone = this.configService.get('APP_PHONE') || '';
-    const appEmail = this.configService.get('APP_EMAIL') || '';
-    const appGst = this.configService.get('APP_GST') || '';
-
-    doc
-      .fontSize(8)
-      .font('Helvetica')
-      .fillColor('#333333')
-      .text(appName, leftX, startY + 15, { width: 240 });
-
-    if (appAddress) {
-      doc.text(appAddress, leftX, startY + 28, { width: 240 });
-    }
-    if (appPhone) {
-      doc.text(`Phone: ${appPhone}`, leftX, startY + 50);
-    }
-    if (appEmail) {
-      doc.text(`Email: ${appEmail}`, leftX, startY + 63);
-    }
-    if (appGst) {
-      doc
-        .font('Helvetica-Bold')
-        .text(`GSTIN: ${appGst}`, leftX, startY + 76);
-    }
-
-    // Right section - Vendor Details
-    doc
-      .fontSize(9)
-      .font('Helvetica-Bold')
-      .fillColor('#000000')
-      .text(rightLabel, rightX, startY);
-
-    doc
-      .fontSize(8)
-      .font('Helvetica')
-      .fillColor('#333333')
-      .text(invoice.billingName || 'N/A', rightX, startY + 15, { width: 240 });
-
-    if (invoice.billingAddress) {
-      doc.text(invoice.billingAddress, rightX, startY + 28, { width: 240 });
-      const cityState = `${invoice.billingCity || ''}, ${invoice.billingState || ''} ${invoice.billingPostalCode || ''}`.trim();
-      if (cityState.length > 2) {
-        doc.text(cityState, rightX, startY + 50, { width: 240 });
-      }
-    }
-
-    if (invoice.billingPhone) {
-      doc.text(`Phone: ${invoice.billingPhone}`, rightX, startY + 63);
-    }
-
-    if (invoice.billingEmail) {
-      doc.text(`Email: ${invoice.billingEmail}`, rightX, startY + 76);
-    }
-
-    if (invoice.gstNumber) {
-      doc
-        .font('Helvetica-Bold')
-        .text(`GSTIN: ${invoice.gstNumber}`, rightX, startY + 89);
-    }
-
-    if (invoice.panNumber) {
-      doc.text(`PAN: ${invoice.panNumber}`, rightX, startY + 102);
-    }
-
-    doc.fillColor('#000000');
-    doc.y = startY + 120;
-
-    // Horizontal line separator
-    doc
-      .moveTo(40, doc.y)
-      .lineTo(555, doc.y)
-      .stroke('#dee2e6');
-
-    doc.y += 15;
-  }
-
-  /**
-   * Add customer invoice address section (three sections: Sold By, Billing, Shipping)
-   */
-  private addCustomerAddressSection(doc: any, invoice: Invoice, startY: number): void {
     const col1X = 40;
     const col2X = 210;
     const col3X = 380;
     const colWidth = 160;
 
-    // Column 1 - Sold By (Vendor)
     doc
       .fontSize(9)
       .font('Helvetica-Bold')
       .fillColor('#000000')
       .text('Sold By:', col1X, startY);
 
-    const vendorName = invoice.order?.vendor?.businessName || invoice.order?.vendor?.storeName || 'Vendor';
-    const vendorAddress = invoice.order?.vendor?.address || '';
-    const vendorCity = invoice.order?.vendor?.city || '';
-    const vendorState = invoice.order?.vendor?.state || '';
-    const vendorGst = invoice.order?.vendor?.gstNumber || '';
-
     doc
       .fontSize(8)
       .font('Helvetica')
       .fillColor('#333333')
-      .text(vendorName, col1X, startY + 15, { width: colWidth, ellipsis: true });
+      .text(seller.name, col1X, startY + 15, { width: colWidth, ellipsis: true });
 
-    if (vendorAddress) {
-      doc.text(vendorAddress, col1X, startY + 28, { width: colWidth });
+    if (seller.address) {
+      doc.text(seller.address, col1X, startY + 28, { width: colWidth });
     }
-    if (vendorCity && vendorState) {
-      doc.text(`${vendorCity}, ${vendorState}`, col1X, startY + 50, { width: colWidth });
+    if (seller.cityState) {
+      doc.text(seller.cityState, col1X, startY + 50, { width: colWidth });
     }
-    if (vendorGst) {
+    if (seller.gstin) {
       doc
         .font('Helvetica-Bold')
-        .text(`GSTIN: ${vendorGst}`, col1X, startY + 63, { width: colWidth });
+        .text(`GSTIN: ${seller.gstin}`, col1X, startY + 63, { width: colWidth });
     }
 
     // Column 2 - Billing Address
@@ -465,10 +367,7 @@ export class InvoicePdfService {
       .font('Helvetica-Bold')
       .text('Amount in Words:', 50, startY + 10);
     
-    // For vendor invoices, show payout amount in words, otherwise show total
-    const amountInWords = invoice.type === 'vendor' && invoice.payoutAmount 
-      ? this.convertToWords(invoice.payoutAmount)
-      : this.convertToWords(invoice.total);
+    const amountInWords = this.convertToWords(invoice.total);
     
     doc
       .fontSize(8)
@@ -569,44 +468,6 @@ export class InvoicePdfService {
 
     lineY += 35;
 
-    // For vendor invoices, show commission deduction and final payout
-    if (invoice.type === 'vendor' && invoice.commissionAmount && invoice.commissionAmount !== 0) {
-      const absCommission = Math.abs(invoice.commissionAmount);
-      const isCommissionRefund = isCreditNote && invoice.commissionAmount < 0;
-      const commissionLabel = isCommissionRefund 
-        ? `Commission Refund (${invoice.commissionRate}%):` 
-        : `Platform Commission (${invoice.commissionRate}%):`;
-      const commissionColor = isCommissionRefund ? '#22c55e' : '#ef4444';
-      const commissionSign = isCommissionRefund ? '+' : '-';
-      
-      doc
-        .fontSize(9)
-        .font('Helvetica')
-        .fillColor('#666666')
-        .text(commissionLabel, labelX, lineY)
-        .fillColor(commissionColor)
-        .text(`${commissionSign}${this.formatCurrency(absCommission)}`, valueX, lineY, { align: 'right' });
-      lineY += 20;
-
-      // Line above Vendor Payout
-      doc
-        .moveTo(370, lineY)
-        .lineTo(555, lineY)
-        .stroke('#10b981');
-
-      const payoutLabel = isCreditNote ? 'Payout Reversal:' : 'Vendor Payout:';
-      const payoutColor = isCreditNote ? '#dc2626' : '#065f46';
-      
-      doc
-        .fontSize(12)
-        .font('Helvetica-Bold')
-        .fillColor(payoutColor)
-        .text(payoutLabel, labelX, lineY + 8)
-        .text(this.formatCurrency(Math.abs(invoice.payoutAmount)), valueX, lineY + 8, { align: 'right' });
-
-      lineY += 35;
-    }
-
     doc.fillColor('#000000');
     doc.y = lineY + 10;
   }
@@ -617,12 +478,9 @@ export class InvoicePdfService {
   private addModernFooter(doc: any, invoice: Invoice): void {
     const footerY = doc.y + 20;
 
-    // Payment/Payout status banner
     if (invoice.status === 'paid') {
-      const statusText = invoice.type === 'vendor' ? 'PAYOUT PROCESSED' : 'PAID';
-      const dateText = invoice.paidAt 
-        ? `${invoice.type === 'vendor' ? 'Payout processed' : 'Payment received'} on ${this.formatShortDate(invoice.paidAt)}`
-        : '';
+      const statusText = 'PAID';
+      const dateText = invoice.paidAt ? `Payment received on ${this.formatShortDate(invoice.paidAt)}` : '';
 
       doc.rect(40, footerY, 515, 30).fillAndStroke('#d1fae5', '#10b981');
       
@@ -643,24 +501,6 @@ export class InvoicePdfService {
           .font('Helvetica')
           .text(dateText, 200, footerY + 11);
       }
-    } else if (invoice.status === 'pending' && invoice.type === 'vendor') {
-      doc.rect(40, footerY, 515, 30).fillAndStroke('#fef3c7', '#f59e0b');
-      
-      // Draw orange clock icon
-      doc
-        .circle(60, footerY + 15, 8)
-        .fillAndStroke('#f59e0b', '#92400e');
-      
-      doc
-        .fontSize(10)
-        .font('Helvetica-Bold')
-        .fillColor('#92400e')
-        .text('PAYOUT PENDING', 75, footerY + 10);
-      
-      doc
-        .fontSize(8)
-        .font('Helvetica')
-        .text(`Expected payout date: ${this.formatShortDate(invoice.dueDate)}`, 200, footerY + 11);
     }
 
     // Terms and conditions
@@ -678,19 +518,12 @@ export class InvoicePdfService {
       .fillColor('#666666')
       .text(terms, 40, termsY + 12, { width: 515, lineGap: 2 });
 
-    // Footer bar
-    const footerBarColor = invoice.type === 'vendor' ? '#0284c7' : '#1a1a1a';
-    doc.rect(40, 770, 515, 30).fillAndStroke(footerBarColor, footerBarColor);
-    
-    const footerText = invoice.type === 'vendor' 
-      ? 'This is a vendor payout statement. For queries, contact support.'
-      : 'Thank you for your business!';
-    
+    doc.rect(40, 770, 515, 30).fillAndStroke('#1a1a1a', '#1a1a1a');
     doc
       .fontSize(7)
       .font('Helvetica')
       .fillColor('#ffffff')
-      .text(footerText, 40, 782, { width: 515, align: 'center' });
+      .text('Thank you for your business!', 40, 782, { width: 515, align: 'center' });
 
     doc.fillColor('#000000');
   }
@@ -756,16 +589,6 @@ export class InvoicePdfService {
       day: '2-digit',
       month: 'short',
       year: 'numeric',
-    });
-  }
-  /**
-   * Format date
-   */
-  private formatDate(date: Date): string {
-    return new Date(date).toLocaleDateString('en-IN', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
     });
   }
 

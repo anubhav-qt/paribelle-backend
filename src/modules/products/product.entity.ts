@@ -11,7 +11,6 @@ import {
   JoinTable,
   Index,
 } from 'typeorm';
-import { Vendor } from '../vendors/vendor.entity';
 import { Category } from '../categories/category.entity';
 import { OrderItem } from '../orders/order-item.entity';
 import { Review } from '../reviews/review.entity';
@@ -212,10 +211,7 @@ export class Product {
   reviewCount: number;
 
   // Relations
-  @ManyToOne(() => Vendor, (vendor) => vendor.products)
-  @JoinColumn({ name: 'vendor_id' })
-  vendor: Vendor;
-
+  /** Always the store (STORE_ID); a marketplace leftover the column still requires. */
   @Column({ name: 'vendor_id' })
   vendorId: string;
 

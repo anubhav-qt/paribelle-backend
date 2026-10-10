@@ -1,12 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, IsNull } from 'typeorm';
+import { Repository } from 'typeorm';
 import * as ExcelJS from 'exceljs';
 import { Product } from './product.entity';
 import { ProductVariant } from './product-variant.entity';
 import { Category } from '../categories/category.entity';
-import { Vendor } from '../vendors/vendor.entity';
-import { User, UserRole } from '../users/user.entity';
+import { STORE_ID } from '../store/store.constants';
 import { CloudinaryService } from '../../common/services/cloudinary.service';
 import { CategoriesService } from '../categories/categories.service';
 import * as fs from 'fs';
@@ -39,10 +38,6 @@ export class ProductsExcelService {
     private productVariantsRepository: Repository<ProductVariant>,
     @InjectRepository(Category)
     private categoriesRepository: Repository<Category>,
-    @InjectRepository(Vendor)
-    private vendorsRepository: Repository<Vendor>,
-    @InjectRepository(User)
-    private usersRepository: Repository<User>,
     private cloudinaryService: CloudinaryService,
     private categoriesService: CategoriesService,
   ) {}
@@ -111,7 +106,7 @@ export class ProductsExcelService {
   private async resolveImageList(
     names: string[],
     imageMap: Map<string, MulterFile>,
-    vendorId: string,
+    folderId: string,
     dryRun: boolean,
     label: string,
     errors: string[],
@@ -132,7 +127,7 @@ export class ProductsExcelService {
         continue;
       }
       try {
-        out.push(await this.saveUploadedImage(resolved.file, vendorId));
+        out.push(await this.saveUploadedImage(resolved.file, folderId));
       } catch (e) {
         errors.push(`${label}: Failed to upload image "${filename}": ${e.message}`);
       }
@@ -196,79 +191,6 @@ export class ProductsExcelService {
     );
   }
 
-  private async getOrCreatePlatformVendorForImport(): Promise<Vendor> {
-    let platformVendor = await this.vendorsRepository.findOne({ where: { slug: 'marketplace-platform' } });
-
-    if (platformVendor?.userId) {
-      return platformVendor;
-    }
-
-    let platformUser = await this.usersRepository.findOne({
-      where: {
-        role: UserRole.SUPER_ADMIN,
-        vendorId: IsNull(),
-      },
-    });
-
-    if (!platformUser) {
-      platformUser = await this.usersRepository.findOne({
-        where: {
-          vendorId: IsNull(),
-        },
-      });
-    }
-
-    if (!platformUser) {
-      throw new Error('No available user found for platform vendor. Please create a super admin user and retry import.');
-    }
-
-    if (!platformVendor) {
-      platformVendor = this.vendorsRepository.create({
-        userId: platformUser.id,
-        user: platformUser,
-        storeName: 'Platform Store',
-        slug: 'marketplace-platform',
-        businessName: 'Platform Business',
-        contactEmail: 'platform@marketplace.com',
-        contactPhone: '0000000000',
-        status: 'active' as any,
-        kycStatus: 'approved' as any,
-      });
-      try {
-        platformVendor = await this.vendorsRepository.save(platformVendor);
-        console.log('[Import] Created platform vendor for admin imports');
-        return platformVendor;
-      } catch (error) {
-        // Handle concurrent imports attempting to create the same platform vendor.
-        const isDuplicateKey =
-          error?.code === '23505' ||
-          error?.message?.toLowerCase?.().includes('duplicate key');
-
-        if (!isDuplicateKey) {
-          throw error;
-        }
-
-        const existingBySlug = await this.vendorsRepository.findOne({ where: { slug: 'marketplace-platform' } });
-        if (existingBySlug?.userId) {
-          return existingBySlug;
-        }
-
-        const existingByUser = await this.vendorsRepository.findOne({ where: { userId: platformUser.id } });
-        if (existingByUser) {
-          return existingByUser;
-        }
-
-        throw error;
-      }
-    }
-
-    platformVendor.userId = platformUser.id;
-    platformVendor.user = platformUser;
-    platformVendor = await this.vendorsRepository.save(platformVendor);
-    console.log('[Import] Updated existing platform vendor with a valid user_id for admin imports');
-    return platformVendor;
-  }
-
   /**
    * Apply standard header styling to a sheet
    */
@@ -294,11 +216,11 @@ export class ProductsExcelService {
   }
 
 
-  private async saveUploadedImage(file: MulterFile, vendorId: string): Promise<string> {
+  private async saveUploadedImage(file: MulterFile, folderId: string): Promise<string> {
     try {
       // Try Cloudinary first if configured
       if (this.cloudinaryService.isEnabled()) {
-        const folder = `marketplace/products/${vendorId}`;
+        const folder = `marketplace/products/${folderId}`;
         const result = await this.cloudinaryService.uploadImage(file.buffer, folder, {
           maxWidth: 1920,
           quality: 85,
@@ -310,7 +232,7 @@ export class ProductsExcelService {
 
       // Fallback to local filesystem (development only)
       console.warn('⚠️ Cloudinary not configured, saving to local filesystem');
-      const uploadsDir = path.join(process.cwd(), 'public', 'uploads', 'products', vendorId);
+      const uploadsDir = path.join(process.cwd(), 'public', 'uploads', 'products', folderId);
       if (!fs.existsSync(uploadsDir)) {
         fs.mkdirSync(uploadsDir, { recursive: true });
       }
@@ -321,7 +243,7 @@ export class ProductsExcelService {
 
       fs.writeFileSync(filePath, file.buffer);
 
-      return `/uploads/products/${vendorId}/${filename}`;
+      return `/uploads/products/${folderId}/${filename}`;
     } catch (error) {
       console.error(`❌ Error saving image ${file.originalname}:`, error);
       throw new Error(`Failed to save image: ${error.message}`);
@@ -474,13 +396,10 @@ export class ProductsExcelService {
 
   /** Export physical products as a simple ZIP.
    *  Pass productIds to export only selected products; omit for all. */
-  async exportSimplePhysicalZip(vendorId: string | null, productIds?: string[]): Promise<Buffer> {
-    const whereCondition: any = { productType: 'physical' };
-    if (vendorId) whereCondition.vendorId = vendorId;
-
+  async exportSimplePhysicalZip(productIds?: string[]): Promise<Buffer> {
     let products = await this.productsRepository.find({
-      where: whereCondition,
-      relations: ['categories', 'vendor', 'productVariants'],
+      where: { productType: 'physical' as any },
+      relations: ['categories', 'productVariants'],
     });
 
     if (productIds && productIds.length > 0) {
@@ -619,7 +538,6 @@ export class ProductsExcelService {
    *  Pass `dryRun` to validate the whole workbook and report every row error
    *  without writing anything — the counts come back as what *would* happen. */
   async importSimplePhysicalZip(
-    vendorId: string | null,
     zipBuffer: Buffer,
     options: { dryRun?: boolean } = {},
   ): Promise<{ created: number; updated: number; errors: string[]; dryRun: boolean }> {
@@ -660,7 +578,6 @@ export class ProductsExcelService {
       );
     }
 
-    const resolvedVendorId = vendorId ?? (await this.getOrCreatePlatformVendorForImport()).id;
 
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(excelBuffer as any);
@@ -768,7 +685,7 @@ export class ProductsExcelService {
         }
 
         const productImages = await this.resolveImageList(
-          listedNames, imageMap, resolvedVendorId, dryRun, `Row ${rn}`, errors,
+          listedNames, imageMap, STORE_ID, dryRun, `Row ${rn}`, errors,
         );
 
         // "Colour: Red, Size: M" → { Colour: 'Red', Size: 'M' }
@@ -782,10 +699,10 @@ export class ProductsExcelService {
           price,
           compareAtPrice: compareAtPrice || null,
           stockQuantity,
-          sku: productCode || `${resolvedVendorId.substring(0, 8)}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          sku: productCode || `${STORE_ID.substring(0, 8)}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           status: 'active',
           productType: 'physical',
-          vendorId: resolvedVendorId,
+          vendorId: STORE_ID,
           gstRate,
           images: productImages.length > 0 ? productImages : null,
           featuredImage: productImages.length > 0 ? productImages[0] : null,
@@ -815,14 +732,12 @@ export class ProductsExcelService {
         const existing: Product | null = productCode
           ? await this.findProductBySku(productCode)
           : (await this.productsRepository.findOne({
-              where: { name, vendorId: resolvedVendorId },
+              where: { name },
               relations: ['categories'],
             })) ?? null;
 
         if (dryRun) {
-          if (existing && vendorId && existing.vendorId !== resolvedVendorId) {
-            errors.push(`Row ${rn}: Product "${name}" belongs to a different vendor`);
-          } else if (existing) {
+          if (existing) {
             updated++;
           } else {
             created++;
@@ -833,35 +748,31 @@ export class ProductsExcelService {
         }
 
         if (existing) {
-          if (!vendorId || existing.vendorId === resolvedVendorId) {
-            // Apply all updates directly to the loaded entity, then single .save()
-            existing.name = name;
-            existing.description = description;
-            existing.price = price;
-            existing.compareAtPrice = compareAtPrice || (0 as any);
-            existing.stockQuantity = stockQuantity;
-            existing.gstRate = gstRate;
-            if (productImages.length > 0) {
-              existing.images = productImages;
-              existing.featuredImage = productImages[0];
-            }
-            // Amazon is the source of truth for name/price/images, not for how
-            // this storefront organizes its catalogue: an update ADDS the
-            // file's category if the product doesn't already carry it, rather
-            // than replacing the set — a bare `= [category]` here used to wipe
-            // every other category (e.g. "Festive", "Co-ord Sets") a product
-            // had picked up outside this importer.
-            if (category && !(existing.categories ?? []).some((c) => c.id === category.id)) {
-              existing.categories = [...(existing.categories ?? []), category];
-            }
-            await this.productsRepository.save(existing);
-            pendingAttributes.set(existing.id, parsedAttributes);
-            updated++;
-            productCodeToId.set(rowKey, existing.id);
-            console.log(`[SimpleImport] Updated "${name}" (id: ${existing.id}), attributes: ${JSON.stringify(parsedAttributes)}`);
-          } else {
-            errors.push(`Row ${rn}: Product "${name}" belongs to a different vendor`);
+          // Apply all updates directly to the loaded entity, then single .save()
+          existing.name = name;
+          existing.description = description;
+          existing.price = price;
+          existing.compareAtPrice = compareAtPrice || (0 as any);
+          existing.stockQuantity = stockQuantity;
+          existing.gstRate = gstRate;
+          if (productImages.length > 0) {
+            existing.images = productImages;
+            existing.featuredImage = productImages[0];
           }
+          // Amazon is the source of truth for name/price/images, not for how
+          // this storefront organizes its catalogue: an update ADDS the
+          // file's category if the product doesn't already carry it, rather
+          // than replacing the set — a bare `= [category]` here used to wipe
+          // every other category (e.g. "Festive", "Co-ord Sets") a product
+          // had picked up outside this importer.
+          if (category && !(existing.categories ?? []).some((c) => c.id === category.id)) {
+            existing.categories = [...(existing.categories ?? []), category];
+          }
+          await this.productsRepository.save(existing);
+          pendingAttributes.set(existing.id, parsedAttributes);
+          updated++;
+          productCodeToId.set(rowKey, existing.id);
+          console.log(`[SimpleImport] Updated "${name}" (id: ${existing.id}), attributes: ${JSON.stringify(parsedAttributes)}`);
         } else {
           // New product — generate unique slug
           let baseSlug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
@@ -959,7 +870,7 @@ export class ProductsExcelService {
           if (variantImagesCell) {
             const variantImages = await this.resolveImageList(
               variantImagesCell.split(',').map(f => f.trim()).filter(Boolean),
-              imageMap, resolvedVendorId, dryRun, `Variants Row ${rn}`, errors,
+              imageMap, STORE_ID, dryRun, `Variants Row ${rn}`, errors,
             );
             if (variantImages.length > 0) variantData.images = variantImages;
           }

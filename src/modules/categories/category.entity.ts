@@ -5,20 +5,16 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   ManyToMany,
-  ManyToOne,
-  JoinColumn,
   Tree,
   TreeParent,
   TreeChildren,
   Index,
 } from 'typeorm';
 import { Product } from '../products/product.entity';
-import { Vendor } from '../vendors/vendor.entity';
 
 @Entity('categories')
 @Tree('closure-table')
 @Index(['slug']) // Already unique but explicit index for lookups
-@Index(['vendorId', 'isActive']) // Optimize vendor category queries
 @Index(['isActive', 'sortOrder']) // Optimize category listings
 export class Category {
   @PrimaryGeneratedColumn('uuid')
@@ -42,13 +38,6 @@ export class Category {
   @Column({ type: 'int', default: 0, name: 'sort_order' })
   sortOrder: number;
 
-  // Vendor-specific category (null means global category)
-  @ManyToOne(() => Vendor, { nullable: true })
-  @JoinColumn({ name: 'vendor_id' })
-  vendor: Vendor | null;
-
-  @Column({ type: 'uuid', nullable: true, name: 'vendor_id' })
-  vendorId: string | null;
 
   // The product an admin has pinned as this category's "Editor's Pick" in the
   // mega menu. Null = fall back to the category's first product.

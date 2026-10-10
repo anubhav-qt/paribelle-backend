@@ -10,7 +10,6 @@ import {
 import { Order } from './order.entity';
 import { OrderItem } from './order-item.entity';
 import { User } from '../users/user.entity';
-import { Vendor } from '../vendors/vendor.entity';
 import { ProductVariant } from '../products/product-variant.entity';
 
 /**
@@ -88,10 +87,7 @@ export class Return {
   @Column({ name: 'user_id' })
   userId: string;
 
-  @ManyToOne(() => Vendor)
-  @JoinColumn({ name: 'vendor_id' })
-  vendor: Vendor;
-
+  /** Always the store (STORE_ID). */
   @Column({ name: 'vendor_id' })
   vendorId: string;
 
