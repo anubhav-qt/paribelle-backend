@@ -29,14 +29,7 @@ export class AuthService {
   async validateUser(email: string, password: string): Promise<any> {
     const user = await this.usersService.findByEmailWithPassword(email);
     if (user && (await bcrypt.compare(password, user.password))) {
-      // `emailVerifiedAt` is the whole check — `googleLogin` already sets it
-      // unconditionally for Google sign-ins, so nothing else is needed here.
-      // This used to also exempt any address containing the substring
-      // "google" anywhere, which matched ordinary addresses like
-      // "notgoogle@example.com" and let them skip verification entirely.
-      if (!user.emailVerifiedAt) {
-        throw new UnauthorizedException('Please verify your email before logging in. Check your inbox.');
-      }
+      // No email-verification gate: a correct password is enough to sign in.
       const { password, ...result } = user;
       return result;
     }
@@ -84,47 +77,29 @@ export class AuthService {
     }
 
     const hashedPassword = await bcrypt.hash(userData.password, 10);
-    
-    // Generate verification token
-    const verificationToken = crypto.randomBytes(32).toString('hex');
-    const verificationTokenExpiry = new Date();
-    verificationTokenExpiry.setHours(verificationTokenExpiry.getHours() + 24); // 24 hours
-    
+
     // Generate referral code for new user
     const referralCode = await this.referralsService.generateReferralCode();
-    
+
+    // Named fields only: the body is an inline type the ValidationPipe can't
+    // whitelist, so spreading it would let a signup set `role` or any other
+    // column on its own account.
     const user = await this.usersService.create({
-      ...userData,
+      email: userData.email,
+      firstName: userData.firstName,
+      lastName: userData.lastName,
+      phone: userData.phone,
       password: hashedPassword,
-      emailVerificationToken: verificationToken,
-      emailVerificationTokenExpiry: verificationTokenExpiry,
       referralCode,
     });
-    
-    // Send verification email. The account is created either way — a mail
-    // outage is not a reason to refuse someone a login — but the caller
-    // needs to know it happened, rather than being told to check an inbox
-    // that will never receive anything. This used to be swallowed down to a
-    // `console.error`, which is exactly why an unconfigured or misconfigured
-    // SMTP transport went unnoticed: signup looked identical whether or not
-    // the email actually sent.
-    let emailSent = true;
-    try {
-      await this.emailService.sendVerificationEmail(user.email, verificationToken);
-    } catch (error) {
-      emailSent = false;
-      console.error('Failed to send verification email:', error);
-    }
 
+    // No verification email: signing in doesn't need one, so the new
+    // account is signed in straight away, the same as `login`.
     const { password, emailVerificationToken, emailVerificationTokenExpiry, ...result } = user;
 
     return {
-      message: emailSent
-        ? 'Registration successful! Please check your email to verify your account.'
-        : 'Registration successful, but we could not send the verification email. ' +
-          'Please use "Resend verification email" on the login page, or try again shortly.',
-      emailSent,
-      user: result,
+      message: 'Registration successful!',
+      ...(await this.login(result)),
     };
   }
 
@@ -172,8 +147,7 @@ export class AuthService {
       console.log('[GoogleLogin] Existing user found');
       // Record the Google id and verify the email even for an account that
       // originally registered with a password — signing in with Google here
-      // is proof of the same address, and `JwtStrategy` needs `googleId` set
-      // to exempt this user from the verification gate on future logins.
+      // is proof of the same address.
       let changed = false;
       if (!user.googleId) {
         user.googleId = googleData.googleId;

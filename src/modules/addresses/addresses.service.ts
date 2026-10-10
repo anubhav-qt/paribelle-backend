@@ -38,8 +38,11 @@ export class AddressesService {
       );
     }
 
+    // A caller-supplied `id` would make `save` update that row instead —
+    // someone else's address, reassigned to this user.
+    const { id: _id, ...fields } = addressData;
     const address = this.addressesRepository.create({
-      ...addressData,
+      ...fields,
       userId,
     });
     
