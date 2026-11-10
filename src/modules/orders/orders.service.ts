@@ -58,7 +58,7 @@ export class OrdersService {
    * order, never on prepaid orders, and not treated as taxable (store prices
    * are already GST-inclusive; this fee is not).
    */
-  private readonly COD_CHARGE = 150;
+  private readonly COD_CHARGE = 49;
 
   /**
    * The photo to freeze on an order line: the colour the customer actually
