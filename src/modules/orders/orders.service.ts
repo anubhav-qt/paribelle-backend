@@ -54,11 +54,12 @@ export class OrdersService {
   ) {}
 
   /**
-   * Flat fee added to an order that is paid Cash on Delivery. Charged once per
+   * Flat fee added to an order that is paid Cash on Delivery (0 for now: COD is
+   * free, but the fee stays wired in so it can be raised again). Charged once per
    * order, never on prepaid orders, and not treated as taxable (store prices
    * are already GST-inclusive; this fee is not).
    */
-  private readonly COD_CHARGE = 49;
+  private readonly COD_CHARGE = 0;
 
   /**
    * The photo to freeze on an order line: the colour the customer actually
